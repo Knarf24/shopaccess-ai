@@ -1,36 +1,30 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ShopAccess AI
 
-## Getting Started
+Mock-only security foundation for an inclusive laptop-shopping assistant. The
+catalog, seller, prices and payment states are simulated. No payment provider,
+product API, AI API or database is contacted.
 
-First, run the development server:
+## Run the demo locally
 
 ```bash
+SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
+SHOPACCESS_TRUSTED_ORIGINS=http://localhost:3000 \
+PAYMENT_PROVIDER_MODE=mock \
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 in Chrome or Firefox. All three settings are
+required; without them the shopping flow is switched off. State is held in
+memory and is lost when the server stops.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Checks
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See `docs/security-foundation.md` for what is and is not active, and
+`docs/implementation-report.md` for test evidence.
