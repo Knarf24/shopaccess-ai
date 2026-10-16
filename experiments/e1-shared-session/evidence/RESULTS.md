@@ -30,3 +30,7 @@ The owned manual prototype server was interrupted and exited 130. A process look
 ## Remaining acceptance
 
 Actual Chrome pairing and cross-surface use, language UI behavior, pending/focus, revocation from the panel, restart/re-pair and screen-reader checks remain open. Real ShopAccess session integration, expanded AI, profiles, voice and shopping are separate later work. Eight-line history and English fixture-token extraction are intentionally visible limitations.
+
+## Browser verification addendum — October 16, 2026
+
+The sections above describe `e0be4b2` and are unchanged. Local Chrome 155 verification found that the panel's conversation GET carries no `Origin` header, so pairing failed in the installed extension. The fix, regression tests (52/52), and browser results are in `BROWSER-VERIFICATION-20261016.md`. Core checks 2–8 passed after the fixes. VoiceOver remains pending; E1 is not accepted.

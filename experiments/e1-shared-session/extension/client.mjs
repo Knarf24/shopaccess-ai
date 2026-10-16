@@ -5,3 +5,7 @@ export async function loadAccess(storage){return (await storage.get('access')).a
 
 export async function recoverStale(action,refresh){try{return await action();}catch(e){if(e.message==='STALE_REVISION')await refresh();throw e;}}
 export async function runPairingPoll({pairing,active,status,exchange,store,clear=async()=>{}}){const result=await status(pairing);if(!active())return 'cancelled';if(result.status!=='approved')return result.status;const access=await exchange(pairing);if(!active())return 'cancelled';await store(access);if(!active()){await clear(access);return 'cancelled';}return 'paired';}
+
+// Disabling the focused control during a request moves focus to <body>. Return it to the control the user was on.
+// If that control was removed by a re-render (for example a revoked grant's button), focus `fallback()` instead.
+export function restoreFocus(before,doc=document,fallback){const current=doc.activeElement;if(current&&current!==doc.body)return false;if(!before||before===doc.body)return false;if(before.isConnected){before.focus();return true;}const target=typeof fallback==='function'?fallback():null;if(!target||!target.isConnected)return false;target.focus();return true;}

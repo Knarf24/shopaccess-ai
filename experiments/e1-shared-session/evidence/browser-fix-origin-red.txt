@@ -1,0 +1,119 @@
+✖ originless conversation read with sec-fetch-site none and a valid read token succeeds (65.477101ms)
+✖ originless read without, or with a malformed, bearer is refused as unauthenticated (28.734741ms)
+✔ originless read requires exactly sec-fetch-site none (34.938889ms)
+✔ a present but wrong Origin is refused even with a valid token and sec-fetch-site none (32.964166ms)
+✖ originless mutations and other extension routes are refused before authentication (34.637458ms)
+✖ originless read refuses a revoked token (27.695814ms)
+✖ originless read refuses an expired token (30.258511ms)
+✖ originless read refuses a token without conversation:read scope (30.327563ms)
+✔ restoreFocus returns focus only when it fell to body and the control still exists (0.482607ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 3
+ℹ fail 6
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 447.224811
+
+✖ failing tests:
+
+test at experiments/e1-shared-session/tests/origin-regressions.test.mjs:11:1
+✖ originless conversation read with sec-fetch-site none and a valid read token succeeds (65.477101ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  403 !== 200
+  
+      at TestContext.<anonymous> (file://<scratch-copy>/experiments/e1-shared-session/tests/origin-regressions.test.mjs:11:208)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 403,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at experiments/e1-shared-session/tests/origin-regressions.test.mjs:13:1
+✖ originless read without, or with a malformed, bearer is refused as unauthenticated (28.734741ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  403 !== 401
+  
+      at TestContext.<anonymous> (file://<scratch-copy>/experiments/e1-shared-session/tests/origin-regressions.test.mjs:13:222)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 403,
+    expected: 401,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at experiments/e1-shared-session/tests/origin-regressions.test.mjs:19:1
+✖ originless mutations and other extension routes are refused before authentication (34.637458ms)
+  TypeError: Cannot read properties of undefined (reading 'revision')
+      at TestContext.<anonymous> (file://<scratch-copy>/experiments/e1-shared-session/tests/origin-regressions.test.mjs:19:1145)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at experiments/e1-shared-session/tests/origin-regressions.test.mjs:21:1
+✖ originless read refuses a revoked token (27.695814ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  403 !== 200
+  
+      at TestContext.<anonymous> (file://<scratch-copy>/experiments/e1-shared-session/tests/origin-regressions.test.mjs:21:121)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 403,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at experiments/e1-shared-session/tests/origin-regressions.test.mjs:23:1
+✖ originless read refuses an expired token (30.258511ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  403 !== 200
+  
+      at TestContext.<anonymous> (file://<scratch-copy>/experiments/e1-shared-session/tests/origin-regressions.test.mjs:23:173)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 403,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at experiments/e1-shared-session/tests/origin-regressions.test.mjs:25:1
+✖ originless read refuses a token without conversation:read scope (30.327563ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'ORIGIN_DENIED'
+  - 'SCOPE_DENIED'
+  
+      at TestContext.<anonymous> (file://<scratch-copy>/experiments/e1-shared-session/tests/origin-regressions.test.mjs:25:267)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'ORIGIN_DENIED',
+    expected: 'SCOPE_DENIED',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

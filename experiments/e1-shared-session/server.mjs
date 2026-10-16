@@ -3,13 +3,16 @@ import {makeAuthority} from './authority.mjs';import {makePersistence} from './p
 const root=dirname(fileURLToPath(import.meta.url));
 const failure=code=>({ok:false,code});
 const status=code=>code==='STALE_REVISION'||code==='REQUEST_CONFLICT'?409:code==='TOKEN_INVALID'?401:code==='RATE_LIMIT'||code==='POLL_LIMIT'||code==='POLL_TOO_SOON'?429:(code==='PERSISTENCE_FAILED'||code==='PERSISTENCE_OUTCOME_UNKNOWN')?503:code==='SNAPSHOT_CAPACITY'?413:400;
-export async function startServer({port=3764,dataDirectory,extensionOrigin}={}){
+// Chrome omits Origin on GET requests from an extension page to a host it holds host permission for (observed in Chrome 155, sec-fetch-site: none).
+// Only that exact read may arrive without Origin. sec-fetch-site is an extra restriction, not authentication: the read-scoped bearer check below still decides.
+export const originlessConversationRead=(req,path)=>req.headers.origin===undefined&&req.method==='GET'&&path==='/api/extension/v1/conversation'&&req.headers['sec-fetch-site']==='none';
+export async function startServer({port=3764,dataDirectory,extensionOrigin,authorityOptions={}}={}){
  if(!Number.isInteger(port)||port<0||port>65535||!dataDirectory||!/^chrome-extension:\/\/[a-p]{32}$/.test(extensionOrigin??''))throw Error('INVALID_LOCAL_CONFIGURATION');
  const persistence=await makePersistence(dataDirectory),conversations=await makeConversationStore(persistence);
  const lockPath=join(dataDirectory,'server.lock');const lock=await open(lockPath,'wx',0o600);let cookieKey;
  try{const f=await open(join(dataDirectory,'cookie.key'),'wx',0o600);try{await f.writeFile(randomBytes(32));await f.sync();}finally{await f.close();}}catch(e){if(e.code!=='EEXIST'){await lock.close();await unlink(lockPath);throw e;}}
  try{if(((await stat(join(dataDirectory,'cookie.key'))).mode&0o777)!==0o600)throw Error('COOKIE_KEY_MODE');cookieKey=await readFile(join(dataDirectory,'cookie.key'));if(cookieKey.length!==32)throw Error('COOKIE_KEY_INVALID');}catch(e){await lock.close();await unlink(lockPath);throw e;}
- const a=makeAuthority();let origin,closed=false;const csrf=id=>createHmac('sha256',cookieKey).update('csrf:'+id).digest('hex');
+ const a=makeAuthority(authorityOptions);let origin,closed=false;const csrf=id=>createHmac('sha256',cookieKey).update('csrf:'+id).digest('hex');
  const mac=v=>createHmac('sha256',cookieKey).update('cookie:'+v).digest('hex');
  const eq=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
  function session(req,res,create=false){
@@ -26,7 +29,7 @@ export async function startServer({port=3764,dataDirectory,extensionOrigin}={}){
    if(req.headers.host!==new URL(origin).host)return json(res,failure('HOST_DENIED'),403);
    const path=new URL(req.url,origin).pathname,requestOrigin=req.headers.origin;
    const extPath=path.startsWith('/api/extension/v1/');
-   if(extPath){if(requestOrigin!==extensionOrigin)return json(res,failure('ORIGIN_DENIED'),403);res.setHeader('Access-Control-Allow-Origin',extensionOrigin);res.setHeader('Vary','Origin');}
+   if(extPath){if(requestOrigin!==extensionOrigin&&!originlessConversationRead(req,path))return json(res,failure('ORIGIN_DENIED'),403);res.setHeader('Vary','Origin');if(requestOrigin===extensionOrigin)res.setHeader('Access-Control-Allow-Origin',extensionOrigin);}
    else if(requestOrigin&&requestOrigin!==origin)return json(res,failure('ORIGIN_DENIED'),403);
    if(req.method==='OPTIONS'){if(!extPath)return json(res,failure('METHOD_DENIED'),405);res.setHeader('Access-Control-Allow-Methods','GET, POST, PATCH');res.setHeader('Access-Control-Allow-Headers','authorization, content-type');res.writeHead(204);return res.end();}
    const assets={'/':'index.html','/site.mjs':'site.mjs','/styles.css':'styles.css','/client.mjs':'client.mjs'};

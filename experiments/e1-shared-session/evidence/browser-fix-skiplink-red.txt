@@ -1,0 +1,53 @@
+✔ originless conversation read with sec-fetch-site none and a valid read token succeeds (69.280022ms)
+✔ originless read without, or with a malformed, bearer is refused as unauthenticated (32.408553ms)
+✔ originless read requires exactly sec-fetch-site none (33.67696ms)
+✔ a present but wrong Origin is refused even with a valid token and sec-fetch-site none (30.97706ms)
+✔ originless mutations and other extension routes are refused before authentication (33.827475ms)
+✔ originless read refuses a revoked token (29.162284ms)
+✔ originless read refuses an expired token (30.518264ms)
+✔ originless read refuses a token without conversation:read scope (30.271162ms)
+✔ restoreFocus returns focus only when it fell to body and the control still exists (0.372116ms)
+✔ restoreFocus moves to a fallback only when the original control was removed (1.227298ms)
+✖ website wires the revoke fallback to the next Revoke button, then a focusable Paired access heading (2.156004ms)
+✖ skip link on both surfaces targets the focusable Conversation heading with no control before Message (1.733489ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 10
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 452.178428
+
+✖ failing tests:
+
+test at experiments/e1-shared-session/tests/origin-regressions.test.mjs:32:1
+✖ website wires the revoke fallback to the next Revoke button, then a focusable Paired access heading (2.156004ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /<h2 id="children-heading" tabindex="-1">Paired access/. Input:
+  
+  '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>ShopAccess E1 synthetic website</title><link rel="stylesheet" href="styles.css"><script type="module" src="site.mjs"></script></head><body><a href="#main">Skip to conversation</a><main id="main" tabindex="-1"><h1>ShopAccess E1 synthetic website</h1><p id="notice">Synthetic local mock only. No admission to the real app, live AI, shopping or payments.</p><section id="pairing" hidden><h2>Approve extension pairing</h2><p>Allow this extension to read and write this synthetic conversation and change its language. No purchase or payment permission.</p><button id="approve">Approve conversation access</button><button id="deny">Deny</button></section><p id="status" role="status" aria-live="polite"></p><p id="error" role="alert"></p><label for="language">Interface language / Idioma</label><select id="language"><option value="en">English</option><option value="es">Español</option></select><button id="refresh">Refresh / Actualizar</button><h2 id="heading" tabindex="-1">Conversation / Conversación</h2><p id="trimmed"></p><ol id="history"></ol><form id="turn-form"><label for="text">Message / Mensaje</label><textarea id="text" maxlength="2000" required></textarea><button id="send" type="submit">Send / Enviar</button></form><h2>Paired access / Accesos vinculados</h2><ul id="children"></ul></main></body></html>\n'
+  
+      at TestContext.<anonymous> (file://<scratch-copy>/experiments/e1-shared-session/tests/origin-regressions.test.mjs:32:334)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>ShopAccess E1 synthetic website</title><link rel="stylesheet" href="styles.css"><script type="module" src="site.mjs"></script></head><body><a href="#main">Skip to conversation</a><main id="main" tabindex="-1"><h1>ShopAccess E1 synthetic website</h1><p id="notice">Synthetic local mock only. No admission to the real app, live AI, shopping or payments.</p><section id="pairing" hidden><h2>Approve extension pairing</h2><p>Allow this extension to read and write this synthetic conversation and change its language. No purchase or payment permission.</p><button id="approve">Approve conversation access</button><button id="deny">Deny</button></section><p id="status" role="status" aria-live="polite"></p><p id="error" role="alert"></p><label for="language">Interface language / Idioma</label><select id="language"><option value="en">English</option><option value="es">Español</option></select><button id="refresh">Refresh / Actualizar</button><h2 id="heading" tabindex="-1">Conversation / Conversación</h2><p id="trimmed"></p><ol id="history"></ol><form id="turn-form"><label for="text">Message / Mensaje</label><textarea id="text" maxlength="2000" required></textarea><button id="send" type="submit">Send / Enviar</button></form><h2>Paired access / Accesos vinculados</h2><ul id="children"></ul></main></body></html>\n',
+    expected: /<h2 id="children-heading" tabindex="-1">Paired access/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at experiments/e1-shared-session/tests/origin-regressions.test.mjs:35:1
+✖ skip link on both surfaces targets the focusable Conversation heading with no control before Message (1.733489ms)
+  AssertionError [ERR_ASSERTION]: web/index.html
+      at TestContext.<anonymous> (file://<scratch-copy>/experiments/e1-shared-session/tests/origin-regressions.test.mjs:35:434)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>ShopAccess E1 synthetic website</title><link rel="stylesheet" href="styles.css"><script type="module" src="site.mjs"></script></head><body><a href="#main">Skip to conversation</a><main id="main" tabindex="-1"><h1>ShopAccess E1 synthetic website</h1><p id="notice">Synthetic local mock only. No admission to the real app, live AI, shopping or payments.</p><section id="pairing" hidden><h2>Approve extension pairing</h2><p>Allow this extension to read and write this synthetic conversation and change its language. No purchase or payment permission.</p><button id="approve">Approve conversation access</button><button id="deny">Deny</button></section><p id="status" role="status" aria-live="polite"></p><p id="error" role="alert"></p><label for="language">Interface language / Idioma</label><select id="language"><option value="en">English</option><option value="es">Español</option></select><button id="refresh">Refresh / Actualizar</button><h2 id="heading" tabindex="-1">Conversation / Conversación</h2><p id="trimmed"></p><ol id="history"></ol><form id="turn-form"><label for="text">Message / Mensaje</label><textarea id="text" maxlength="2000" required></textarea><button id="send" type="submit">Send / Enviar</button></form><h2>Paired access / Accesos vinculados</h2><ul id="children"></ul></main></body></html>\n',
+    expected: /<a href="#heading">Skip to conversation<\/a>/,
+    operator: 'match',
+    diff: 'simple'
+  }
