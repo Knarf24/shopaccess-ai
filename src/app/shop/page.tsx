@@ -1,23 +1,97 @@
+import Link from "next/link";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
+import { AdvisoryRecommendations } from "@/components/AdvisoryRecommendations";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { ExternalProductCard } from "@/components/ExternalProductCard";
 import { PreferencesForm } from "@/components/PreferencesForm";
 import { ReadinessPanel } from "@/components/ReadinessPanel";
+import { SessionNotice } from "@/components/SessionNotice";
 import { formatUsd } from "@/lib/catalog/merchant-catalog";
-import { getRuntime } from "@/server/runtime";
-import { buildShoppingView, parsePreferences, preferencesQuery, USE_LABELS } from "@/server/shopping";
+import { journeyCopy } from "@/lib/i18n/demo-copy";
+import type { PgRuntime } from "@/server/pg-runtime";
+import { buildPgShoppingView, pgCookieHeader, resolvePgPageSession } from "@/server/pg-views";
+import { protectedAdmissionLocation } from "@/server/demo-admission";
+import { getApplication, getRuntime } from "@/server/runtime";
+import { buildShoppingView, parsePreferences, preferencesQuery, USE_LABELS, type ShopperPreferences, type ShoppingView } from "@/server/shopping";
 import { messageFor, resolvePageSession } from "@/server/views";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+type Query = Record<string, string | string[] | undefined>;
+
+/**
+ * PostgreSQL mode (specification 19.19): the same recommendations, on the catalog the database holds. Loading this
+ * page admits no session, rotates none and starts no checkout.
+ */
+async function PgShopContent({ query, runtime }: { query: Query; runtime: PgRuntime }) {
+  const notAvailable = (
+    <p role="alert" className="rounded border-2 border-red-700 p-3">
+      The shop is not available right now. Please try again later.
+    </p>
+  );
+  const services = await runtime.services();
+  if (!services) return notAvailable;
+
+  const preferences = parsePreferences(query.use, query.budget);
+  if (!preferences) {
+    return (
+      <>
+        <p role="alert">Choose what you will use the laptop for and enter a budget between 10 and 99999 dollars.</p>
+        <PreferencesForm />
+      </>
+    );
+  }
+
+  const session = await resolvePgPageSession(services, await pgCookieHeader());
+  if (session === "UNAVAILABLE") return notAvailable;
+  if (!session.context) {
+    // A cookie that cannot be used is never replaced without the shopper asking for it.
+    if (session.presence === "PRESENT") redirect("/?session=ended");
+    if (query.started !== "1") redirect(`/session/start?${preferencesQuery(preferences)}`);
+    return (
+      <p role="alert">
+        Your browser did not keep the secure session cookie, so the demo cannot continue. The cookie is only accepted over HTTPS, or
+        on http://localhost in browsers that treat localhost as secure (Chrome and Firefox do).
+      </p>
+    );
+  }
+
+  const page = await buildPgShoppingView(services, preferences);
+  if (page.kind !== "OK") return notAvailable;
+  const error = messageFor(typeof query.error === "string" ? query.error : undefined);
+  return (
+    <>
+      {session.context.session.keyStatus === "VERIFY_ONLY" ? <SessionNotice kind="rotate" csrfToken={session.context.session.csrfToken} /> : null}
+      <ShopListing view={page.value} preferences={preferences} csrfToken={session.context.session.csrfToken} error={error} />
+      <p>
+        <Link href="/checkouts" prefetch={false} className="underline">
+          Your checkouts
+        </Link>
+      </p>
+    </>
+  );
+}
 
 async function ShopContent({ searchParams }: { searchParams: SearchParams }) {
   // Everything below depends on the request and the current time, so it is rendered per request.
   await connection();
   const query = await searchParams;
+  const application = getApplication();
+  if (application.mode === "postgres") return <PgShopContent query={query} runtime={application.runtime} />;
+  if (application.mode === "invalid") return <ConfigNotice errors={["SHOPACCESS_PERSISTENCE_MODE"]} />;
   const runtime = getRuntime();
   if (!runtime.ok) return <ConfigNotice errors={runtime.error} />;
+
+  const admissionLocation = protectedAdmissionLocation(
+    runtime.value.admission,
+    (await headers()).get("cookie"),
+    runtime.value.clock().getTime(),
+    typeof query.lang === "string" ? query.lang : undefined,
+  );
+  if (admissionLocation) redirect(admissionLocation);
 
   const preferences = parsePreferences(query.use, query.budget);
   if (!preferences) {
@@ -43,6 +117,11 @@ async function ShopContent({ searchParams }: { searchParams: SearchParams }) {
   const view = await buildShoppingView(runtime.value, preferences);
   const error = messageFor(typeof query.error === "string" ? query.error : undefined);
 
+  return <ShopListing view={view} preferences={preferences} csrfToken={session.csrfToken} error={error} />;
+}
+
+/** The recommendations as shown in both modes: the same markup, whichever catalog the view was built on. */
+function ShopListing({ view, preferences, csrfToken, error }: { view: ShoppingView; preferences: ShopperPreferences; csrfToken: string; error: string | null }) {
   return (
     <>
       {error ? <p role="alert" className="rounded border-2 border-red-700 p-3">{error}</p> : null}
@@ -51,7 +130,9 @@ async function ShopContent({ searchParams }: { searchParams: SearchParams }) {
         <strong>{formatUsd(preferences.budgetCents)}</strong>.
       </p>
       <PreferencesForm use={preferences.use} budget={preferences.budgetDollars} />
-      {view.assistantMessage ? (
+      {view.recommendations !== undefined ? (
+        <AdvisoryRecommendations message={view.assistantMessage} recommendations={view.recommendations} />
+      ) : view.assistantMessage ? (
         <p className="text-sm">
           <span className="font-medium">Assistant (local mock, advisory only): </span>
           {view.assistantMessage}
@@ -62,7 +143,9 @@ async function ShopContent({ searchParams }: { searchParams: SearchParams }) {
         <h2 id="demo-heading" className="text-2xl font-semibold">
           Demo store laptops (simulated Sandbox catalog)
         </h2>
-        <p className="text-sm">Sold by {view.merchantName}. Fictional products and prices. Nothing is shipped.</p>
+        <p className="text-sm">
+          Sold by {view.merchantName}. {journeyCopy("en").catalogNotice}
+        </p>
         <ul className="flex flex-col gap-4">
           {view.variants.map(({ product, variant, assessment, explanation, quotable }) => (
             <li key={variant.variantId} className="flex flex-col gap-3 rounded-lg border border-zinc-400 p-4">
@@ -70,12 +153,17 @@ async function ShopContent({ searchParams }: { searchParams: SearchParams }) {
                 {product.title} — {variant.label}
               </h3>
               <p>
-                {formatUsd(variant.unitAmountCents)} USD · {variant.specs.cpu} · {variant.specs.screenInches} inch · {variant.specs.weightKg} kg
+                Fixed demo price {formatUsd(variant.unitAmountCents)} USD · {variant.specs.cpu} · {variant.specs.screenInches} inch ·{" "}
+                {variant.specs.weightKg} kg
               </p>
-              <ReadinessPanel assessment={assessment} explanation={explanation?.explanation ?? null} />
+              <ReadinessPanel
+                assessment={assessment}
+                explanation={explanation?.explanation ?? null}
+                explanationLabel={view.explanationLabel}
+              />
               {quotable ? (
                 <form method="post" action="/checkout/start">
-                  <input type="hidden" name="csrfToken" value={session.csrfToken} />
+                  <input type="hidden" name="csrfToken" value={csrfToken} />
                   <input type="hidden" name="productId" value={product.productId} />
                   <input type="hidden" name="variantId" value={variant.variantId} />
                   <input type="hidden" name="quantity" value="1" />

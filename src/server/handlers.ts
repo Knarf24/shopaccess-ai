@@ -1,5 +1,9 @@
 import { startCheckoutWithQuote } from "@/lib/checkout/service";
+import { allowlistedJourneyLanguage, explicitJourneyLanguage, guidedShopDestination } from "@/lib/i18n/language";
 import { confirmPurchaseSummary } from "@/lib/confirmation/confirmation";
+import { formatAdvisoryFailureDiagnostic, interpretNeedsSafely } from "@/lib/providers/ai";
+import { INTENDED_USES, type IntendedUse } from "@/lib/readiness/engine";
+import { ShopperMessageSchema } from "@/lib/security/limits";
 import {
   cancelCheckout,
   dispatchCapture,
@@ -12,12 +16,34 @@ import {
 import { toPublicError, type PublicErrorCode } from "@/lib/security/errors";
 import { readLimitedForm } from "@/lib/security/limits";
 import { PROPOSED_RATE_LIMIT_POLICIES, type RateLimitPolicy } from "@/lib/security/rate-limit";
+import { runtimeSandboxProvider, type Runtime } from "./runtime";
 import { readSessionCookie, serializeSessionCookie } from "@/lib/session/cookie";
+import { protectedAdmissionLocation } from "@/server/demo-admission";
 import { authorizeMutation } from "@/lib/session/request-guard";
 import type { Session } from "@/lib/session/service";
+import {
+  checkoutSelectionCurrent,
+  invalidatePurchaseSelections,
+  mergeFollowUpCandidate,
+  noteCheckoutSelection,
+  purchaseSelectionsOpen,
+  recordConversationTurn,
+  reopenPurchaseSelections,
+} from "@/lib/session/conversation";
+import {
+  applyInterpretation,
+  beginInterpretation,
+  claimFollowUp,
+  commitFollowUp,
+  confirmNeeds,
+  needsDraftsFor,
+  proposeStructuredRevision,
+  saveStructuredNeeds,
+  type JourneyLanguage,
+  type NeedsDraft,
+} from "@/lib/session/store";
 import { ID_PATTERNS } from "@/lib/shared/ids";
-import type { Runtime } from "./runtime";
-import { parsePreferences, preferencesQuery } from "./shopping";
+import { failureNoticeCode, mergeInterpretedNeeds, parsePreferences, preferencesQuery, settleShopperText } from "./shopping";
 import { availableSteps, SIMULATION_STEPS, type SimulationStep } from "./simulation";
 
 /**
@@ -29,6 +55,17 @@ const SIMULATION_POLICY: RateLimitPolicy = { name: "simulation_step", limit: 60,
 
 function seeOther(location: string, headers: Record<string, string> = {}): Response {
   return new Response(null, { status: 303, headers: { location, "cache-control": "no-store", ...headers } });
+}
+
+/** Stops a protected mock request before maintenance, session resolution, or checkout work. */
+function admissionRefusal(request: Request, runtime: Runtime): Response | null {
+  const location = protectedAdmissionLocation(
+    runtime.admission,
+    request.headers.get("cookie"),
+    runtime.clock().getTime(),
+    new URL(request.url).searchParams.get("lang"),
+  );
+  return location === null ? null : seeOther(location);
 }
 
 function refuse(code: PublicErrorCode, runtime: Runtime, retryAfterMs?: number): Response {
@@ -74,6 +111,8 @@ async function audit(runtime: Runtime, session: Session, eventType: string, chec
  * server does not recognise is never adopted; a fresh token is issued instead.
  */
 export async function handleSessionStart(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
   const url = new URL(request.url);
   const preferences = parsePreferences(url.searchParams.get("use"), url.searchParams.get("budget"));
   // The destination is always this fixed local path; nothing from the request chooses it.
@@ -96,21 +135,41 @@ export async function handleSessionStart(request: Request, runtime: Runtime): Pr
 
 /** POST /checkout/start: creates a checkout intent and a server-priced quote for one demo variant. */
 export async function handleCheckoutStart(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
   const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.quoteRequest);
   if (!guarded.ok) return guarded.response;
   const { session, form } = guarded;
 
   const preferences = parsePreferences(form.get("use"), form.get("budget"));
-  const back = preferences ? `/shop?${preferencesQuery(preferences)}&` : "/shop?";
+  const interfaceLanguage = explicitJourneyLanguage(form.get("lang"));
+  const back = interfaceLanguage ? "/shop/needs?" : preferences ? `/shop?${preferencesQuery(preferences)}&` : "/shop?";
+  const needsDraft = needsDraftsFor(runtime.store).get(session.id) ?? null;
+  const needsMatched = Boolean(
+    preferences &&
+      needsDraft &&
+      needsDraft.confirmedUse === preferences.use &&
+      needsDraft.confirmedBudgetDollars === preferences.budgetDollars,
+  );
+  if (
+    form.has("lang") &&
+    preferences &&
+    needsDraft &&
+    (!purchaseSelectionsOpen(runtime.store, session.id) || (needsDraft.confirmedUse !== null && !needsMatched))
+  ) {
+    return seeOther(`/shop/needs?lang=${interfaceLanguage ?? needsDraft.language}&error=STALE_DRAFT`);
+  }
 
   // Only these three fields are read. Any price or total in the form is never looked at.
   const quoteRequest = { productId: form.get("productId"), variantId: form.get("variantId"), quantity: Number(form.get("quantity")) };
   // The request is validated and priced before anything is created; a rejected request allocates no checkout records.
-  const started = await startCheckoutWithQuote(runtime.checkout, session.id, quoteRequest);
+  // Language is stored on the mock intent only. It is not part of the quote request.
+  const started = await startCheckoutWithQuote(runtime.checkout, session.id, quoteRequest, interfaceLanguage);
   // The session stopped being valid after this request was authorized: same generic refusal as an unauthenticated request.
   if (!started.ok && started.error === "SESSION_NOT_ACTIVE") return refuse("FORBIDDEN", runtime);
   if (!started.ok) return seeOther(`${back}error=${started.error}`);
   const { intent, quote } = started.value;
+  if (needsMatched) noteCheckoutSelection(runtime.store, session.id, intent.id);
 
   await audit(runtime, session, "QUOTE_ISSUED", intent.id, { quoteId: quote.quoteId, totalCents: quote.totalCents });
   return seeOther(`/checkout/${intent.id}`);
@@ -123,6 +182,8 @@ async function ownedIntent(runtime: Runtime, session: Session, intentId: string)
 
 /** POST /checkout/:intentId/confirm: records the shopper's explicit confirmation. Contacts no provider. */
 export async function handleConfirm(request: Request, runtime: Runtime, intentId: string): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
   const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
   if (!guarded.ok) return guarded.response;
   const { session, form } = guarded;
@@ -130,6 +191,7 @@ export async function handleConfirm(request: Request, runtime: Runtime, intentId
   if (!intent) return refuse("NOT_FOUND", runtime);
 
   const back = `/checkout/${intent.id}`;
+  if (!checkoutSelectionCurrent(runtime.store, session.id, intent.id)) return seeOther(`${back}?error=QUOTE_NO_LONGER_VALID`);
   if (form.get("acknowledged") !== "yes") return seeOther(`${back}?error=ACKNOWLEDGEMENT_REQUIRED`);
 
   const submission = {
@@ -150,6 +212,302 @@ export async function handleConfirm(request: Request, runtime: Runtime, intentId
     result: confirmed.ok ? "ACCEPTED" : confirmed.error,
   });
   return seeOther(confirmed.ok ? `${back}?notice=CONFIRMED` : `${back}?error=${confirmed.error}`);
+}
+
+function needsLanguage(form: URLSearchParams): JourneyLanguage {
+  return allowlistedJourneyLanguage(form.get("lang"));
+}
+
+function needsVersion(form: URLSearchParams): number | null {
+  const raw = form.get("version");
+  if (!raw || !/^[1-9][0-9]{0,8}$/.test(raw)) return null;
+  return Number(raw);
+}
+
+function needsUse(value: string | null): IntendedUse | null {
+  return INTENDED_USES.includes(value as IntendedUse) ? (value as IntendedUse) : null;
+}
+
+function needsBudget(value: string | null): string | null {
+  return value !== null && /^[1-9][0-9]{1,4}$/.test(value) ? value : null;
+}
+
+function draftExpiry(session: Session): number {
+  return Math.min(session.idleExpiresAt.getTime(), session.absoluteExpiresAt.getTime());
+}
+
+function needsBack(language: JourneyLanguage, code?: string, failure?: string | null): string {
+  const query = new URLSearchParams({ lang: language });
+  if (code) query.set("error", code);
+  const notice = failureNoticeCode(failure);
+  if (notice) query.set("notice", notice);
+  return `/shop/needs?${query.toString()}`;
+}
+
+/**
+ * GET /session/needs. Establishes the mock session, then opens the guided page.
+ * The destination is always `guidedShopDestination`. No request field can replace that path.
+ * A lang value other than the exact tokens `en` and `es` becomes English.
+ */
+export async function handleNeedsSession(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  await runtime.maintain();
+  const established = await runtime.sessions.establish(readSessionCookie(request.headers.get("cookie")));
+  if (!established.ok) {
+    const code = established.error.reason === "ALLOCATION_RATE_EXCEEDED" ? "RATE_LIMITED" : "UNAVAILABLE";
+    return refuse(code, runtime, established.error.retryAfterMs);
+  }
+  const issued = established.value;
+  const headers: Record<string, string> = {};
+  if (issued.issuedToken) headers["set-cookie"] = serializeSessionCookie(issued.issuedToken, runtime.sessions.cookieMaxAgeSeconds(issued.session));
+  return seeOther(guidedShopDestination(new URL(request.url).searchParams.get("lang")), headers);
+}
+
+function rememberNeedsTurn(store: object, sessionId: string, draft: NeedsDraft, shopperText: string): void {
+  recordConversationTurn(store, sessionId, {
+    draftId: draft.draftId,
+    interfaceLanguage: draft.language,
+    shopperText,
+    assistantNotice: draft.notice,
+  });
+}
+
+function controlChange<T extends string>(posted: T | null, current: string | null): T | null {
+  if (posted === null || posted === current) return null;
+  return posted;
+}
+
+/** POST /shop/needs/submit. A complete structured use and budget does not call the interpreter. */
+export async function handleNeedsSubmit(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.aiMessage);
+  if (!guarded.ok) return guarded.response;
+  const { session, form } = guarded;
+  const language = needsLanguage(form);
+  const expiresAtMs = draftExpiry(session);
+
+  // A draft with no new message is the structured fallback: zero interpreter calls.
+  // A new message is one follow-up interpretation. Confirmed fields change only through confirmNeeds.
+  if (form.has("draftId")) {
+    const draftId = form.get("draftId") ?? "";
+    const version = needsVersion(form);
+    if (version === null || !/^nd_[0-9a-f]{32}$/.test(draftId)) return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
+    const reply = (form.get("shopperText") ?? "").trim();
+    if (reply.length > 2000) return seeOther(needsBack(language, "TEXT_TOO_LONG"));
+    const live = () => runtime.checkout.sessionIsLive(session.id);
+    if (reply.length === 0) {
+      const revised = proposeStructuredRevision(
+        runtime.store,
+        session.id,
+        {
+          draftId,
+          version,
+          use: needsUse(form.get("use")),
+          budgetDollars: needsBudget(form.get("budget")),
+          expiresAtMs,
+          now: runtime.clock().getTime(),
+        },
+        live,
+      );
+      if (revised.kind === "session_dead") return seeOther(needsBack(language));
+      if (revised.kind === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
+      if (revised.kind === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
+      if (revised.kind === "missing") return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
+      if (revised.kind === "invalid") return seeOther(needsBack(language, "CLARIFICATION_INVALID"));
+      if (revised.kind === "unchanged") return seeOther(needsBack(language));
+      if (revised.withdrewConfirmation) invalidatePurchaseSelections(runtime.store, session.id);
+      rememberNeedsTurn(runtime.store, session.id, revised.draft, "");
+      return seeOther(needsBack(language));
+    }
+
+    const message = ShopperMessageSchema.safeParse(reply);
+    if (!message.success) return seeOther(needsBack(language, "CLARIFICATION_INVALID"));
+    const claimed = claimFollowUp(
+      runtime.store,
+      session.id,
+      { draftId, version, shopperText: message.data, expiresAtMs, now: runtime.clock().getTime() },
+      live,
+    );
+    if (claimed.kind === "duplicate") return seeOther(needsBack(language));
+    if (claimed.kind === "session_dead") return seeOther(needsBack(language));
+    if (claimed.kind === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
+    if (claimed.kind === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
+    if (claimed.kind === "invalid") return seeOther(needsBack(language, "CLARIFICATION_INVALID"));
+    if (claimed.kind !== "claimed") return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
+
+    const interpreted = await interpretNeedsSafely(runtime.ai, message.data, (diagnostic) => {
+      const line = formatAdvisoryFailureDiagnostic(diagnostic);
+      if (line) console.warn(line);
+    });
+    if (!live()) return seeOther(needsBack(language, "DRAFT_EXPIRED"));
+    const model = interpreted.ok ? interpreted.value : interpreted.error === "OUTPUT_INVALID" ? "malformed" : "unavailable";
+    const typedUse = controlChange(needsUse(form.get("use")), claimed.draft.prefilledUse);
+    const typedBudget = controlChange(needsBudget(form.get("budget")), claimed.draft.prefilledBudgetDollars);
+    const settled = mergeInterpretedNeeds(typedUse, typedBudget, settleShopperText(message.data, model));
+    const merged = mergeFollowUpCandidate(claimed.draft, settled);
+    const confirmedUse = claimed.draft.confirmedUse;
+    const confirmedBudget = claimed.draft.confirmedBudgetDollars;
+    const withdrawConfirmation = Boolean(
+      confirmedUse &&
+        confirmedBudget &&
+        merged.notice === "review" &&
+        merged.prefilledUse &&
+        merged.prefilledBudgetDollars &&
+        (merged.prefilledUse !== confirmedUse || merged.prefilledBudgetDollars !== confirmedBudget),
+    );
+    const written = commitFollowUp(
+      runtime.store,
+      session.id,
+      claimed.draft.draftId,
+      claimed.draft.version,
+      { ...merged, withdrawConfirmation },
+      runtime.clock().getTime(),
+    );
+    if (written && withdrawConfirmation) invalidatePurchaseSelections(runtime.store, session.id);
+    if (written) rememberNeedsTurn(runtime.store, session.id, written, message.data);
+    const failure = model === "malformed" || model === "unavailable" ? model : null;
+    return seeOther(needsBack(language, undefined, failure));
+  }
+
+  const text = form.get("shopperText") ?? "";
+  if (text.trim().length > 2000) return seeOther(needsBack(language, "TEXT_TOO_LONG"));
+  const typedUse = needsUse(form.get("use"));
+  const typedBudget = needsBudget(form.get("budget"));
+  const submittedVersion = needsVersion(form);
+  const now = runtime.clock().getTime();
+
+  if (typedUse && typedBudget) {
+    const saved = saveStructuredNeeds(runtime.store, session.id, {
+      submittedVersion,
+      language,
+      shopperText: text,
+      use: typedUse,
+      budgetDollars: typedBudget,
+      notice: "review",
+      expiresAtMs,
+      now,
+    });
+    if (saved === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
+    if (saved === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
+    if (typeof saved !== "string") rememberNeedsTurn(runtime.store, session.id, saved, text);
+    return seeOther(needsBack(language));
+  }
+
+  const message = ShopperMessageSchema.safeParse(text);
+  if (!message.success) {
+    const saved = saveStructuredNeeds(runtime.store, session.id, {
+      submittedVersion,
+      language,
+      shopperText: "",
+      use: typedUse,
+      budgetDollars: typedBudget,
+      notice: typedUse ? "missing_budget" : "missing_use",
+      expiresAtMs,
+      now,
+    });
+    if (saved === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
+    if (saved === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
+    if (typeof saved !== "string") rememberNeedsTurn(runtime.store, session.id, saved, "");
+    return seeOther(needsBack(language));
+  }
+
+  const claimed = beginInterpretation(runtime.store, session.id, {
+    submittedVersion,
+    language,
+    shopperText: message.data,
+    expiresAtMs,
+    now,
+  });
+  if (claimed.kind === "duplicate") return seeOther(needsBack(language));
+  if (claimed.kind === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
+  if (claimed.kind === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
+  if (claimed.kind !== "claimed") return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
+
+  const interpreted = await interpretNeedsSafely(runtime.ai, message.data, (diagnostic) => {
+    const line = formatAdvisoryFailureDiagnostic(diagnostic);
+    if (line) console.warn(line);
+  });
+  if (!runtime.checkout.sessionIsLive(session.id)) return seeOther(needsBack(language, "DRAFT_EXPIRED"));
+  const model = interpreted.ok ? interpreted.value : interpreted.error === "OUTPUT_INVALID" ? "malformed" : "unavailable";
+  const settled = mergeInterpretedNeeds(typedUse, typedBudget, settleShopperText(message.data, model));
+  const wrote = applyInterpretation(runtime.store, session.id, claimed.draft.draftId, claimed.draft.version, settled, runtime.clock().getTime());
+  const drafted = needsDraftsFor(runtime.store).get(session.id);
+  if (wrote && drafted) rememberNeedsTurn(runtime.store, session.id, drafted, message.data);
+  const failure = model === "malformed" || model === "unavailable" ? model : null;
+  return seeOther(needsBack(language, undefined, failure));
+}
+
+/**
+ * POST /shop/needs/confirm. Stores only the submitted use and budget.
+ * A missing draft is refused. It is not recreated as confirmed.
+ */
+export async function handleNeedsConfirm(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
+  if (!guarded.ok) return guarded.response;
+  const { session, form } = guarded;
+  const language = needsLanguage(form);
+  const use = needsUse(form.get("use"));
+  const budget = needsBudget(form.get("budget"));
+  if (!use || !budget) return seeOther(needsBack(language, "CONFIRM_INCOMPLETE"));
+  const version = needsVersion(form);
+  const draftId = form.get("draftId") ?? "";
+  if (version === null || !/^nd_[0-9a-f]{32}$/.test(draftId)) return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
+  const confirmed = confirmNeeds(runtime.store, session.id, { draftId, version, use, budgetDollars: budget, now: runtime.clock().getTime() });
+  if (confirmed === "stale" || confirmed === "conflict") return seeOther(needsBack(language, "STALE_DRAFT"));
+  if (confirmed === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
+  if (confirmed === "missing") return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
+  reopenPurchaseSelections(runtime.store, session.id);
+  return seeOther(needsBack(language));
+}
+
+/**
+ * POST /shop/needs/listings. The shopper asks for external listings.
+ * Live Channel3 is not installed, so this route never calls a transport.
+ * A present discovery switch and API key do not change that.
+ */
+export async function handleNeedsListings(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
+  if (!guarded.ok) return guarded.response;
+  const { session, form } = guarded;
+  const language = needsLanguage(form);
+  const version = needsVersion(form);
+  const draftId = form.get("draftId") ?? "";
+  if (version === null || !/^nd_[0-9a-f]{32}$/.test(draftId)) return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
+  const draft = needsDraftsFor(runtime.store).get(session.id);
+  if (!draft || draft.draftId !== draftId) return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
+  if (runtime.clock().getTime() >= draft.expiresAtMs) return seeOther(needsBack(language, "DRAFT_EXPIRED"));
+  if (draft.version !== version) return seeOther(needsBack(language, "STALE_DRAFT"));
+  if (!draft.confirmedUse || !draft.confirmedBudgetDollars) return seeOther(needsBack(language, "CONFIRM_INCOMPLETE"));
+  const search = runtime.channel3.search;
+  if (!search || runtime.channel3.mode !== "disabled") return seeOther(listingsBack(language, "unavailable"));
+  const use = draft.confirmedUse;
+  const budgetDollars = draft.confirmedBudgetDollars;
+  const outcome = await search({
+    sessionId: session.id,
+    draftId: draft.draftId,
+    version: draft.version,
+    use,
+    budgetDollars,
+    currentDraft: () => {
+      const current = needsDraftsFor(runtime.store).get(session.id);
+      return current ? { draftId: current.draftId, version: current.version } : null;
+    },
+    now: () => runtime.clock().toISOString(),
+  });
+  if (outcome.status === "ready") return seeOther(needsBack(language));
+  if (outcome.status === "limit") return seeOther(listingsBack(language, "limit"));
+  if (outcome.status === "stale") return seeOther(listingsBack(language, "stale"));
+  return seeOther(listingsBack(language, "error"));
+}
+
+function listingsBack(language: JourneyLanguage, listings: "unavailable" | "limit" | "error" | "stale"): string {
+  return `/shop/needs?${new URLSearchParams({ lang: language, listings }).toString()}`;
 }
 
 async function runSimulationStep(runtime: Runtime, session: Session, intentId: string, step: SimulationStep): Promise<string | null> {
@@ -214,6 +572,9 @@ async function runSimulationStep(runtime: Runtime, session: Session, intentId: s
  * are accepted, so a rejected request can never leave a queued mock scenario behind.
  */
 export async function handleSimulate(request: Request, runtime: Runtime, intentId: string): Promise<Response> {
+  if (runtime.paymentMode === "sandbox") return refuse("NOT_FOUND", runtime);
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
   const guarded = await guardMutation(request, runtime, SIMULATION_POLICY);
   if (!guarded.ok) return guarded.response;
   const { session, form } = guarded;
@@ -227,4 +588,119 @@ export async function handleSimulate(request: Request, runtime: Runtime, intentI
   const error = await runSimulationStep(runtime, session, intent.id, step);
   await audit(runtime, session, "SIMULATION_STEP", intent.id, { step, result: error ?? "OK" });
   return seeOther(error ? `${back}?error=${error}` : back);
+}
+
+function requestOrigin(request: Request, runtime: Runtime): string | null {
+  const origin = request.headers.get("origin");
+  return origin !== null && runtime.trustedOrigins.has(origin) ? origin : null;
+}
+
+function checkoutBack(intentId: string, error?: string): string {
+  return error ? `/checkout/${intentId}?error=${error}` : `/checkout/${intentId}`;
+}
+
+async function requireSandbox(request: Request, runtime: Runtime, intentId: string) {
+  const sandbox = runtimeSandboxProvider(runtime);
+  if (!sandbox) return { ok: false as const, response: refuse("NOT_FOUND", runtime) };
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
+  if (!guarded.ok) return { ok: false as const, response: guarded.response };
+  const intent = await ownedIntent(runtime, guarded.session, intentId);
+  if (!intent) return { ok: false as const, response: refuse("NOT_FOUND", runtime) };
+  return { ok: true as const, session: guarded.session, intent, sandbox };
+}
+
+/** POST /checkout/:intentId/approve. Mock mode never reaches this. */
+export async function handleSandboxApprove(request: Request, runtime: Runtime, intentId: string): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const ready = await requireSandbox(request, runtime, intentId);
+  if (!ready.ok) return ready.response;
+  const back = `/checkout/${ready.intent.id}`;
+  if (ready.intent.snapshot.state !== "USER_CONFIRMED" || !ready.intent.snapshot.context.quoteId) {
+    return seeOther(`${back}?error=APPROVAL_NOT_CONFIRMED`);
+  }
+  const origin = requestOrigin(request, runtime);
+  if (!origin) return seeOther(`${back}?error=APPROVAL_NOT_CONFIRMED`);
+  ready.sandbox.armReturnOrigin(ready.intent.id, origin);
+  const created = await dispatchOrderCreate(runtime.payment, ready.intent.id);
+  const after = await runtime.store.findIntent(ready.intent.id);
+  const orderId = after?.snapshot.context.providerOrderId ?? null;
+  const approvalUrl = created.ok && after?.snapshot.state === "AWAITING_APPROVAL" && orderId ? ready.sandbox.approvalUrlFor(orderId) : null;
+  await audit(runtime, ready.session, "SANDBOX_APPROVE", ready.intent.id, { result: approvalUrl ? "REDIRECT" : "NOT_CONFIRMED" });
+  if (approvalUrl) return seeOther(approvalUrl);
+  return seeOther(checkoutBack(ready.intent.id, ready.sandbox.consumePublicCode() ?? "APPROVAL_NOT_CONFIRMED"));
+}
+
+/** GET /checkout/:intentId/return. Confirms approval only. It does not capture. */
+export async function handleSandboxReturn(request: Request, runtime: Runtime, intentId: string): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const sandbox = runtimeSandboxProvider(runtime);
+  if (!sandbox) return refuse("NOT_FOUND", runtime);
+  await runtime.maintain();
+  const resolved = await runtime.sessions.resolve(readSessionCookie(request.headers.get("cookie")));
+  if (!resolved.ok) return seeOther("/");
+  const intent = await ownedIntent(runtime, resolved.value, intentId);
+  if (!intent) return refuse("NOT_FOUND", runtime);
+  const token = new URL(request.url).searchParams.get("token");
+  const storedOrderId = intent.snapshot.context.providerOrderId;
+  if (token !== null && token !== storedOrderId) return seeOther(checkoutBack(intent.id, "APPROVAL_NOT_CONFIRMED"));
+  await recordBuyerReturn(runtime.payment, resolved.value.id, intent.id);
+  await verifyApproval(runtime.payment, intent.id);
+  const after = await runtime.store.findIntent(intent.id);
+  await audit(runtime, resolved.value, "SANDBOX_RETURN", intent.id, { result: after?.snapshot.state === "APPROVED_VERIFIED" ? "APPROVED" : "NOT_CONFIRMED" });
+  if (after?.snapshot.state === "APPROVED_VERIFIED") return seeOther(`/checkout/${intent.id}`);
+  return seeOther(checkoutBack(intent.id, sandbox.consumePublicCode() ?? "APPROVAL_NOT_CONFIRMED"));
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    if (character === "&") return "&amp;";
+    if (character === "<") return "&lt;";
+    if (character === ">") return "&gt;";
+    if (character === '"') return "&quot;";
+    return "&#39;";
+  });
+}
+
+/** GET /checkout/:intentId/paypal-cancel. Renders a same-origin cancel form and does not cancel. */
+export async function handleSandboxPaypalCancel(request: Request, runtime: Runtime, intentId: string): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  if (runtime.paymentMode !== "sandbox") return refuse("NOT_FOUND", runtime);
+  await runtime.maintain();
+  const resolved = await runtime.sessions.resolve(readSessionCookie(request.headers.get("cookie")));
+  if (!resolved.ok) return seeOther("/");
+  const intent = await ownedIntent(runtime, resolved.value, intentId);
+  if (!intent) return refuse("NOT_FOUND", runtime);
+  const action = `/checkout/${intent.id}/cancel`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cancel checkout</title></head><body><main><h1>Cancel this checkout</h1><p>No payment has been captured.</p><form method="post" action="${escapeHtml(action)}"><input type="hidden" name="csrfToken" value="${escapeHtml(resolved.value.csrfToken)}"><button type="submit">Cancel this checkout</button></form></main></body></html>`;
+  return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}
+
+/** POST /checkout/:intentId/capture. Success is only CAPTURED_VERIFIED. */
+export async function handleSandboxCapture(request: Request, runtime: Runtime, intentId: string): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const ready = await requireSandbox(request, runtime, intentId);
+  if (!ready.ok) return ready.response;
+  if (ready.intent.snapshot.state !== "APPROVED_VERIFIED") return seeOther(checkoutBack(ready.intent.id, "APPROVAL_NOT_CONFIRMED"));
+  await dispatchCapture(runtime.payment, ready.intent.id);
+  const after = await runtime.store.findIntent(ready.intent.id);
+  const captured = after?.snapshot.state === "CAPTURED_VERIFIED";
+  await audit(runtime, ready.session, "SANDBOX_CAPTURE", ready.intent.id, { result: captured ? "CAPTURED_VERIFIED" : "NOT_CAPTURED" });
+  if (captured) return seeOther(`/checkout/${ready.intent.id}?notice=CAPTURED`);
+  return seeOther(checkoutBack(ready.intent.id, ready.sandbox.consumePublicCode() ?? "APPROVAL_NOT_CONFIRMED"));
+}
+
+/** POST /checkout/:intentId/cancel. Only before a capture may have been sent. */
+export async function handleSandboxCancel(request: Request, runtime: Runtime, intentId: string): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const ready = await requireSandbox(request, runtime, intentId);
+  if (!ready.ok) return ready.response;
+  const canceled = await cancelCheckout(runtime.checkout, ready.session.id, ready.intent.id);
+  await audit(runtime, ready.session, "SANDBOX_CANCEL", ready.intent.id, { result: canceled.ok ? "CANCELED" : canceled.error });
+  if (!canceled.ok) return seeOther(checkoutBack(ready.intent.id, "APPROVAL_NOT_CONFIRMED"));
+  return seeOther(`/checkout/${ready.intent.id}`);
 }

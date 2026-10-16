@@ -1,3 +1,8 @@
+import type { NeedsNotice } from "../i18n/needs-notice";
+import type { JourneyLanguage } from "../i18n/language";
+import type { IntendedUse } from "../readiness/engine";
+import { randomHex } from "../shared/crypto";
+
 export interface SessionRecord {
   readonly id: string;
   readonly tokenDigest: string;
@@ -100,4 +105,427 @@ export class InMemorySessionStore implements SessionStore {
     const at = now.getTime();
     return at < record.absoluteExpiresAt.getTime() && at < record.lastSeenAt.getTime() + idleTimeoutMs;
   }
+}
+
+export const MAX_NEEDS_TEXT_CHARS = 2000;
+
+export type { JourneyLanguage, NeedsNotice };
+export type RecommendationClaim = "pending" | "completed" | "failed";
+
+export interface RetainedRecommendation {
+  readonly assistantMessage: string | null;
+  readonly recommendations: readonly {
+    readonly productId: string;
+    readonly variantId: string;
+    readonly title: string;
+    readonly label: string;
+    readonly unitAmountCents: number;
+    readonly currency: "USD";
+  }[];
+}
+
+/**
+ * One needs draft for one session, in this process only.
+ *
+ * The claim flags below are synchronous so two requests in the SAME process cannot both pass.
+ * They do not protect two processes. Each process has its own memory. A missing draft in this
+ * process is not rebuilt, and it is never treated as confirmed. The shared two-slot directory
+ * only limits how many provider calls run; it does not remember which draft they belonged to.
+ */
+export interface NeedsDraft {
+  readonly draftId: string;
+  readonly version: number;
+  readonly language: JourneyLanguage;
+  readonly shopperText: string;
+  readonly prefilledUse: IntendedUse | null;
+  readonly prefilledBudgetDollars: string | null;
+  readonly confirmedUse: IntendedUse | null;
+  readonly confirmedBudgetDollars: string | null;
+  readonly interpretationClaimVersion: number | null;
+  readonly recommendationClaim: RecommendationClaim | null;
+  readonly recommendation: RetainedRecommendation | null;
+  readonly notice: NeedsNotice | null;
+  readonly expiresAtMs: number;
+}
+
+export type DraftRefusal = "missing" | "stale" | "expired" | "duplicate" | "conflict" | "unconfirmed";
+export type ClarificationRefusal = "missing" | "stale" | "expired" | "invalid" | "session_dead";
+
+/**
+ * Identifies the draft map attached to one store object.
+ * The symbol is shared by module instances in this process. The map is not:
+ * it lives on that store, so another runtime's store cannot see it.
+ */
+const NEEDS_DRAFTS = Symbol.for("shopaccess.needsDrafts");
+
+type DraftHost = object & { [NEEDS_DRAFTS]?: Map<string, NeedsDraft> };
+
+function attachedDrafts(store: object): Map<string, NeedsDraft> | undefined {
+  return (store as DraftHost)[NEEDS_DRAFTS];
+}
+
+/** Drafts for one mock store. Creating the empty map does not create a confirmed draft. */
+export function needsDraftsFor(store: object): Map<string, NeedsDraft> {
+  const host = store as DraftHost;
+  let found = host[NEEDS_DRAFTS];
+  if (!found) {
+    found = new Map();
+    host[NEEDS_DRAFTS] = found;
+  }
+  return found;
+}
+
+export function deleteNeedsDrafts(store: object, sessionIds: readonly string[]): void {
+  const found = attachedDrafts(store);
+  if (!found) return;
+  for (const sessionId of sessionIds) found.delete(sessionId);
+}
+
+function boundText(text: string): string {
+  return text.trim().slice(0, MAX_NEEDS_TEXT_CHARS);
+}
+
+function freshDraft(input: {
+  previous: NeedsDraft | null;
+  language: JourneyLanguage;
+  shopperText: string;
+  expiresAtMs: number;
+  prefilledUse: IntendedUse | null;
+  prefilledBudgetDollars: string | null;
+  notice: NeedsNotice | null;
+  interpretationClaimVersion: number | null;
+}): NeedsDraft {
+  return {
+    draftId: input.previous?.draftId ?? `nd_${randomHex(16)}`,
+    version: (input.previous?.version ?? 0) + 1,
+    language: input.language,
+    shopperText: boundText(input.shopperText),
+    prefilledUse: input.prefilledUse,
+    prefilledBudgetDollars: input.prefilledBudgetDollars,
+    confirmedUse: null,
+    confirmedBudgetDollars: null,
+    interpretationClaimVersion: input.interpretationClaimVersion,
+    recommendationClaim: null,
+    recommendation: null,
+    notice: input.notice,
+    expiresAtMs: input.expiresAtMs,
+  };
+}
+
+function current(store: object, sessionId: string, now: number): NeedsDraft | "expired" | "missing" {
+  const draft = needsDraftsFor(store).get(sessionId) ?? null;
+  if (!draft) return "missing";
+  if (now >= draft.expiresAtMs) {
+    needsDraftsFor(store).delete(sessionId);
+    return "expired";
+  }
+  return draft;
+}
+
+/** Saves the shopper's own controls. Does not call a provider and does not confirm them. */
+export function saveStructuredNeeds(
+  store: object,
+  sessionId: string,
+  input: {
+    readonly submittedVersion: number | null;
+    readonly language: JourneyLanguage;
+    readonly shopperText: string;
+    readonly use: IntendedUse | null;
+    readonly budgetDollars: string | null;
+    readonly notice: NeedsNotice;
+    readonly expiresAtMs: number;
+    readonly now: number;
+  },
+): NeedsDraft | DraftRefusal {
+  const existing = current(store, sessionId, input.now);
+  if (existing === "expired") return "expired";
+  if (existing !== "missing" && input.submittedVersion !== null && input.submittedVersion !== existing.version) return "stale";
+  if (existing !== "missing" && input.submittedVersion === null) return "stale";
+  const draft = freshDraft({
+    previous: existing === "missing" ? null : existing,
+    language: input.language,
+    shopperText: input.shopperText,
+    expiresAtMs: input.expiresAtMs,
+    prefilledUse: input.use,
+    prefilledBudgetDollars: input.budgetDollars,
+    notice: input.notice,
+    interpretationClaimVersion: null,
+  });
+  needsDraftsFor(store).set(sessionId, draft);
+  return draft;
+}
+
+/**
+ * Claims one interpretation for this version inside this process, or replaces the draft with a new version.
+ * A second caller that still names the claimed version does not receive another claim.
+ */
+export function beginInterpretation(
+  store: object,
+  sessionId: string,
+  input: {
+    readonly submittedVersion: number | null;
+    readonly language: JourneyLanguage;
+    readonly shopperText: string;
+    readonly expiresAtMs: number;
+    readonly now: number;
+  },
+): { readonly kind: "claimed"; readonly draft: NeedsDraft } | { readonly kind: DraftRefusal } {
+  const existing = current(store, sessionId, input.now);
+  if (existing === "expired") return { kind: "expired" };
+  if (existing !== "missing" && input.submittedVersion !== null && input.submittedVersion !== existing.version) return { kind: "stale" };
+  if (existing !== "missing" && input.submittedVersion === null) return { kind: "stale" };
+  const text = boundText(input.shopperText);
+  if (
+    existing !== "missing" &&
+    input.submittedVersion === existing.version &&
+    existing.interpretationClaimVersion === existing.version &&
+    existing.shopperText === text
+  ) {
+    return { kind: "duplicate" };
+  }
+  const draft = freshDraft({
+    previous: existing === "missing" ? null : existing,
+    language: input.language,
+    shopperText: text,
+    expiresAtMs: input.expiresAtMs,
+    prefilledUse: null,
+    prefilledBudgetDollars: null,
+    notice: null,
+    interpretationClaimVersion: (existing === "missing" ? 0 : existing.version) + 1,
+  });
+  needsDraftsFor(store).set(sessionId, draft);
+  return { kind: "claimed", draft };
+}
+
+/** Writes an interpretation only onto the version that was claimed. A newer draft is left as it is. */
+export function applyInterpretation(
+  store: object,
+  sessionId: string,
+  draftId: string,
+  version: number,
+  patch: Pick<NeedsDraft, "prefilledUse" | "prefilledBudgetDollars" | "notice">,
+  now: number,
+): boolean {
+  const existing = current(store, sessionId, now);
+  if (existing === "expired" || existing === "missing") return false;
+  if (existing.draftId !== draftId || existing.version !== version || existing.interpretationClaimVersion !== version) return false;
+  needsDraftsFor(store).set(sessionId, { ...existing, ...patch });
+  return true;
+}
+
+/**
+ * Clarification write for a live, session-owned draft. Retains shopperText and language.
+ * Increments the version and clears confirmation and recommendation. Invalid or omitted
+ * structured values leave the draft unchanged. Session liveness, ownership, expiry, and
+ * version are checked in this synchronous step. Single-process only.
+ */
+export function mergeClarification(
+  store: object,
+  sessionId: string,
+  input: {
+    readonly draftId: string;
+    readonly version: number;
+    readonly use: IntendedUse | null;
+    readonly budgetDollars: string | null;
+    readonly expiresAtMs: number;
+    readonly now: number;
+  },
+  sessionIsLive: () => boolean,
+): NeedsDraft | ClarificationRefusal {
+  if (!sessionIsLive()) return "session_dead";
+  const existing = current(store, sessionId, input.now);
+  if (existing === "expired") return "expired";
+  if (existing === "missing") return "missing";
+  if (existing.draftId !== input.draftId) return "missing";
+  if (existing.version !== input.version) return "stale";
+  if (input.use === null || input.budgetDollars === null) return "invalid";
+  const draft = freshDraft({
+    previous: existing,
+    language: existing.language,
+    shopperText: existing.shopperText,
+    expiresAtMs: input.expiresAtMs,
+    prefilledUse: input.use,
+    prefilledBudgetDollars: input.budgetDollars,
+    notice: "review",
+    interpretationClaimVersion: null,
+  });
+  needsDraftsFor(store).set(sessionId, draft);
+  return draft;
+}
+
+/**
+ * Claims one follow-up interpretation without clearing a confirmation.
+ * The previous supported fields stay until `commitFollowUp` writes the merge.
+ */
+export function claimFollowUp(
+  store: object,
+  sessionId: string,
+  input: {
+    readonly draftId: string;
+    readonly version: number;
+    readonly shopperText: string;
+    readonly expiresAtMs: number;
+    readonly now: number;
+  },
+  sessionIsLive: () => boolean,
+): { readonly kind: "claimed"; readonly draft: NeedsDraft } | { readonly kind: "duplicate" | ClarificationRefusal } {
+  if (!sessionIsLive()) return { kind: "session_dead" };
+  const existing = current(store, sessionId, input.now);
+  if (existing === "expired") return { kind: "expired" };
+  if (existing === "missing") return { kind: "missing" };
+  if (existing.draftId !== input.draftId) return { kind: "missing" };
+  if (existing.version !== input.version) return { kind: "stale" };
+  const text = boundText(input.shopperText);
+  if (text.length === 0) return { kind: "invalid" };
+  if (existing.shopperText === text && existing.interpretationClaimVersion === existing.version) return { kind: "duplicate" };
+  const draft: NeedsDraft = {
+    ...existing,
+    version: existing.version + 1,
+    shopperText: text,
+    interpretationClaimVersion: existing.version + 1,
+    expiresAtMs: input.expiresAtMs,
+  };
+  needsDraftsFor(store).set(sessionId, draft);
+  return { kind: "claimed", draft };
+}
+
+/** Writes a follow-up merge onto the claimed version. Withdraws confirmation only when asked. */
+export function commitFollowUp(
+  store: object,
+  sessionId: string,
+  draftId: string,
+  version: number,
+  patch: {
+    readonly prefilledUse: IntendedUse | null;
+    readonly prefilledBudgetDollars: string | null;
+    readonly notice: NeedsNotice | null;
+    readonly withdrawConfirmation: boolean;
+  },
+  now: number,
+): NeedsDraft | null {
+  const existing = current(store, sessionId, now);
+  if (existing === "expired" || existing === "missing") return null;
+  if (existing.draftId !== draftId || existing.version !== version || existing.interpretationClaimVersion !== version) return null;
+  const draft: NeedsDraft = {
+    ...existing,
+    prefilledUse: patch.prefilledUse,
+    prefilledBudgetDollars: patch.prefilledBudgetDollars,
+    notice: patch.notice,
+    confirmedUse: patch.withdrawConfirmation ? null : existing.confirmedUse,
+    confirmedBudgetDollars: patch.withdrawConfirmation ? null : existing.confirmedBudgetDollars,
+    recommendation: patch.withdrawConfirmation ? null : existing.recommendation,
+    recommendationClaim: patch.withdrawConfirmation ? null : existing.recommendationClaim,
+  };
+  needsDraftsFor(store).set(sessionId, draft);
+  return draft;
+}
+
+/**
+ * Structured correction. An unconfirmed draft uses the existing clarification write.
+ * A confirmed draft is left unchanged when the posted pair matches it. A different pair
+ * becomes an unconfirmed summary; the confirmed fields are not replaced in place.
+ */
+export function proposeStructuredRevision(
+  store: object,
+  sessionId: string,
+  input: {
+    readonly draftId: string;
+    readonly version: number;
+    readonly use: IntendedUse | null;
+    readonly budgetDollars: string | null;
+    readonly expiresAtMs: number;
+    readonly now: number;
+  },
+  sessionIsLive: () => boolean,
+):
+  | { readonly kind: "revised"; readonly draft: NeedsDraft; readonly withdrewConfirmation: boolean }
+  | { readonly kind: "unchanged" }
+  | { readonly kind: "missing" }
+  | { readonly kind: "stale" }
+  | { readonly kind: "expired" }
+  | { readonly kind: "invalid" }
+  | { readonly kind: "session_dead" } {
+  if (!sessionIsLive()) return { kind: "session_dead" };
+  const existing = current(store, sessionId, input.now);
+  if (existing === "expired") return { kind: "expired" };
+  if (existing === "missing") return { kind: "missing" };
+  if (existing.draftId !== input.draftId) return { kind: "missing" };
+  if (existing.version !== input.version) return { kind: "stale" };
+  if (input.use === null || input.budgetDollars === null) return { kind: "invalid" };
+  if (existing.confirmedUse !== null || existing.confirmedBudgetDollars !== null) {
+    if (existing.confirmedUse === input.use && existing.confirmedBudgetDollars === input.budgetDollars) return { kind: "unchanged" };
+    const draft = freshDraft({
+      previous: existing,
+      language: existing.language,
+      shopperText: existing.shopperText,
+      expiresAtMs: input.expiresAtMs,
+      prefilledUse: input.use,
+      prefilledBudgetDollars: input.budgetDollars,
+      notice: "review",
+      interpretationClaimVersion: null,
+    });
+    needsDraftsFor(store).set(sessionId, draft);
+    return { kind: "revised", draft, withdrewConfirmation: true };
+  }
+  const merged = mergeClarification(store, sessionId, input, sessionIsLive);
+  if (merged === "session_dead") return { kind: "session_dead" };
+  if (merged === "stale") return { kind: "stale" };
+  if (merged === "expired") return { kind: "expired" };
+  if (merged === "missing") return { kind: "missing" };
+  if (merged === "invalid") return { kind: "invalid" };
+  return { kind: "revised", draft: merged, withdrewConfirmation: false };
+}
+
+/** Stores a confirmed use and budget. The interpretation notice is cleared only on that write. */
+export function confirmNeeds(
+  store: object,
+  sessionId: string,
+  input: {
+    readonly draftId: string;
+    readonly version: number;
+    readonly use: IntendedUse;
+    readonly budgetDollars: string;
+    readonly now: number;
+  },
+): NeedsDraft | DraftRefusal {
+  const existing = current(store, sessionId, input.now);
+  if (existing === "expired" || existing === "missing") return existing === "expired" ? "expired" : "missing";
+  if (existing.draftId !== input.draftId || existing.version !== input.version) return "stale";
+  if (existing.confirmedUse !== null || existing.confirmedBudgetDollars !== null) {
+    if (existing.confirmedUse === input.use && existing.confirmedBudgetDollars === input.budgetDollars) return existing;
+    return "conflict";
+  }
+  const draft: NeedsDraft = { ...existing, confirmedUse: input.use, confirmedBudgetDollars: input.budgetDollars, notice: null };
+  needsDraftsFor(store).set(sessionId, draft);
+  return draft;
+}
+
+export function claimRecommendation(store: object, sessionId: string, draftId: string, version: number, now: number): "claimed" | DraftRefusal {
+  const existing = current(store, sessionId, now);
+  if (existing === "expired" || existing === "missing") return existing === "expired" ? "expired" : "missing";
+  if (existing.draftId !== draftId || existing.version !== version) return "stale";
+  if (existing.confirmedUse === null || existing.confirmedBudgetDollars === null) return "unconfirmed";
+  if (existing.recommendationClaim !== null) return "duplicate";
+  needsDraftsFor(store).set(sessionId, { ...existing, recommendationClaim: "pending" });
+  return "claimed";
+}
+
+export function finishRecommendation(
+  store: object,
+  sessionId: string,
+  draftId: string,
+  version: number,
+  outcome: "completed" | "failed",
+  recommendation: RetainedRecommendation | null,
+  now: number,
+): boolean {
+  const existing = current(store, sessionId, now);
+  if (existing === "expired" || existing === "missing") return false;
+  if (existing.draftId !== draftId || existing.version !== version || existing.recommendationClaim !== "pending") return false;
+  needsDraftsFor(store).set(sessionId, {
+    ...existing,
+    recommendationClaim: outcome,
+    recommendation: outcome === "completed" ? recommendation : null,
+  });
+  return true;
 }

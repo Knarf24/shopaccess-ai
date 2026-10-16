@@ -49,6 +49,16 @@ export interface IssuedPgSession {
   readonly issuedCookie: PgSessionCookie | null;
 }
 
+/**
+ * The credential a session object was resolved from, as the checkout entry points take it: the key version and the
+ * token digest. Server-side only. It is passed to an entry point and to nothing else: never to a response, a log
+ * or a component.
+ */
+export interface PgSessionCredential {
+  readonly keyVersion: number;
+  readonly tokenDigest: string;
+}
+
 export type PgSessionRejection = "NOT_AUTHORIZED";
 export type PgAdmissionRefusal = "RATE_LIMITED" | "AT_CAPACITY" | "KEY_UNAVAILABLE" | "REFUSED";
 export type PgRotationRefusal = "NOT_AUTHORIZED" | "KEY_UNAVAILABLE";
@@ -77,6 +87,11 @@ export interface PgSessionService {
    */
   rotate(session: PgSession, cookie: PgSessionCookie): Promise<Result<IssuedPgSession, PgRotationRefusal>>;
   revoke(cookie: PgSessionCookie | null): Promise<void>;
+  /**
+   * The credential of a session object this instance returned. Null for any other object, and for a session whose
+   * credential a rotation has since replaced. The digest still originates only inside this service.
+   */
+  credentialOf(session: PgSession): PgSessionCredential | null;
   verifyCsrfToken(session: PgSession, presented: string | null): boolean;
   cookieMaxAgeSeconds(session: PgSession): number;
 }
@@ -100,6 +115,21 @@ function requireSessionId(value: unknown): string {
 function requireDate(value: unknown): Date {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw new Error("Entry point returned an invalid timestamp");
   return value;
+}
+
+/**
+ * A refusal of a session entry point carries nothing: every column after `result` is present and NULL (migration
+ * 0006). A row that names a refusal and carries a value, or lacks a column, is not that refusal: it is refused as
+ * a malformed answer, like any other row that is not what the entry point returns.
+ */
+const ADMIT_REFUSAL_COLUMNS = ["absolute_expires_at", "idle_expires_at"] as const;
+const AUTHORIZE_REFUSAL_COLUMNS = ["session_id", "absolute_expires_at", "idle_expires_at", "key_status"] as const;
+const ROTATE_REFUSAL_COLUMNS = ["session_id", "absolute_expires_at", "idle_expires_at"] as const;
+
+function requireEmptyRefusal(row: Record<string, unknown>, columns: readonly string[]): void {
+  for (const column of columns) {
+    if (row[column] !== null) throw new Error("Entry point returned a refusal that is not empty");
+  }
 }
 
 /** The credential a session object was resolved from. Held by the service, never by the caller. */
@@ -166,6 +196,7 @@ export function createPgSessionService(deps: PgSessionServiceDeps): PgSessionSer
     const derived = derive(cookie.keyVersion, cookie.token);
     if (!derived) return err("NOT_AUTHORIZED");
     const row = firstRow((await call(statements.authorizeSession, [cookie.keyVersion, derived.tokenDigest])).rows);
+    if (row.result === "NOT_AUTHORIZED") requireEmptyRefusal(row, AUTHORIZE_REFUSAL_COLUMNS);
     if (row.result !== "AUTHORIZED") return err("NOT_AUTHORIZED");
     if (row.key_status !== "ACTIVE" && row.key_status !== "VERIFY_ONLY") {
       throw new Error("authorize_session returned an unexpected row");
@@ -214,13 +245,17 @@ export function createPgSessionService(deps: PgSessionServiceDeps): PgSessionSer
             issuedCookie: { keyVersion: state.activeVersion, token },
           });
         case "RATE_LIMITED":
+          requireEmptyRefusal(row, ADMIT_REFUSAL_COLUMNS);
           return err("RATE_LIMITED");
         case "AT_CAPACITY":
+          requireEmptyRefusal(row, ADMIT_REFUSAL_COLUMNS);
           return err("AT_CAPACITY");
         case "KEY_NOT_ACTIVE":
+          requireEmptyRefusal(row, ADMIT_REFUSAL_COLUMNS);
           keyState = null;
           continue;
         case "REFUSED":
+          requireEmptyRefusal(row, ADMIT_REFUSAL_COLUMNS);
           return err("REFUSED");
         default:
           throw new Error("admit_session returned an unexpected result");
@@ -284,8 +319,10 @@ export function createPgSessionService(deps: PgSessionServiceDeps): PgSessionSer
               issuedCookie: { keyVersion: state.activeVersion, token },
             });
           case "NOT_AUTHORIZED":
+            requireEmptyRefusal(row, ROTATE_REFUSAL_COLUMNS);
             return err("NOT_AUTHORIZED");
           case "KEY_NOT_ACTIVE":
+            requireEmptyRefusal(row, ROTATE_REFUSAL_COLUMNS);
             keyState = null;
             continue;
           default:
@@ -301,6 +338,11 @@ export function createPgSessionService(deps: PgSessionServiceDeps): PgSessionSer
       const derived = derive(cookie.keyVersion, cookie.token);
       if (!derived) return;
       await call(statements.revokeSession, [cookie.keyVersion, derived.tokenDigest]);
+    },
+
+    credentialOf(session) {
+      const binding = bindings.get(session);
+      return binding ? Object.freeze({ keyVersion: binding.keyVersion, tokenDigest: binding.tokenDigest }) : null;
     },
 
     verifyCsrfToken(session, presented) {

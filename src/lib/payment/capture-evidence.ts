@@ -17,11 +17,29 @@ const CaptureEvidenceSchema = z.object({
   amountCents: z.number().int().positive().refine(Number.isSafeInteger),
   currency: z.string().min(1).max(8),
   merchantId: z.string().min(1).max(64),
-  refundedCents: z.number().int().nonnegative().refine(Number.isSafeInteger),
-  reversedOrDisputed: z.boolean(),
+  refundedCents: z.number().int().nonnegative().refine(Number.isSafeInteger).nullish(),
+  reversedOrDisputed: z.boolean().nullish(),
+  paypalMerchantId: z.string().min(1).max(64).nullish(),
+  correlationId: z.string().min(1).max(127).nullish(),
 });
 
-export type VerifiedCaptureEvidence = Readonly<z.infer<typeof CaptureEvidenceSchema>>;
+export interface VerifiedCaptureEvidence {
+  readonly captureId: string;
+  readonly requestId: string;
+  readonly orderId: string;
+  readonly status: "COMPLETED" | "PENDING" | "DECLINED";
+  readonly amountCents: number;
+  readonly currency: string;
+  readonly merchantId: string;
+  /** Null when the provider body did not report a refund. That is not a report of zero. */
+  readonly refundedCents: number | null;
+  /** Null when the provider body did not report a dispute or reversal. That is not a report of false. */
+  readonly reversedOrDisputed: boolean | null;
+  /** Present only when the caller asked for a sandbox payee check. */
+  readonly paypalMerchantId?: string | null;
+  /** Present only when the caller asked for a sandbox payee check. */
+  readonly correlationId?: string | null;
+}
 
 export type CaptureEvidenceRejection =
   | "EVIDENCE_INCOMPLETE"
@@ -31,7 +49,9 @@ export type CaptureEvidenceRejection =
   | "AMOUNT_MISMATCH"
   | "CURRENCY_MISMATCH"
   | "MERCHANT_MISMATCH"
-  | "CAPTURE_ID_CHANGED";
+  | "CAPTURE_ID_CHANGED"
+  | "PAYEE_MISMATCH"
+  | "CORRELATION_MISMATCH";
 
 /** What the capture must match: the immutable authorized quote and the recorded order and operation. */
 export interface ExpectedCapture {
@@ -42,6 +62,9 @@ export interface ExpectedCapture {
   readonly merchantId: string;
   /** Capture ID already recorded for this operation (for example while pending), if any. */
   readonly knownCaptureId: string | null;
+  /** Set for sandbox captures. Mock callers omit both and the payee check does not run. */
+  readonly paypalMerchantId?: string;
+  readonly correlationId?: string;
 }
 
 /**
@@ -54,15 +77,35 @@ export function validateCaptureEvidence(raw: unknown, expected: ExpectedCapture)
   const parsed = CaptureEvidenceSchema.safeParse(raw);
   if (!parsed.success) return err("EVIDENCE_INCOMPLETE");
   const capture = parsed.data;
+  const refundedCents = capture.refundedCents ?? null;
+  const reversedOrDisputed = capture.reversedOrDisputed ?? null;
+  const paypalMerchantId = capture.paypalMerchantId ?? null;
+  const correlationId = capture.correlationId ?? null;
 
-  if (capture.refundedCents > capture.amountCents) return err("EVIDENCE_INCONSISTENT");
+  if (refundedCents !== null && refundedCents > capture.amountCents) return err("EVIDENCE_INCONSISTENT");
   if (capture.requestId !== expected.providerRequestId) return err("REQUEST_MISMATCH");
   if (capture.orderId !== expected.providerOrderId) return err("ORDER_MISMATCH");
   if (capture.amountCents !== expected.totalCents) return err("AMOUNT_MISMATCH");
   if (capture.currency !== expected.currency) return err("CURRENCY_MISMATCH");
   if (capture.merchantId !== expected.merchantId) return err("MERCHANT_MISMATCH");
+  if (expected.paypalMerchantId !== undefined) {
+    if (paypalMerchantId !== expected.paypalMerchantId) return err("PAYEE_MISMATCH");
+    if (correlationId !== expected.correlationId) return err("CORRELATION_MISMATCH");
+  }
   if (expected.knownCaptureId !== null && capture.captureId !== expected.knownCaptureId) return err("CAPTURE_ID_CHANGED");
-  return ok(Object.freeze(capture));
+  const verified = {
+    captureId: capture.captureId,
+    requestId: capture.requestId,
+    orderId: capture.orderId,
+    status: capture.status,
+    amountCents: capture.amountCents,
+    currency: capture.currency,
+    merchantId: capture.merchantId,
+    refundedCents,
+    reversedOrDisputed,
+  };
+  if (expected.paypalMerchantId === undefined) return ok(Object.freeze(verified));
+  return ok(Object.freeze({ ...verified, paypalMerchantId, correlationId }));
 }
 
 /** Pulls display-safe identifiers out of rejected evidence so the conflicting observation can still be recorded. */

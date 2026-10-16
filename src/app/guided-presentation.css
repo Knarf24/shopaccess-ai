@@ -1,0 +1,350 @@
+/* Mock guided shopping only. Every selector stays under .guided-presentation. */
+
+.guided-presentation {
+  --gp-ink: #173437;
+  --gp-teal: #0f5556;
+  --gp-teal-soft: #dff0ed;
+  --gp-cream: #f8f7f2;
+  --gp-paper: #fffefa;
+  --gp-line: #d9e2dc;
+  --gp-muted: #3f5552;
+  --gp-focus: #efad4d;
+  background: var(--gp-cream);
+  color: var(--gp-ink);
+  min-height: 100vh;
+  width: 100%;
+}
+
+.guided-presentation :focus-visible {
+  outline: 3px solid var(--gp-focus);
+  outline-offset: 3px;
+}
+
+.guided-presentation .skip-link {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.guided-presentation .skip-link:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  overflow: visible;
+  clip-path: none;
+  white-space: normal;
+  background: var(--gp-paper);
+  color: var(--gp-ink);
+  border-radius: 8px;
+}
+
+.guided-presentation h1,
+.guided-presentation h2,
+.guided-presentation h3 {
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+.guided-presentation .home-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 28px;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.guided-presentation .guided-entry {
+  max-width: 36rem;
+  padding: 20px;
+  background: var(--gp-paper);
+  border: 1px solid var(--gp-line);
+  border-radius: 14px;
+}
+
+.guided-presentation .guided-entry legend {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.guided-presentation .guided-entry label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.guided-presentation .guided-entry button,
+.guided-presentation .direct-entry button[type="submit"],
+.guided-presentation .journey-form button[type="submit"],
+.guided-presentation .eligible-card button[type="submit"],
+.guided-presentation form[aria-labelledby="confirm-heading"] button[type="submit"]:enabled {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--gp-teal);
+  color: #fff;
+  font-weight: 700;
+}
+
+.guided-presentation .demo-illustration {
+  margin: 0;
+  background: #dbece6;
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.guided-presentation .demo-illustration img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 12px;
+}
+
+.guided-presentation .demo-illustration figcaption {
+  margin-top: 8px;
+  color: var(--gp-muted);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.guided-presentation .sandbox-notice {
+  background: #fff8e8;
+  border-color: #e7b257;
+  color: var(--gp-ink);
+}
+
+.guided-presentation .direct-entry,
+.guided-presentation .journey-form,
+.guided-presentation .journey-panel,
+.guided-presentation .advisory-panel,
+.guided-presentation .comparison,
+.guided-presentation .purchase-guidance,
+.guided-presentation .eligible-card,
+.guided-presentation .excluded-card {
+  background: var(--gp-paper);
+  border: 1px solid var(--gp-line);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.guided-presentation .presentation-column {
+  width: 100%;
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 2.5rem 1rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.guided-presentation .presentation-column-narrow {
+  max-width: 48rem;
+}
+
+.guided-presentation .catalog-board article {
+  background: var(--gp-paper);
+  color: var(--gp-ink);
+  border-color: var(--gp-line);
+}
+
+.guided-presentation .catalog-board article li {
+  background: var(--gp-paper);
+  color: var(--gp-ink);
+  border-color: var(--gp-line);
+}
+
+.guided-presentation .catalog-board article h3 {
+  color: var(--gp-ink);
+}
+
+.guided-presentation .catalog-board article p {
+  color: var(--gp-ink);
+}
+
+.guided-presentation .catalog-board article dt {
+  color: var(--gp-ink);
+}
+
+.guided-presentation .catalog-board article dd {
+  color: var(--gp-ink);
+}
+
+.guided-presentation .catalog-board img {
+  max-height: 140px;
+  width: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.guided-presentation .product-illustration {
+  display: block;
+  width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.guided-presentation .journey-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.guided-presentation .journey-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  color: var(--gp-muted);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.guided-presentation .journey-steps li[aria-current="step"] {
+  color: var(--gp-teal);
+  font-weight: 700;
+}
+
+.guided-presentation .step-index {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--gp-line);
+  border-radius: 999px;
+  font-size: 0.75rem;
+}
+
+.guided-presentation .journey-steps li[aria-current="step"] .step-index {
+  background: var(--gp-teal);
+  border-color: var(--gp-teal);
+  color: #fff;
+}
+
+.guided-presentation .step-label {
+  min-width: 0;
+  white-space: normal;
+  overflow: visible;
+}
+
+.guided-presentation .journey-form,
+.guided-presentation .journey-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 40rem;
+}
+
+.guided-presentation .journey-form input,
+.guided-presentation .journey-form select,
+.guided-presentation .journey-form textarea,
+.guided-presentation .journey-panel input,
+.guided-presentation .journey-panel select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid #bfcfca;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--gp-ink);
+  font: inherit;
+}
+
+.guided-presentation .admission-screen .guided-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.guided-presentation .admission-screen input[type="password"] {
+  border-color: var(--gp-teal);
+}
+
+.guided-presentation .original-request {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid #e7b257;
+  background: #fff8e8;
+}
+
+.guided-presentation .assessment-languages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.guided-presentation .eligible-list,
+.guided-presentation .excluded-list,
+.guided-presentation .advisory-panel ul {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guided-presentation .excluded-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.guided-presentation .limitation {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 3px solid #e7b257;
+  background: #fff8e8;
+  line-height: 1.5;
+}
+
+.guided-presentation .purchase-guidance {
+  max-width: 40rem;
+}
+
+@media (max-width: 720px) {
+  .guided-presentation .home-hero,
+  .guided-presentation .excluded-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 390px) {
+  .guided-presentation .presentation-column {
+    padding: 1.5rem 0.75rem 2rem;
+  }
+
+  .guided-presentation .journey-steps {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .guided-presentation .guided-entry button,
+  .guided-presentation .direct-entry button[type="submit"],
+  .guided-presentation .journey-form button[type="submit"],
+  .guided-presentation .eligible-card button[type="submit"],
+  .guided-presentation form[aria-labelledby="confirm-heading"] button[type="submit"]:enabled {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guided-presentation *,
+  .guided-presentation *::before,
+  .guided-presentation *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

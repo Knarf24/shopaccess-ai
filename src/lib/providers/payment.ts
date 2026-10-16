@@ -13,6 +13,14 @@ export interface ProviderOrder {
   readonly amountCents: number;
   readonly currency: string;
   readonly merchantId: string;
+  /** Present only when a sandbox create response produced a validated approval URL. */
+  readonly approvalUrl?: string | null;
+  /** Provider status text for the observation. Mock orders omit it and the local status is used. */
+  readonly reportedStatus?: string;
+  /** Observed PayPal merchant id. Mock orders omit it. */
+  readonly paypalMerchantId?: string | null;
+  /** Observed custom_id. Mock orders omit it. */
+  readonly correlationId?: string | null;
 }
 
 export interface ProviderCapture {
@@ -23,8 +31,14 @@ export interface ProviderCapture {
   readonly amountCents: number;
   readonly currency: string;
   readonly merchantId: string;
-  readonly refundedCents: number;
-  readonly reversedOrDisputed: boolean;
+  /** Omitted sandbox evidence is unknown. The mock still reports a number. */
+  readonly refundedCents?: number | null;
+  /** Omitted sandbox evidence is unknown. The mock still reports a boolean. */
+  readonly reversedOrDisputed?: boolean | null;
+  /** Observed PayPal merchant id. Absent on mock captures. */
+  readonly paypalMerchantId?: string | null;
+  /** Observed custom_id. Absent on mock captures. */
+  readonly correlationId?: string | null;
 }
 
 /** NO_RESPONSE means the outcome is unknown: the request may or may not have been applied. */
@@ -44,6 +58,10 @@ export interface CreateOrderRequest {
   readonly amountCents: number;
   readonly currency: string;
   readonly merchantId: string;
+  /** Sandbox orders need these to build custom_id and the return URLs. The mock ignores them. */
+  readonly quoteId?: string;
+  readonly intentId?: string;
+  readonly returnOrigin?: string;
 }
 
 export interface CaptureOrderRequest {
@@ -132,7 +150,7 @@ export class MockPaymentProvider implements PaymentProvider {
   simulateExternalRefund(captureId: string, amountCents: number): void {
     this.updateCapture(captureId, (capture) => ({
       ...capture,
-      refundedCents: Math.min(capture.amountCents, capture.refundedCents + amountCents),
+      refundedCents: Math.min(capture.amountCents, (capture.refundedCents ?? 0) + amountCents),
     }));
   }
 

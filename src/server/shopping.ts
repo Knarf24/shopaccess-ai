@@ -1,14 +1,40 @@
 import { z } from "zod";
+import { findMerchantVariant } from "@/lib/catalog/merchant-catalog";
 import type { ExternalProduct, MerchantProduct, MerchantVariant } from "@/lib/catalog/schemas";
-import { explainAssessmentSafely, suggestProductsSafely, type SafeExplanation } from "@/lib/providers/ai";
+import {
+  describeAssessment,
+  explainAssessmentSafely,
+  formatAdvisoryFailureDiagnostic,
+  suggestProductsSafely,
+  type AdvisoryFailureDiagnostic,
+  type EligibleAdvisoryProduct,
+  type InterpretationOutput,
+  type SafeExplanation,
+} from "@/lib/providers/ai";
 import {
   assessReadiness,
   evidenceFromMerchantVariant,
   INTENDED_USES,
   type EvidenceItem,
+  type EvidenceQuality,
+  type FactKey,
+  type FactorKey,
+  type FactorOutcome,
   type IntendedUse,
   type ReadinessAssessment,
+  type ReadinessStatus,
 } from "@/lib/readiness/engine";
+import type { NeedsNotice } from "@/lib/i18n/needs-notice";
+import { readConversation, type ConversationState } from "@/lib/session/conversation";
+import type { Session } from "@/lib/session/service";
+import {
+  claimRecommendation,
+  finishRecommendation,
+  needsDraftsFor,
+  type JourneyLanguage,
+  type NeedsDraft,
+  type RetainedRecommendation,
+} from "@/lib/session/store";
 import type { Runtime } from "./runtime";
 
 export const USE_LABELS: Record<IntendedUse, string> = {
@@ -48,20 +74,55 @@ export interface AssessedVariant {
   readonly quotable: boolean;
 }
 
+export interface AdvisoryRecommendation {
+  readonly productId: string;
+  readonly variantId: string;
+  readonly title: string;
+  readonly label: string;
+  readonly unitAmountCents: number;
+  readonly currency: "USD";
+}
+
 export interface ShoppingView {
   readonly preferences: ShopperPreferences;
   readonly assistantMessage: string | null;
   readonly merchantName: string;
   readonly variants: readonly AssessedVariant[];
   readonly external: readonly ExternalProduct[];
+  /** Present only when the external advisory provider built this view. */
+  readonly recommendations?: readonly AdvisoryRecommendation[];
+  /** Present only on the external path. The local path keeps the panel's existing label. */
+  readonly explanationLabel?: string;
+}
+
+const EXTERNAL_EXPLANATION_LABEL = "Assessment summary (deterministic, advisory only): ";
+const SUITABLE_RECOMMENDATIONS = "These catalog items meet the stated use and budget.";
+const NO_CATALOG_MATCH = "No catalog item meets this use and budget.";
+const NO_SUGGESTION_MATCH = "No suggestion matched a catalog item that meets this use and budget.";
+
+/** Process-local. A restart drops the recorded producer. It is not part of the snapshot. */
+const suggestionSources = new WeakMap<object, Map<string, "mock" | "model">>();
+
+function suggestionSourceKey(sessionId: string, draftId: string, version: number): string {
+  return `${sessionId}:${draftId}:${version}`;
+}
+
+function rememberSuggestionSource(store: object, sessionId: string, draftId: string, version: number, source: "mock" | "model"): void {
+  const sources = suggestionSources.get(store) ?? new Map<string, "mock" | "model">();
+  sources.set(suggestionSourceKey(sessionId, draftId, version), source);
+  suggestionSources.set(store, sources);
+}
+
+export function readSuggestionSource(store: object, sessionId: string, draftId: string, version: number): "mock" | "model" | null {
+  return suggestionSources.get(store)?.get(suggestionSourceKey(sessionId, draftId, version)) ?? null;
 }
 
 const STATUS_ORDER = { READY: 0, READY_WITH_CAVEATS: 1, INSUFFICIENT_EVIDENCE: 2, NOT_RECOMMENDED: 3 } as const;
 
 /**
- * Builds the recommendations page: a deterministic assessment for every demo
- * variant, an advisory explanation from the local mock AI, and separately
- * listed external discovery results that cannot be checked out.
+ * Builds the recommendations page. Assessments are always the deterministic engine.
+ * The local assistant explains each variant and suggests once. The external provider
+ * is asked for one suggestion and is not asked to explain or to start a checkout.
  */
 export async function buildShoppingView(runtime: Runtime, preferences: ShopperPreferences): Promise<ShoppingView> {
   const now = runtime.clock();
@@ -88,12 +149,12 @@ export async function buildShoppingView(runtime: Runtime, preferences: ShopperPr
         now,
       );
       if (!result.ok) continue;
-      const explained = await explainAssessmentSafely(runtime.ai, result.value, "Explain this assessment in plain language.");
+      const explanation = await explanationFor(runtime, result.value);
       variants.push({
         product,
         variant,
         assessment: result.value,
-        explanation: explained.ok ? explained.value : null,
+        explanation,
         quotable: variant.availability === "IN_STOCK",
       });
     }
@@ -102,13 +163,446 @@ export async function buildShoppingView(runtime: Runtime, preferences: ShopperPr
     (a, b) => STATUS_ORDER[a.assessment.status] - STATUS_ORDER[b.assessment.status] || a.variant.unitAmountCents - b.variant.unitAmountCents,
   );
 
-  const suggestion = await suggestProductsSafely(runtime.ai, runtime.catalog, `Laptop for ${USE_LABELS[preferences.use]}`);
+  const external = runtime.advisory === "external";
+  const shopperMessage = `Laptop for ${USE_LABELS[preferences.use]}`;
   const discovered = await runtime.discovery.search("");
+  if (!external) {
+    const suggestion = await suggestProductsSafely(runtime.ai, runtime.catalog, shopperMessage);
+    return {
+      preferences,
+      assistantMessage: suggestion.ok ? suggestion.value.message : null,
+      merchantName: runtime.catalog.merchant.displayName,
+      variants,
+      external: discovered.products,
+    };
+  }
+
+  const eligible = variants.filter((entry) => variantQualifies(entry, preferences.budgetCents));
+  if (eligible.length === 0) {
+    return externalView(preferences, runtime, variants, discovered.products, NO_CATALOG_MATCH, []);
+  }
+  const suggestion = await suggestProductsSafely(runtime.ai, runtime.catalog, shopperMessage, recordExternalAdvisoryFailure, {
+    intendedUse: preferences.use,
+    budgetCents: preferences.budgetCents,
+    products: eligible.map(eligibleProduct),
+  });
+  if (!suggestion.ok) return externalView(preferences, runtime, variants, discovered.products, null, []);
+  const seen = new Set<string>();
+  const matched = suggestion.value.references.filter((reference) => {
+    const key = `${reference.productId}:${reference.variantId}`;
+    if (seen.has(key)) return false;
+    const qualifies = eligible.some((entry) => entry.product.productId === reference.productId && entry.variant.variantId === reference.variantId);
+    if (!qualifies) return false;
+    seen.add(key);
+    return true;
+  });
+  if (matched.length === 0) return externalView(preferences, runtime, variants, discovered.products, NO_SUGGESTION_MATCH, []);
+  return externalView(preferences, runtime, variants, discovered.products, SUITABLE_RECOMMENDATIONS, recommendationsFrom(runtime, matched));
+}
+
+function externalView(
+  preferences: ShopperPreferences,
+  runtime: Runtime,
+  variants: readonly AssessedVariant[],
+  external: ShoppingView["external"],
+  assistantMessage: string | null,
+  recommendations: readonly AdvisoryRecommendation[],
+): ShoppingView {
   return {
     preferences,
-    assistantMessage: suggestion.ok ? suggestion.value.message : null,
+    assistantMessage,
     merchantName: runtime.catalog.merchant.displayName,
     variants,
-    external: discovered.products,
+    external,
+    recommendations,
+    explanationLabel: EXTERNAL_EXPLANATION_LABEL,
   };
 }
+
+function variantQualifies(entry: AssessedVariant, budgetCents: number): boolean {
+  const status = entry.assessment.status;
+  return (status === "READY" || status === "READY_WITH_CAVEATS") && entry.variant.unitAmountCents <= budgetCents;
+}
+
+function eligibleProduct(entry: AssessedVariant): EligibleAdvisoryProduct {
+  return {
+    productId: entry.product.productId,
+    variantId: entry.variant.variantId,
+    title: entry.product.title,
+    description: entry.product.description,
+    unitAmountCents: entry.variant.unitAmountCents,
+    currency: entry.variant.currency,
+    availability: entry.variant.availability,
+    ramGb: entry.variant.specs.ramGb,
+    storageGb: entry.variant.specs.storageGb,
+    weightKg: entry.variant.specs.weightKg,
+    assessmentStatus: entry.assessment.status,
+    assessmentFactors: entry.assessment.factors.map((factor) => ({ factor: factor.factor, outcome: factor.outcome })),
+  };
+}
+
+function recordExternalAdvisoryFailure(diagnostic: AdvisoryFailureDiagnostic): void {
+  const line = formatAdvisoryFailureDiagnostic(diagnostic);
+  if (line) console.warn(line);
+}
+
+async function explanationFor(runtime: Runtime, assessment: ReadinessAssessment): Promise<SafeExplanation | null> {
+  if (runtime.advisory === "external") {
+    return {
+      status: assessment.status,
+      explanation: describeAssessment(assessment),
+      source: "deterministic_fallback",
+      authorizesPurchase: false,
+    };
+  }
+  const explained = await explainAssessmentSafely(runtime.ai, assessment, "Explain this assessment in plain language.");
+  return explained.ok ? explained.value : null;
+}
+
+function recommendationsFrom(
+  runtime: Runtime,
+  references: readonly { productId: string; variantId: string }[],
+): AdvisoryRecommendation[] {
+  const recommendations: AdvisoryRecommendation[] = [];
+  for (const reference of references) {
+    const entry = findMerchantVariant(runtime.catalog, reference.productId, reference.variantId);
+    if (!entry) continue;
+    recommendations.push({
+      productId: entry.product.productId,
+      variantId: entry.variant.variantId,
+      title: entry.product.title,
+      label: entry.variant.label,
+      unitAmountCents: entry.variant.unitAmountCents,
+      currency: entry.variant.currency,
+    });
+  }
+  return recommendations;
+}
+
+const BUDGET_CUES = ["less than", "presupuesto", "dólares", "dolares", "máximo", "maximo", "budget", "spend", "under"];
+const SPEC_CUES = ["pulgadas", "inches", "inch", "núcleos", "nucleos", "cores", "core", "unidades", "quantity", "laptops", "laptop", "gb", "kg"];
+
+export interface BudgetReading {
+  readonly candidate: string | null;
+  readonly ambiguous: boolean;
+}
+
+function boundary(char: string): boolean {
+  return char === "" || !/[a-záéíóúñ]/i.test(char);
+}
+
+function cueDistance(left: string, right: string, phrases: readonly string[]): number | null {
+  let best: number | null = null;
+  const consider = (haystack: string, distanceAt: (at: number, phrase: string) => number) => {
+    const lower = haystack.toLowerCase();
+    for (const phrase of phrases) {
+      const needle = phrase.toLowerCase();
+      let from = 0;
+      while (from < lower.length) {
+        const at = lower.indexOf(needle, from);
+        if (at === -1) break;
+        const before = at === 0 ? "" : lower[at - 1];
+        const after = lower[at + needle.length] ?? "";
+        if (boundary(before) && boundary(after)) {
+          const distance = distanceAt(at, needle);
+          if (best === null || distance < best) best = distance;
+        }
+        from = at + 1;
+      }
+    }
+  };
+  consider(left, (at, phrase) => left.length - (at + phrase.length));
+  consider(right, (at) => at);
+  return best;
+}
+
+/** A clean budget is a 2–5 digit whole-dollar amount with a budget cue closer than any size or quantity cue. */
+export function readBudgetFromText(text: string): BudgetReading {
+  const pattern = /(^|[^\d.])(\$)?\s*([1-9][0-9]{1,4})(?![\d.])/g;
+  const candidates = new Set<string>();
+  let ambiguous = false;
+  for (const match of text.matchAll(pattern)) {
+    const value = match[3];
+    if (!value || match.index === undefined) continue;
+    const numberAt = match.index + match[0].length - value.length;
+    const left = text.slice(Math.max(0, numberAt - 48), numberAt);
+    const right = text.slice(numberAt + value.length, numberAt + value.length + 48);
+    const budgetDistance = match[2] === "$" ? 0 : cueDistance(left, right, BUDGET_CUES);
+    const specDistance = cueDistance(left, right, SPEC_CUES);
+    if (budgetDistance === null) continue;
+    if (specDistance !== null && specDistance < budgetDistance) continue;
+    if (specDistance !== null && specDistance === budgetDistance) {
+      ambiguous = true;
+      continue;
+    }
+    candidates.add(value);
+  }
+  if (ambiguous || candidates.size > 1) return { candidate: null, ambiguous: true };
+  return { candidate: [...candidates][0] ?? null, ambiguous: false };
+}
+
+export function settleShopperText(text: string, model: InterpretationOutput | "malformed" | "unavailable"): {
+  readonly prefilledUse: IntendedUse | null;
+  readonly prefilledBudgetDollars: string | null;
+  readonly notice: NeedsNotice;
+} {
+  if (model === "malformed" || model === "unavailable") {
+    return { prefilledUse: null, prefilledBudgetDollars: null, notice: model === "malformed" ? "malformed" : "unavailable" };
+  }
+  const reading = readBudgetFromText(text);
+  const modelUse = model.understoodUse;
+  const modelBudget = model.budgetDollars !== null && model.budgetDollars === reading.candidate ? model.budgetDollars : null;
+  const budget = reading.ambiguous ? null : (modelBudget ?? reading.candidate);
+  if (reading.ambiguous) return { prefilledUse: modelUse, prefilledBudgetDollars: null, notice: "ambiguous" };
+  if (modelUse === null) return { prefilledUse: null, prefilledBudgetDollars: budget, notice: "missing_use" };
+  if (budget === null) return { prefilledUse: modelUse, prefilledBudgetDollars: null, notice: "missing_budget" };
+  return { prefilledUse: modelUse, prefilledBudgetDollars: budget, notice: "review" };
+}
+
+export function mergeInterpretedNeeds(
+  typedUse: IntendedUse | null,
+  typedBudget: string | null,
+  settled: { readonly prefilledUse: IntendedUse | null; readonly prefilledBudgetDollars: string | null; readonly notice: NeedsNotice },
+): { readonly prefilledUse: IntendedUse | null; readonly prefilledBudgetDollars: string | null; readonly notice: NeedsNotice } {
+  if (settled.notice === "malformed" || settled.notice === "unavailable") {
+    return { prefilledUse: typedUse, prefilledBudgetDollars: typedBudget, notice: settled.notice };
+  }
+  if (settled.notice === "ambiguous" && typedBudget === null) {
+    return { prefilledUse: typedUse ?? settled.prefilledUse, prefilledBudgetDollars: null, notice: "ambiguous" };
+  }
+  const prefilledUse = typedUse ?? settled.prefilledUse;
+  const prefilledBudgetDollars = typedBudget ?? settled.prefilledBudgetDollars;
+  if (prefilledUse === null) return { prefilledUse: null, prefilledBudgetDollars, notice: "missing_use" };
+  if (prefilledBudgetDollars === null) return { prefilledUse, prefilledBudgetDollars: null, notice: "missing_budget" };
+  return { prefilledUse, prefilledBudgetDollars, notice: "review" };
+}
+
+const FAILURE_NOTICES = ["malformed", "unavailable"] as const;
+export type FailureNoticeCode = (typeof FAILURE_NOTICES)[number];
+
+/** An allowlisted interpretation failure. Any other query value is omitted. */
+export function failureNoticeCode(value: string | null | undefined): FailureNoticeCode | null {
+  return value === "malformed" || value === "unavailable" ? value : null;
+}
+
+/**
+ * The draft's own notice wins. A query notice is a fallback only when this
+ * live session has no draft, so the notice does not invent a draft.
+ */
+export function visibleNeedsNotice(input: {
+  readonly sessionLive: boolean;
+  readonly draft: { readonly notice: NeedsNotice | null } | null;
+  readonly queryNotice: string | null | undefined;
+}): NeedsNotice | null {
+  if (!input.sessionLive) return null;
+  if (input.draft) return input.draft.notice;
+  return failureNoticeCode(input.queryNotice);
+}
+
+export interface GuidedAssessmentFactor {
+  readonly factor: FactorKey;
+  readonly outcome: FactorOutcome;
+  readonly reason: string;
+  readonly evidenceQuality: EvidenceQuality;
+  readonly facts: readonly { readonly fact: FactKey; readonly value: number | string }[];
+}
+
+export interface GuidedCatalogLine {
+  readonly productId: string;
+  readonly variantId: string;
+  readonly title: string;
+  readonly description: string;
+  readonly label: string;
+  readonly unitAmountCents: number;
+  readonly currency: "USD";
+  readonly quotable: boolean;
+  readonly status: ReadinessStatus;
+  readonly explanation: string;
+  readonly factors: readonly GuidedAssessmentFactor[];
+}
+
+type GuidedAssessed = AssessedVariant & {
+  productId: string;
+  variantId: string;
+  title: string;
+  description: string;
+  label: string;
+  unitAmountCents: number;
+  currency: "USD";
+  quotable: boolean;
+  status: ReadinessStatus;
+};
+
+function assessGuidedVariants(runtime: Runtime, preferences: ShopperPreferences): GuidedAssessed[] {
+  const now = runtime.clock();
+  const stated = (fact: "budgetCents" | "intendedUse", value: number | string): EvidenceItem => ({
+    fact,
+    value,
+    source: "shopper_stated",
+    sourceRef: "confirmed by the shopper for this draft",
+    observedAt: now.toISOString(),
+  });
+  const lines: GuidedAssessed[] = [];
+  for (const product of runtime.catalog.products) {
+    for (const variant of product.variants) {
+      const result = assessReadiness(
+        {
+          subject: { productId: product.productId, variantId: variant.variantId, catalogRevision: runtime.catalog.revision },
+          evidence: [
+            stated("budgetCents", preferences.budgetCents),
+            stated("intendedUse", preferences.use),
+            ...evidenceFromMerchantVariant(variant, runtime.catalog.revision, now),
+          ],
+        },
+        now,
+      );
+      if (!result.ok) continue;
+      lines.push({
+        product,
+        variant,
+        assessment: result.value,
+        explanation: null,
+        productId: product.productId,
+        variantId: variant.variantId,
+        title: product.title,
+        description: product.description,
+        label: variant.label,
+        unitAmountCents: variant.unitAmountCents,
+        currency: variant.currency,
+        quotable: variant.availability === "IN_STOCK",
+        status: result.value.status,
+      });
+    }
+  }
+  return lines;
+}
+
+/**
+ * One suggestion for a confirmed draft. Eligible variants are chosen before the request.
+ * No eligible variant means no provider call. The model's prose is not kept.
+ */
+export async function recommendConfirmedNeeds(runtime: Runtime, preferences: ShopperPreferences): Promise<RetainedRecommendation | "failed"> {
+  const lines = assessGuidedVariants(runtime, preferences);
+  const eligible = lines.filter((line) => variantQualifies(line, preferences.budgetCents));
+  if (eligible.length === 0) return { assistantMessage: NO_CATALOG_MATCH, recommendations: [] };
+  const suggestion = await suggestProductsSafely(runtime.ai, runtime.catalog, `Laptop for ${USE_LABELS[preferences.use]}`, recordExternalAdvisoryFailure, {
+    intendedUse: preferences.use,
+    budgetCents: preferences.budgetCents,
+    products: eligible.map(eligibleProduct),
+  });
+  if (!suggestion.ok) return "failed";
+  const allowed = new Set(eligible.map((line) => `${line.productId}:${line.variantId}`));
+  const seen = new Set<string>();
+  const matched = suggestion.value.references.filter((reference) => {
+    const key = `${reference.productId}:${reference.variantId}`;
+    if (seen.has(key) || !allowed.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (matched.length === 0) return { assistantMessage: NO_SUGGESTION_MATCH, recommendations: [] };
+  return { assistantMessage: SUITABLE_RECOMMENDATIONS, recommendations: recommendationsFrom(runtime, matched) };
+}
+
+/**
+ * Loads the session draft and, when it is confirmed and this process has not already claimed a
+ * recommendation, asks once. A completed or failed claim is returned as stored. A missing draft
+ * is not rebuilt. An expired draft is deleted and never reconstructed. After the provider returns,
+ * a dead session or a replaced version is not written.
+ */
+export async function loadNeedsJourney(
+  runtime: Runtime,
+  session: Session,
+): Promise<{
+  draft: NeedsDraft | null;
+  lines: readonly GuidedCatalogLine[];
+  expiredDraft: boolean;
+  suggestionSource: "mock" | "model" | null;
+  listings: ReturnType<Runtime["channel3"]["read"]>;
+  conversation: ConversationState | null;
+}> {
+  const now = runtime.clock().getTime();
+  const conversationFor = (draftId: string | null): ConversationState | null => {
+    if (!draftId) return null;
+    const state = readConversation(runtime.store, session.id);
+    return state && state.draftId === draftId ? state : null;
+  };
+  const existing = needsDraftsFor(runtime.store).get(session.id) ?? null;
+  if (existing && now >= existing.expiresAtMs) {
+    needsDraftsFor(runtime.store).delete(session.id);
+    return { draft: null, lines: [], expiredDraft: true, suggestionSource: null, listings: null, conversation: null };
+  }
+  if (!existing || !existing.confirmedUse || !existing.confirmedBudgetDollars) {
+    return { draft: existing, lines: [], expiredDraft: false, suggestionSource: null, listings: null, conversation: conversationFor(existing?.draftId ?? null) };
+  }
+  const claimed = claimRecommendation(runtime.store, session.id, existing.draftId, existing.version, now);
+  if (claimed === "claimed") {
+    const preferences = parsePreferences(existing.confirmedUse, existing.confirmedBudgetDollars);
+    const outcome = preferences ? await recommendConfirmedNeeds(runtime, preferences) : "failed";
+    const after = runtime.clock().getTime();
+    if (runtime.checkout.sessionIsLive(session.id)) {
+      finishRecommendation(
+        runtime.store,
+        session.id,
+        existing.draftId,
+        existing.version,
+        outcome === "failed" ? "failed" : "completed",
+        outcome === "failed" ? null : outcome,
+        after,
+      );
+      const written = needsDraftsFor(runtime.store).get(session.id);
+      if (
+        outcome !== "failed" &&
+        outcome.assistantMessage !== NO_CATALOG_MATCH &&
+        written?.recommendationClaim === "completed" &&
+        written.draftId === existing.draftId &&
+        written.version === existing.version
+      ) {
+        rememberSuggestionSource(
+          runtime.store,
+          session.id,
+          written.draftId,
+          written.version,
+          runtime.ai.suggestionSource === "model" ? "model" : "mock",
+        );
+      }
+    }
+  }
+  const draft = needsDraftsFor(runtime.store).get(session.id) ?? null;
+  const listings = draft?.confirmedUse && draft.confirmedBudgetDollars ? runtime.channel3.read(session.id, draft.draftId, draft.version) : null;
+  const suggestionSource =
+    draft?.recommendationClaim === "completed" ? readSuggestionSource(runtime.store, session.id, draft.draftId, draft.version) : null;
+  if (!draft?.confirmedUse || !draft.confirmedBudgetDollars || draft.recommendationClaim !== "completed" || !draft.recommendation) {
+    return { draft, lines: [], expiredDraft: false, suggestionSource, listings, conversation: conversationFor(draft?.draftId ?? null) };
+  }
+  const preferences = parsePreferences(draft.confirmedUse, draft.confirmedBudgetDollars);
+  if (!preferences) return { draft, lines: [], expiredDraft: false, suggestionSource, listings, conversation: conversationFor(draft.draftId) };
+  return {
+    draft,
+    suggestionSource,
+    listings,
+    lines: assessGuidedVariants(runtime, preferences).map((line) => ({
+      productId: line.productId,
+      variantId: line.variantId,
+      title: line.title,
+      description: line.description,
+      label: line.label,
+      unitAmountCents: line.unitAmountCents,
+      currency: line.currency,
+      quotable: line.quotable,
+      status: line.status,
+      explanation: describeAssessment(line.assessment),
+      factors: line.assessment.factors.map((factor) => ({
+        factor: factor.factor,
+        outcome: factor.outcome,
+        reason: factor.reason,
+        evidenceQuality: factor.evidenceQuality,
+        facts: factor.evidence.map((item) => ({ fact: item.fact, value: item.value })),
+      })),
+    })),
+    expiredDraft: false,
+    conversation: conversationFor(draft.draftId),
+  };
+}
+
+export type { JourneyLanguage };
+

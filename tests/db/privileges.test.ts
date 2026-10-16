@@ -109,11 +109,23 @@ describe.skipIf(!adminUrl())("PGT-69a, 69b, 88 and V-24: Increment 1 roles and p
          JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
         WHERE n.nspname = 'shopaccess_api'`,
     );
-    expect(rows).toHaveLength(7);
+    // Seven of Increment 1, the ten of migration 0008 (four entry points and six internal helpers), and the two
+    // confirmation entry points of migration 0009, which also puts read_checkout in the place of the one of 0008.
+    expect(rows).toHaveLength(19);
+    // The internal helpers run with the rights of whoever calls them; every entry point is definer-rights.
+    const invokerRights = [
+      "session_is_live",
+      "require_read_committed",
+      "owner_window_decision",
+      "checkout_transition",
+      "quote_digest_saqd1",
+      "descriptive_terms_digest",
+      "quote_material_change",
+    ];
     for (const row of rows) {
       expect(row.owner, row.proname).toBe("shopaccess_definer");
       expect(row.proconfig, row.proname).toEqual(["search_path=pg_catalog, pg_temp"]);
-      expect(row.prosecdef, row.proname).toBe(row.proname !== "session_is_live");
+      expect(row.prosecdef, row.proname).toBe(!invokerRights.includes(row.proname));
     }
   });
 
@@ -121,10 +133,32 @@ describe.skipIf(!adminUrl())("PGT-69a, 69b, 88 and V-24: Increment 1 roles and p
     const grants = await db.admin.query(
       "SELECT table_name, privilege_type FROM information_schema.role_table_grants WHERE grantee = 'shopaccess_definer' AND table_schema = 'shopaccess' ORDER BY table_name, privilege_type",
     );
+    // Increment 1's privileges, those the functions migration 0008 adds, and INSERT on confirmation_challenges from
+    // migration 0009 (specification 19.13). No DELETE on any checkout table, and no table-level UPDATE on
+    // owner_request_windows or on confirmation_challenges: those two are granted by column.
     expect(grants.rows.map((row) => `${row.table_name}:${row.privilege_type}`)).toEqual([
       "audit_events:INSERT",
+      "checkout_intents:INSERT",
+      "checkout_intents:SELECT",
+      "checkout_intents:UPDATE",
       "checkout_owners:INSERT",
       "checkout_owners:SELECT",
+      "checkout_owners:UPDATE",
+      "checkout_transitions:INSERT",
+      "checkout_transitions:SELECT",
+      "confirmation_challenges:INSERT",
+      "confirmation_challenges:SELECT",
+      "merchant_products:SELECT",
+      "merchant_variants:SELECT",
+      "merchants:SELECT",
+      "owner_request_windows:INSERT",
+      "owner_request_windows:SELECT",
+      "purchase_groups:INSERT",
+      "purchase_groups:SELECT",
+      "quote_items:INSERT",
+      "quote_items:SELECT",
+      "quotes:INSERT",
+      "quotes:SELECT",
       "server_key_versions:INSERT",
       "server_key_versions:SELECT",
       "server_key_versions:UPDATE",
@@ -135,6 +169,70 @@ describe.skipIf(!adminUrl())("PGT-69a, 69b, 88 and V-24: Increment 1 roles and p
       "shopper_sessions:SELECT",
       "shopper_sessions:UPDATE",
     ]);
+    // Migration 0009, confirmation_challenges: the function owner may insert a row, and may update exactly the
+    // status and the three times that go with it. Every other column, and every other operation, is refused.
+    const challengeColumns = await db.admin.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = 'shopaccess' AND table_name = 'confirmation_challenges' ORDER BY column_name",
+    );
+    const updatable = ["consumed_at", "expired_marked_at", "status", "superseded_at"];
+    expect(challengeColumns.rows.map((row) => row.column_name)).toEqual(expect.arrayContaining(updatable));
+    expect(challengeColumns.rows).toHaveLength(15);
+    for (const { column_name: column } of challengeColumns.rows) {
+      const { rows } = await db.admin.query(
+        "SELECT has_column_privilege('shopaccess_definer', 'shopaccess.confirmation_challenges', $1, 'UPDATE') AS may_update, has_column_privilege('shopaccess_definer', 'shopaccess.confirmation_challenges', $1, 'INSERT') AS may_insert, has_column_privilege('shopaccess_definer', 'shopaccess.confirmation_challenges', $1, 'SELECT') AS may_select",
+        [column],
+      );
+      expect(rows[0], column).toEqual({ may_update: updatable.includes(column), may_insert: true, may_select: true });
+    }
+    const challengeColumnGrants = await db.admin.query(
+      "SELECT column_name FROM information_schema.column_privileges WHERE grantee = 'shopaccess_definer' AND table_schema = 'shopaccess' AND table_name = 'confirmation_challenges' AND privilege_type = 'UPDATE' ORDER BY column_name",
+    );
+    expect(challengeColumnGrants.rows.map((row) => row.column_name)).toEqual(updatable);
+    const challengeTable = await db.admin.query(
+      `SELECT has_table_privilege('shopaccess_definer', 'shopaccess.confirmation_challenges', 'INSERT') AS may_insert,
+              has_table_privilege('shopaccess_definer', 'shopaccess.confirmation_challenges', 'SELECT') AS may_select,
+              has_table_privilege('shopaccess_definer', 'shopaccess.confirmation_challenges', 'UPDATE') AS may_update_every_column,
+              has_table_privilege('shopaccess_definer', 'shopaccess.confirmation_challenges', 'DELETE') AS may_delete,
+              has_table_privilege('shopaccess_definer', 'shopaccess.confirmation_challenges', 'TRUNCATE') AS may_truncate,
+              has_table_privilege('shopaccess_definer', 'shopaccess.confirmation_challenges', 'REFERENCES') AS may_reference,
+              has_table_privilege('shopaccess_definer', 'shopaccess.confirmation_challenges', 'TRIGGER') AS may_trigger`,
+    );
+    expect(challengeTable.rows[0]).toEqual({ may_insert: true, may_select: true, may_update_every_column: false, may_delete: false, may_truncate: false, may_reference: false, may_trigger: false });
+    // The web role, the operator, the worker and PUBLIC still hold nothing on the table: no table privilege and no
+    // privilege on any column.
+    for (const role of ["shopaccess_web", "shopaccess_operator", "shopaccess_worker"]) {
+      for (const privilege of ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]) {
+        const { rows } = await db.admin.query("SELECT has_table_privilege($1, 'shopaccess.confirmation_challenges', $2) AS granted", [role, privilege]);
+        expect(rows[0].granted, `${role} ${privilege}`).toBe(false);
+      }
+      for (const privilege of ["SELECT", "INSERT", "UPDATE", "REFERENCES"]) {
+        const { rows } = await db.admin.query("SELECT has_any_column_privilege($1, 'shopaccess.confirmation_challenges', $2) AS granted", [role, privilege]);
+        expect(rows[0].granted, `${role} ${privilege} on a column`).toBe(false);
+      }
+    }
+    const publicOrOther = await db.admin.query(
+      `SELECT grantee, privilege_type FROM information_schema.table_privileges
+        WHERE table_schema = 'shopaccess' AND table_name = 'confirmation_challenges' AND grantee NOT IN ('shopaccess_owner', 'shopaccess_definer')
+       UNION ALL
+       SELECT grantee, privilege_type FROM information_schema.column_privileges
+        WHERE table_schema = 'shopaccess' AND table_name = 'confirmation_challenges' AND grantee NOT IN ('shopaccess_owner', 'shopaccess_definer')`,
+    );
+    expect(publicOrOther.rows).toEqual([]);
+    // The three functions of migration 0009: the web role may execute them, and nobody else but their owner.
+    const confirmationFunctions = await db.admin.query(
+      `SELECT p.proname,
+              has_function_privilege('shopaccess_web', p.oid, 'EXECUTE') AS web,
+              has_function_privilege('shopaccess_operator', p.oid, 'EXECUTE') AS operator,
+              has_function_privilege('shopaccess_worker', p.oid, 'EXECUTE') AS worker,
+              has_function_privilege('public', p.oid, 'EXECUTE') AS everyone
+         FROM pg_catalog.pg_proc p
+         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'shopaccess_api' AND p.proname IN ('read_checkout', 'issue_challenge', 'consume_challenge')
+        ORDER BY p.proname`,
+    );
+    expect(confirmationFunctions.rows).toEqual(
+      ["consume_challenge", "issue_challenge", "read_checkout"].map((proname) => ({ proname, web: true, operator: false, worker: false, everyone: false })),
+    );
     const owned = await db.admin.query(
       "SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = 'shopaccess' AND tableowner <> 'shopaccess_owner'",
     );

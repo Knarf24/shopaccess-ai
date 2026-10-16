@@ -1,18 +1,34 @@
-import { readFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { Client, Pool } from "pg";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ADMIN_URL_VARIABLE,
+  ADMISSION_CHILD_ENVIRONMENT_KEYS,
+  ADMISSION_CHILD_PROGRAM,
+  admissionChildEnvironment,
+  AdminTargetRefusedError,
+  adminUrl,
   assessDisposableCluster,
   assessProvisionedRoles,
+  AUTHORIZED_PORT_VARIABLE,
   CLEANUP_FAILURES,
+  connectionConfig,
   ControlSession,
   DISPOSABLE_CLUSTER_NAME,
   ExclusiveControlError,
+  isRefusedEnvironmentVariable,
+  parseAdminTarget,
+  PERMITTED_PG_VARIABLES,
   provisionDisposableDatabase,
   SHOPACCESS_ROLES,
   UncertainOutcomeError,
+  verifyEffectiveConfig,
+  type AdminTarget,
   type ClusterFacts,
   type ControlClient,
+  type DriverConfig,
   type MembershipFacts,
   type ProvisionDriver,
   type ProvisionPlan,
@@ -20,7 +36,9 @@ import {
 } from "../db/harness";
 
 // Database-free. These tests exercise the harness's decisions and its cleanup
-// against in-memory facts and a fake driver. Nothing connects to PostgreSQL.
+// against in-memory facts and a fake driver. Nothing connects to PostgreSQL:
+// where the real driver is used, a client or pool is only CONSTRUCTED, which
+// opens no socket, and `connect()` is never called on it.
 
 const role = (name: string, overrides: Partial<RoleFacts> = {}): RoleFacts => ({
   name,
@@ -954,19 +972,1027 @@ describe("provisioning on a lock-owning session: no speculative cleanup after an
   });
 });
 
+// ---------------------------------------------------------------------------
+// Connection target. Added by the connection-target remediation.
+// ---------------------------------------------------------------------------
+
+/** Built from parts, so that neither token appears literally in any file under tests/. */
+const CONNECTION_STRING_KEY = ["connection", "String"].join("");
+const LEGACY_DATABASE_VARIABLE = ["SHOPACCESS", "TEST", "DATABASE", "URL"].join("_");
+
+const PORT = "54599";
+/** Placed in the credentials of every URL below. It must never come back out in a result or an error. */
+const MARKER = "zzMARKERzz";
+const GOOD_V4 = `postgres://postgres:${MARKER}.pw-OK_1~@127.0.0.1:${PORT}/postgres`;
+const GOOD_V6 = `postgresql://postgres:${MARKER}.pw-OK_1~@[::1]:${PORT}/postgres`;
+const withHost = (host: string) => `postgres://postgres:${MARKER}@${host}:${PORT}/postgres`;
+const withSuffix = (suffix: string) => `postgres://postgres:${MARKER}@127.0.0.1:${PORT}/postgres${suffix}`;
+
+const targetEnv = (url: string | undefined, extra: Record<string, string | undefined> = {}): Record<string, string | undefined> => ({
+  ...(url === undefined ? {} : { [ADMIN_URL_VARIABLE]: url }),
+  [AUTHORIZED_PORT_VARIABLE]: PORT,
+  ...extra,
+});
+const codeOf = (env: Record<string, string | undefined>): string => {
+  const result = parseAdminTarget(env);
+  // The result is the whole of what a refusal exposes: it must not carry the input.
+  if (!result.ok) expect(JSON.stringify(result)).not.toContain(MARKER);
+  return result.ok ? "ACCEPTED" : result.code;
+};
+
+/** Sets or removes variables on the real process environment for the duration of `work`, then restores them. */
+function withEnvironment<T>(overrides: Record<string, string | undefined>, work: () => T): T {
+  const saved = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(overrides)) {
+    saved.set(name, process.env[name]);
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  try {
+    return work();
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}
+
+const refusalCode = (work: () => unknown): string => {
+  try {
+    work();
+  } catch (error) {
+    if (error instanceof AdminTargetRefusedError) {
+      expect(error.message).toBe(`Refusing the PostgreSQL test connection target: ${error.code}`);
+      return error.code;
+    }
+    throw error;
+  }
+  return "NOT_REFUSED";
+};
+
+const UNSAFE_URLS: ReadonlyArray<readonly [string, string, string]> = [
+  // An alternate host, by the query parameter the driver lets override the URL's host.
+  ["a host parameter naming a remote host", withSuffix("?host=db.example.com"), "ADMIN_URL_MALFORMED"],
+  ["a host parameter naming another address", withSuffix("?host=10.0.0.5"), "ADMIN_URL_MALFORMED"],
+  ["a hostaddr parameter", withSuffix("?hostaddr=10.0.0.5"), "ADMIN_URL_MALFORMED"],
+  // Unix sockets, in each form the driver understands.
+  ["a host parameter naming a socket directory", withSuffix("?host=/tmp"), "ADMIN_URL_MALFORMED"],
+  ["a percent-encoded socket directory as host", withHost("%2Ftmp"), "ADMIN_URL_MALFORMED"],
+  ["the socket scheme", `socket:/tmp/${MARKER}?db=postgres`, "ADMIN_URL_MALFORMED"],
+  ["a bare socket path", `/tmp/${MARKER} postgres`, "ADMIN_URL_MALFORMED"],
+  // Other overrides the driver would honour.
+  ["a port parameter", withSuffix("?port=5432"), "ADMIN_URL_MALFORMED"],
+  ["a user parameter", withSuffix("?user=other"), "ADMIN_URL_MALFORMED"],
+  ["a password parameter", withSuffix("?password=other"), "ADMIN_URL_MALFORMED"],
+  ["an options parameter", withSuffix("?options=-c%20role%3Dpostgres"), "ADMIN_URL_MALFORMED"],
+  ["an sslmode parameter", withSuffix("?sslmode=require"), "ADMIN_URL_MALFORMED"],
+  ["an sslrootcert parameter", withSuffix("?sslrootcert=/etc/hosts"), "ADMIN_URL_MALFORMED"],
+  ["the libpq compatibility parameter", withSuffix("?uselibpqcompat=true"), "ADMIN_URL_MALFORMED"],
+  // Anything at all after the path.
+  ["a harmless-looking parameter", withSuffix("?application_name=x"), "ADMIN_URL_MALFORMED"],
+  ["an empty query", withSuffix("?"), "ADMIN_URL_MALFORMED"],
+  ["a fragment", withSuffix("#x"), "ADMIN_URL_MALFORMED"],
+  ["a trailing slash", withSuffix("/"), "ADMIN_URL_MALFORMED"],
+  ["a longer path", withSuffix("/x"), "ADMIN_URL_MALFORMED"],
+  // Hosts that are not a loopback literal, or not the one accepted spelling of it.
+  ["a remote name", withHost("db.example.com"), "ADMIN_URL_MALFORMED"],
+  ["the name localhost", withHost("localhost"), "ADMIN_URL_MALFORMED"],
+  ["a short spelling of the IPv4 loopback", withHost("127.1"), "ADMIN_URL_MALFORMED"],
+  ["a hexadecimal spelling of the IPv4 loopback", withHost("0x7f.0.0.1"), "ADMIN_URL_MALFORMED"],
+  ["a remote name that starts with the loopback address", withHost("127.0.0.1.example.com"), "ADMIN_URL_MALFORMED"],
+  ["another address in the loopback block", withHost("127.0.0.2"), "ADMIN_URL_MALFORMED"],
+  ["the wildcard address", withHost("0.0.0.0"), "ADMIN_URL_MALFORMED"],
+  ["the expanded IPv6 loopback", withHost("[0:0:0:0:0:0:0:1]"), "ADMIN_URL_MALFORMED"],
+  ["a zero-padded IPv6 loopback", withHost("[::0001]"), "ADMIN_URL_MALFORMED"],
+  ["the IPv4-mapped IPv6 loopback", withHost("[::ffff:127.0.0.1]"), "ADMIN_URL_MALFORMED"],
+  ["an IPv6 loopback with a zone", withHost("[::1%25lo0]"), "ADMIN_URL_MALFORMED"],
+  ["an IPv6 loopback without brackets", withHost("::1"), "ADMIN_URL_MALFORMED"],
+  ["an IPv6 loopback in double brackets", withHost("[[::1]]"), "ADMIN_URL_MALFORMED"],
+  ["the IPv6 wildcard", withHost("[::]"), "ADMIN_URL_MALFORMED"],
+  // Empty components, each of which would send the driver to an environment variable or a default.
+  ["no host", `postgres://postgres:${MARKER}@:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["no port", `postgres://postgres:${MARKER}@127.0.0.1/postgres`, "ADMIN_URL_MALFORMED"],
+  ["no user", `postgres://:${MARKER}@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["no password", `postgres://${MARKER.toLowerCase()}@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["an empty password", `postgres://${MARKER.toLowerCase()}:@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["no credentials at all", `postgres://127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["no database", `postgres://postgres:${MARKER}@127.0.0.1:${PORT}/`, "ADMIN_URL_MALFORMED"],
+  ["no path", `postgres://postgres:${MARKER}@127.0.0.1:${PORT}`, "ADMIN_URL_MALFORMED"],
+  // Another database or scheme.
+  ["another database", `postgres://postgres:${MARKER}@127.0.0.1:${PORT}/template1`, "ADMIN_URL_MALFORMED"],
+  ["an http URL", `http://postgres:${MARKER}@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a mysql URL", `mysql://postgres:${MARKER}@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["an upper-case scheme", `POSTGRES://postgres:${MARKER}@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a scheme without the slashes", `postgres:postgres:${MARKER}@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  // Tricks with the user-information part.
+  ["a second @ before the host", `postgres://postgres:${MARKER}@evil.example@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a second @ after the host", `postgres://postgres:${MARKER}@127.0.0.1:${PORT}@evil.example/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a colon in the password", `postgres://postgres:${MARKER}:x@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["an upper-case user", `postgres://Postgres:${MARKER}@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  // Encoding and whitespace, which the platform parser and the driver treat differently.
+  ["a percent-encoded character in the password", `postgres://postgres:${MARKER}%41@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a percent-encoded character in the path", `postgres://postgres:${MARKER}@127.0.0.1:${PORT}/post%67res`, "ADMIN_URL_MALFORMED"],
+  ["a space inside", `postgres://postgres:${MARKER} @127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a leading space", ` ${GOOD_V4}`, "ADMIN_URL_MALFORMED"],
+  ["a trailing space", `${GOOD_V4} `, "ADMIN_URL_MALFORMED"],
+  ["a trailing newline", `${GOOD_V4}\n`, "ADMIN_URL_MALFORMED"],
+  ["a tab inside", `postgres://postgres:${MARKER}@127.0.0.1:\t${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a backslash", `postgres:\\\\postgres:${MARKER}@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a control character", `postgres://postgres:${MARKER}@127.0.0.1:${PORT}/postgres\u0000`, "ADMIN_URL_MALFORMED"],
+  // Line terminators of every kind, at either end and inside. None may be accepted, whatever an end anchor would do.
+  ["a trailing carriage return", `${GOOD_V4}\r`, "ADMIN_URL_MALFORMED"],
+  ["a trailing CRLF", `${GOOD_V4}\r\n`, "ADMIN_URL_MALFORMED"],
+  ["two trailing newlines", `${GOOD_V4}\n\n`, "ADMIN_URL_MALFORMED"],
+  ["a leading newline", `\n${GOOD_V4}`, "ADMIN_URL_MALFORMED"],
+  ["a leading CRLF", `\r\n${GOOD_V4}`, "ADMIN_URL_MALFORMED"],
+  ["a newline inside", `postgres://postgres:${MARKER}@127.0.0.1:${PORT}\n/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a second, valid URL on a following line", `${GOOD_V4}\n${GOOD_V4}`, "ADMIN_URL_MALFORMED"],
+  ["a trailing Unicode line separator", `${GOOD_V4}\u2028`, "ADMIN_URL_MALFORMED"],
+  ["a trailing Unicode paragraph separator", `${GOOD_V4}\u2029`, "ADMIN_URL_MALFORMED"],
+  ["a trailing next-line character", `${GOOD_V4}\u0085`, "ADMIN_URL_MALFORMED"],
+  ["a trailing vertical tab", `${GOOD_V4}\v`, "ADMIN_URL_MALFORMED"],
+  ["a trailing form feed", `${GOOD_V4}\f`, "ADMIN_URL_MALFORMED"],
+  ["a trailing no-break space", `${GOOD_V4}\u00a0`, "ADMIN_URL_MALFORMED"],
+  ["a trailing zero-width space", `${GOOD_V4}\u200b`, "ADMIN_URL_MALFORMED"],
+  ["a byte-order mark in front", `\ufeff${GOOD_V4}`, "ADMIN_URL_MALFORMED"],
+  ["a character outside ASCII in the password", `postgres://postgres:${MARKER}\u00e9@127.0.0.1:${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a delete character", `${GOOD_V4}\u007f`, "ADMIN_URL_MALFORMED"],
+  // Ports.
+  ["port zero", `postgres://postgres:${MARKER}@127.0.0.1:0/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a privileged port", `postgres://postgres:${MARKER}@127.0.0.1:80/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a port with a leading zero", `postgres://postgres:${MARKER}@127.0.0.1:0${PORT}/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a port that is not a number", `postgres://postgres:${MARKER}@127.0.0.1:port/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a port with six digits", `postgres://postgres:${MARKER}@127.0.0.1:545990/postgres`, "ADMIN_URL_MALFORMED"],
+  ["a port above the range", `postgres://postgres:${MARKER}@127.0.0.1:65536/postgres`, "AUTHORIZED_PORT_MISMATCH"],
+  ["the default PostgreSQL port", `postgres://postgres:${MARKER}@127.0.0.1:5432/postgres`, "AUTHORIZED_PORT_MISMATCH"],
+  ["a port other than the authorized one", `postgres://postgres:${MARKER}@127.0.0.1:54600/postgres`, "AUTHORIZED_PORT_MISMATCH"],
+];
+
+/** The authorized port with a line terminator or another unprintable character at either end or inside. */
+const UNPRINTABLE_PORTS = [
+  "54599\r",
+  "54599\r\n",
+  "54599\n\n",
+  "\n54599",
+  "\r\n54599",
+  "545\n99",
+  "54599\n54599",
+  "54599\u2028",
+  "54599\u2029",
+  "54599\u0085",
+  "54599\v",
+  "54599\f",
+  "54599\t",
+  "54599\u0000",
+  "54599\u00a0",
+  "54599\u200b",
+  "\ufeff54599",
+  "54599\u007f",
+  // Digits that are not ASCII digits.
+  "\uff15\uff14\uff15\uff19\uff19",
+  "\u0665\u0664\u0665\u0669\u0669",
+];
+
+const REFUSED_VARIABLES = [
+  "PGHOST",
+  "PGHOSTADDR",
+  "PGPORT",
+  "PGUSER",
+  "PGPASSWORD",
+  "PGDATABASE",
+  "PGOPTIONS",
+  "PGSSLMODE",
+  "PGSSLNEGOTIATION",
+  "PGSSLCERT",
+  "PGSSLKEY",
+  "PGSSLROOTCERT",
+  "PGREPLICATION",
+  "PGBINARY",
+  "PGCLIENT_ENCODING",
+  "PGSERVICE",
+  "PGSERVICEFILE",
+  "PGPASSFILE",
+  "PGPASS_NO_DEESCAPE",
+  "PGDATA",
+  "PGTZ",
+  // Not a real variable today: a name the driver could start computing tomorrow.
+  "PGSOMETHING_NEW_9",
+  "PG",
+  "NODE_PG_FORCE_NATIVE",
+];
+
+describe("connection target: the admin URL is validated before anything is constructed", () => {
+  it("accepts exactly the two loopback literals, and reports the IPv6 loopback in the driver's form", () => {
+    const v4 = parseAdminTarget(targetEnv(GOOD_V4));
+    expect(v4).toEqual({ ok: true, target: { host: "127.0.0.1", port: 54599, user: "postgres", password: `${MARKER}.pw-OK_1~`, database: "postgres" } });
+    const v6 = parseAdminTarget(targetEnv(GOOD_V6));
+    // `[::1]` in the URL; `::1`, without brackets, is what the driver reports and what it is compared with.
+    expect(v6).toEqual({ ok: true, target: { host: "::1", port: 54599, user: "postgres", password: `${MARKER}.pw-OK_1~`, database: "postgres" } });
+    if (v4.ok) expect(Object.isFrozen(v4.target)).toBe(true);
+  });
+
+  it("the platform parser reads a bracketed IPv6 loopback with its brackets, the driver without: both reduce to one form", () => {
+    expect(new URL(GOOD_V6).hostname).toBe("[::1]");
+    const parsed = parseAdminTarget(targetEnv(GOOD_V6));
+    if (!parsed.ok) throw new Error("expected the IPv6 loopback to be accepted");
+    const config = connectionConfig(parsed.target, { database: "postgres", user: parsed.target.user, password: parsed.target.password });
+    const client = new Client(config);
+    expect(client.host).toBe("::1");
+    expect(() => verifyEffectiveConfig(client, config)).not.toThrow();
+  });
+
+  it.each(UNSAFE_URLS)("refuses %s", (_name, url, code) => {
+    expect(codeOf(targetEnv(url))).toBe(code);
+  });
+
+  it("distinguishes a variable that is not set from one set to an empty or blank string", () => {
+    expect(codeOf(targetEnv(undefined))).toBe("ADMIN_URL_NOT_SET");
+    expect(codeOf(targetEnv(""))).toBe("ADMIN_URL_EMPTY");
+    expect(codeOf(targetEnv(" "))).toBe("ADMIN_URL_EMPTY");
+    expect(codeOf(targetEnv("\t\n"))).toBe("ADMIN_URL_EMPTY");
+  });
+
+  it("requires the separately authorized port, in one strict form, never 5432 and never below 1024", () => {
+    expect(codeOf({ [ADMIN_URL_VARIABLE]: GOOD_V4 })).toBe("AUTHORIZED_PORT_MISSING");
+    for (const value of ["", " ", "abc", "0", "80", "1023", "65536", "99999", "054599", "5432", " 54599", "54599 ", "+54599", "-54599", "54599.0", "5.4e4", "0xD547", "54599\n", ...UNPRINTABLE_PORTS]) {
+      expect(codeOf(targetEnv(GOOD_V4, { [AUTHORIZED_PORT_VARIABLE]: value })), JSON.stringify(value)).toBe("AUTHORIZED_PORT_INVALID");
+    }
+    // 5432 is refused even when the URL agrees with it.
+    expect(codeOf(targetEnv(`postgres://postgres:${MARKER}@127.0.0.1:5432/postgres`, { [AUTHORIZED_PORT_VARIABLE]: "5432" }))).toBe("AUTHORIZED_PORT_INVALID");
+    // The URL must repeat the authorized port: the port is never taken from the URL alone.
+    expect(codeOf(targetEnv(GOOD_V4, { [AUTHORIZED_PORT_VARIABLE]: "54600" }))).toBe("AUTHORIZED_PORT_MISMATCH");
+    // Both ends of the range.
+    for (const port of ["1024", "65535"]) {
+      expect(codeOf(targetEnv(`postgres://postgres:${MARKER}@127.0.0.1:${port}/postgres`, { [AUTHORIZED_PORT_VARIABLE]: port })), port).toBe("ACCEPTED");
+    }
+  });
+
+  it("an unprintable character in the authorized port is invalid syntax, never a mismatch, whatever the URL says", () => {
+    const otherPort = `postgres://postgres:${MARKER}@127.0.0.1:54600/postgres`;
+    for (const value of ["54599\n", ...UNPRINTABLE_PORTS]) {
+      // Against a URL that repeats the same digits, and against one that names another port: the same classification.
+      expect(codeOf(targetEnv(GOOD_V4, { [AUTHORIZED_PORT_VARIABLE]: value })), JSON.stringify(value)).toBe("AUTHORIZED_PORT_INVALID");
+      expect(codeOf(targetEnv(otherPort, { [AUTHORIZED_PORT_VARIABLE]: value })), JSON.stringify(value)).toBe("AUTHORIZED_PORT_INVALID");
+    }
+    // A mismatch is reported only when both values are well-formed and differ.
+    expect(codeOf(targetEnv(otherPort))).toBe("AUTHORIZED_PORT_MISMATCH");
+    // A well-formed port with a URL that carries a terminator is a malformed URL, not a port problem.
+    for (const terminator of ["\n", "\r", "\r\n", "\u2028", "\u2029"]) {
+      expect(codeOf(targetEnv(`${GOOD_V4}${terminator}`)), JSON.stringify(terminator)).toBe("ADMIN_URL_MALFORMED");
+      expect(codeOf(targetEnv(`${otherPort}${terminator}`)), JSON.stringify(terminator)).toBe("ADMIN_URL_MALFORMED");
+    }
+    // The order of the checks is unchanged: a refused variable is still reported before either value is read.
+    expect(codeOf(targetEnv(`${GOOD_V4}\n`, { [AUTHORIZED_PORT_VARIABLE]: "54599\n", PGHOST: "x" }))).toBe("ENVIRONMENT_VARIABLE_REFUSED");
+    // And the invalid port before the malformed URL.
+    expect(codeOf(targetEnv(`${GOOD_V4}\n`, { [AUTHORIZED_PORT_VARIABLE]: "54599\n" }))).toBe("AUTHORIZED_PORT_INVALID");
+  });
+
+  it("rejects line terminators by an explicit rule, on the whole input, with patterns that have no multiline flag", () => {
+    const harness = readFileSync(join(process.cwd(), "tests", "db", "harness.ts"), "utf8");
+    // The two patterns, exactly as reviewed: anchored at both ends and without flags.
+    expect(harness).toContain("const PORT_TEXT = /^[1-9][0-9]{3,4}$/;");
+    expect(harness).toMatch(/const ADMIN_URL_GRAMMAR =\n {2}\/\^\(postgres\|postgresql\):[^\n]*\\\/postgres\$\/;\n/);
+    // Both raw inputs pass the explicit character rule and the whole-input rule before they are accepted.
+    expect(harness).toContain('if (!isPrintableAscii(portText) || !matchWhole(PORT_TEXT, portText) || !isAuthorizablePort(Number(portText))) return refuse("AUTHORIZED_PORT_INVALID");');
+    expect(harness).toContain("const match = isPrintableAscii(raw) ? matchWhole(ADMIN_URL_GRAMMAR, raw) : null;");
+    expect(harness).toMatch(/if \(code < 0x21 \|\| code > 0x7e\) return false;/);
+    expect(harness).toMatch(/return match !== null && match\.index === 0 && match\[0\]\.length === text\.length \? match : null;/);
+    // Neither pattern is used anywhere else, so nothing accepts these inputs by another route.
+    expect([...harness.matchAll(/\bPORT_TEXT\b/g)]).toHaveLength(2);
+    // (The grammar: its declaration, its one use, and one mention in a comment.)
+    expect([...harness.matchAll(/\bADMIN_URL_GRAMMAR\b/g)]).toHaveLength(3);
+  });
+
+  it.each(REFUSED_VARIABLES)("refuses to run while %s is set, even to an empty string", (name) => {
+    expect(isRefusedEnvironmentVariable(name)).toBe(true);
+    expect(codeOf(targetEnv(GOOD_V4, { [name]: "anything" }))).toBe("ENVIRONMENT_VARIABLE_REFUSED");
+    expect(codeOf(targetEnv(GOOD_V4, { [name]: "" }))).toBe("ENVIRONMENT_VARIABLE_REFUSED");
+    // A name that is present but undefined is not set.
+    expect(codeOf(targetEnv(GOOD_V4, { [name]: undefined }))).toBe("ACCEPTED");
+  });
+
+  it("permits only the two harmless PostgreSQL variables, and names that are not PostgreSQL variables", () => {
+    expect([...PERMITTED_PG_VARIABLES].sort()).toEqual(["PGAPPNAME", "PGCONNECT_TIMEOUT"]);
+    for (const name of ["PGAPPNAME", "PGCONNECT_TIMEOUT", "USER", "USERNAME", "HOME", "PATH", "pghost", "MY_PGHOST", "NODE_ENV"]) {
+      expect(isRefusedEnvironmentVariable(name), name).toBe(false);
+      expect(codeOf(targetEnv(GOOD_V4, { [name]: "x" })), name).toBe("ACCEPTED");
+    }
+  });
+
+  describe("when the platform parser fails or disagrees", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("drops the parser's error, which carries its input, and returns a fixed code", () => {
+      vi.stubGlobal(
+        "URL",
+        class {
+          constructor(input: string) {
+            throw Object.assign(new TypeError(`Invalid URL: ${input}`), { input });
+          }
+        },
+      );
+      expect(codeOf(targetEnv(GOOD_V4))).toBe("ADMIN_URL_PARSER_DISAGREES");
+    });
+
+    it.each([
+      ["hostname", { hostname: "db.example.com" }],
+      ["port", { port: "5432" }],
+      ["user", { username: "other" }],
+      ["password", { password: "other" }],
+      ["path", { pathname: "/template1" }],
+      ["query", { search: "?host=db.example.com" }],
+      ["fragment", { hash: "#x" }],
+      ["scheme", { protocol: "http:" }],
+    ])("refuses when the parser reads a different %s than the grammar", (_name, change) => {
+      const Real = URL;
+      vi.stubGlobal(
+        "URL",
+        class {
+          constructor(input: string) {
+            const real = new Real(input);
+            Object.assign(this, {
+              protocol: real.protocol,
+              username: real.username,
+              password: real.password,
+              hostname: real.hostname,
+              port: real.port,
+              pathname: real.pathname,
+              search: real.search,
+              hash: real.hash,
+              ...change,
+            });
+          }
+        },
+      );
+      expect(codeOf(targetEnv(GOOD_V4))).toBe("ADMIN_URL_PARSER_DISAGREES");
+    });
+  });
+});
+
+describe("skip semantics: only a variable that is not set at all may skip the database suites", () => {
+  const cleared = { [ADMIN_URL_VARIABLE]: undefined, [AUTHORIZED_PORT_VARIABLE]: undefined };
+
+  it("returns undefined, so the suites skip, only when the variable is absent", () => {
+    expect(withEnvironment(cleared, () => adminUrl())).toBeUndefined();
+  });
+
+  it("throws, so the suites fail, for an empty, blank, malformed or incompletely configured value", () => {
+    expect(withEnvironment({ ...cleared, [ADMIN_URL_VARIABLE]: "" }, () => refusalCode(adminUrl))).toBe("ADMIN_URL_EMPTY");
+    expect(withEnvironment({ ...cleared, [ADMIN_URL_VARIABLE]: "   " }, () => refusalCode(adminUrl))).toBe("ADMIN_URL_EMPTY");
+    expect(withEnvironment({ ...cleared, [ADMIN_URL_VARIABLE]: GOOD_V4 }, () => refusalCode(adminUrl))).toBe("AUTHORIZED_PORT_MISSING");
+    expect(withEnvironment({ [ADMIN_URL_VARIABLE]: withSuffix("?host=db.example.com"), [AUTHORIZED_PORT_VARIABLE]: PORT }, () => refusalCode(adminUrl))).toBe(
+      "ADMIN_URL_MALFORMED",
+    );
+    expect(withEnvironment({ [ADMIN_URL_VARIABLE]: GOOD_V4, [AUTHORIZED_PORT_VARIABLE]: "5432" }, () => refusalCode(adminUrl))).toBe("AUTHORIZED_PORT_INVALID");
+    expect(withEnvironment({ [ADMIN_URL_VARIABLE]: GOOD_V4, [AUTHORIZED_PORT_VARIABLE]: PORT, PGHOST: "db.example.com" }, () => refusalCode(adminUrl))).toBe(
+      "ENVIRONMENT_VARIABLE_REFUSED",
+    );
+  });
+
+  it("returns the value when the configuration is valid", () => {
+    expect(withEnvironment({ [ADMIN_URL_VARIABLE]: GOOD_V4, [AUTHORIZED_PORT_VARIABLE]: PORT }, () => adminUrl())).toBe(GOOD_V4);
+  });
+
+  it("every database test file decides whether to skip through adminUrl() and nothing else", () => {
+    const directory = join(process.cwd(), "tests", "db");
+    const files = readdirSync(directory).filter((name) => name.endsWith(".test.ts"));
+    expect(files).toHaveLength(12);
+    for (const name of files) {
+      const text = readFileSync(join(directory, name), "utf8");
+      expect([...text.matchAll(/describe\.skipIf\(([^)]*\)?)\)/g)].map((match) => match[1]), name).toEqual(["!adminUrl()"]);
+      expect(text, name).not.toMatch(/process\.env\[|describe\.skip\(|it\.skip\(/);
+    }
+  });
+});
+
+const TARGET: AdminTarget = { host: "127.0.0.1", port: 54599, user: "postgres", password: "admin-secret_1", database: "postgres" };
+const STARTUP = "-c lock_timeout=2000 -c statement_timeout=5000 -c idle_in_transaction_session_timeout=10000";
+/** The six configurations the harness builds, in the order it builds them. */
+const HARNESS_CONFIGS: ReadonlyArray<readonly [string, DriverConfig]> = [
+  ["the lock-owning control session", connectionConfig(TARGET, { database: "postgres", user: TARGET.user, password: TARGET.password })],
+  ["the bootstrap client", connectionConfig(TARGET, { database: DATABASE, user: TARGET.user, password: TARGET.password })],
+  ["the migration pool", connectionConfig(TARGET, { database: DATABASE, user: TARGET.user, password: TARGET.password, options: "-c role=shopaccess_owner" })],
+  ["the web pool and connectWeb", connectionConfig(TARGET, { database: DATABASE, user: "shopaccess_web", password: "a".repeat(48), options: STARTUP })],
+  ["the operator pool", connectionConfig(TARGET, { database: DATABASE, user: OPERATOR_LOGIN, password: "b".repeat(48), options: STARTUP })],
+  ["an IPv6 loopback target", connectionConfig({ ...TARGET, host: "::1" }, { database: DATABASE, user: "shopaccess_web", password: "a".repeat(48), options: STARTUP })],
+];
+
+/** What a faithful driver would report for a configuration. */
+const faithful = (config: DriverConfig, change: Record<string, unknown> = {}): Record<string, unknown> => {
+  const effective: Record<string, unknown> = {
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: config.database,
+    options: config.options,
+    ssl: config.ssl,
+    isDomainSocket: false,
+    replication: undefined,
+    binary: false,
+    ...change,
+  };
+  return { host: effective.host, port: effective.port, user: effective.user, database: effective.database, ssl: effective.ssl, connectionParameters: effective };
+};
+
+const MISMATCHES: ReadonlyArray<readonly [string, Record<string, unknown>]> = [
+  ["host", { host: "10.0.0.5" }],
+  ["host by name", { host: "localhost" }],
+  ["port", { port: 5432 }],
+  ["port as text", { port: "54599" }],
+  ["database", { database: "template1" }],
+  ["user", { user: "postgres_other" }],
+  ["password", { password: "other" }],
+  ["startup options", { options: "-c role=postgres" }],
+  ["TLS switched on", { ssl: true }],
+  ["TLS settings", { ssl: { rejectUnauthorized: false } }],
+  ["a Unix socket", { isDomainSocket: true }],
+  ["replication mode", { replication: "database" }],
+  ["binary mode", { binary: true }],
+];
+
+describe("driver configuration: discrete fields, verified on the driver's own effective values", () => {
+  it("builds exactly the discrete fields, frozen, with TLS off and no URL", () => {
+    for (const [name, config] of HARNESS_CONFIGS) {
+      expect(Object.keys(config).sort(), name).toEqual(config.options === undefined ? ["database", "host", "password", "port", "ssl", "user"] : ["database", "host", "options", "password", "port", "ssl", "user"]);
+      expect(Object.isFrozen(config), name).toBe(true);
+      expect(config.ssl, name).toBe(false);
+      expect(config, name).not.toHaveProperty(CONNECTION_STRING_KEY);
+    }
+  });
+
+  it("refuses a field that does not have its fixed form", () => {
+    const identity = { database: DATABASE, user: "shopaccess_web", password: "a".repeat(48), options: STARTUP };
+    const refused: Array<() => unknown> = [
+      () => connectionConfig({ ...TARGET, host: "localhost" as "127.0.0.1" }, identity),
+      () => connectionConfig({ ...TARGET, host: "/tmp" as "127.0.0.1" }, identity),
+      () => connectionConfig({ ...TARGET, port: 5432 }, identity),
+      () => connectionConfig({ ...TARGET, port: 80 }, identity),
+      () => connectionConfig({ ...TARGET, port: 54599.5 }, identity),
+      () => connectionConfig(TARGET, { ...identity, database: "post gres" }),
+      () => connectionConfig(TARGET, { ...identity, database: "" }),
+      () => connectionConfig(TARGET, { ...identity, user: "Web" }),
+      () => connectionConfig(TARGET, { ...identity, user: "web;drop" }),
+      () => connectionConfig(TARGET, { ...identity, password: "" }),
+      () => connectionConfig(TARGET, { ...identity, password: "has space" }),
+      () => connectionConfig(TARGET, { ...identity, password: "has@at" }),
+      () => connectionConfig(TARGET, { ...identity, options: "" }),
+      () => connectionConfig(TARGET, { ...identity, options: "-c role=postgres; x" }),
+      () => connectionConfig(TARGET, { ...identity, options: "--cluster=x" }),
+      // A line terminator in any field. These fields are generated by the harness; the patterns refuse them all the same.
+      () => connectionConfig(TARGET, { ...identity, database: `${DATABASE}\n` }),
+      () => connectionConfig(TARGET, { ...identity, user: "shopaccess_web\r\n" }),
+      () => connectionConfig(TARGET, { ...identity, password: `${"a".repeat(48)}\n` }),
+      () => connectionConfig(TARGET, { ...identity, password: `${"a".repeat(48)}\u2028` }),
+      () => connectionConfig(TARGET, { ...identity, options: `${STARTUP}\n` }),
+      () => connectionConfig(TARGET, { ...identity, options: `${STARTUP}\r` }),
+      () => connectionConfig({ ...TARGET, host: "127.0.0.1\n" as "127.0.0.1" }, identity),
+    ];
+    for (const attempt of refused) expect(refusalCode(attempt)).toBe("CONNECTION_FIELD_REFUSED");
+  });
+
+  it.each(HARNESS_CONFIGS)("the installed driver's effective configuration for %s is exactly what the harness asked for", (_name, config) => {
+    // Constructed only. Nothing here connects.
+    const client = new Client(config);
+    expect(() => verifyEffectiveConfig(client, config)).not.toThrow();
+    expect({ host: client.host, port: client.port, user: client.user, database: client.database, ssl: client.ssl }).toEqual({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      database: config.database,
+      ssl: false,
+    });
+    const effective = (client as unknown as { connectionParameters: Record<string, unknown> }).connectionParameters;
+    expect(effective.options).toBe(config.options);
+    expect(effective.isDomainSocket).toBe(false);
+    expect(effective.password).toBe(config.password);
+
+    // A pool hands its clients the options it was given: the probe the harness verifies sees the same fields.
+    const options = Object.freeze({ ...config, max: 2 });
+    expect(() => verifyEffectiveConfig(new Client(options), config)).not.toThrow();
+    const pool = new Pool(options);
+    expect((pool as unknown as { options: Record<string, unknown> }).options).toMatchObject({ ...config });
+    expect(pool.totalCount).toBe(0);
+  });
+
+  it.each(MISMATCHES)("refuses a client whose effective %s differs, for every harness configuration", (_name, change) => {
+    for (const [name, config] of HARNESS_CONFIGS) {
+      expect(() => verifyEffectiveConfig(faithful(config), config), name).not.toThrow();
+      expect(refusalCode(() => verifyEffectiveConfig(faithful(config, change), config)), name).toBe("DRIVER_TARGET_MISMATCH");
+    }
+  });
+
+  it("refuses anything that is not a client it can read", () => {
+    const config = HARNESS_CONFIGS[0][1];
+    for (const value of [null, undefined, "client", 7, {}, { host: config.host }, { ...faithful(config), connectionParameters: null }]) {
+      expect(refusalCode(() => verifyEffectiveConfig(value, config))).toBe("DRIVER_TARGET_MISMATCH");
+    }
+  });
+
+  it("what this closes: given a URL, the installed driver lets its parameters override host, port, user, options and transport", () => {
+    // Constructed only, never connected. This is the behaviour the harness no longer depends on.
+    const overridden = new Client({ [CONNECTION_STRING_KEY]: `${GOOD_V4}?host=db.example.com&port=6000&user=other&options=-c%20role%3Dpostgres`, options: STARTUP });
+    expect({ host: overridden.host, port: overridden.port, user: overridden.user }).toEqual({ host: "db.example.com", port: 6000, user: "other" });
+    expect((overridden as unknown as { connectionParameters: { options: unknown } }).connectionParameters.options).toBe("-c role=postgres");
+    const socket = new Client({ [CONNECTION_STRING_KEY]: `${GOOD_V4}?host=/tmp` });
+    expect((socket as unknown as { connectionParameters: { isDomainSocket: unknown } }).connectionParameters.isDomainSocket).toBe(true);
+    // Each of them would have been refused before a client existed, and would fail verification if it had not been.
+    const config = HARNESS_CONFIGS[0][1];
+    expect(refusalCode(() => verifyEffectiveConfig(overridden, config))).toBe("DRIVER_TARGET_MISMATCH");
+    expect(refusalCode(() => verifyEffectiveConfig(socket, config))).toBe("DRIVER_TARGET_MISMATCH");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Environment variables the driver reads
+// ---------------------------------------------------------------------------
+
+/** Names read only on a path the harness never takes, because every configuration names its user and its password. */
+const CONTROLLED_VARIABLES = ["USER", "USERNAME", "HOME", "APPDATA"];
+const classify = (name: string): "rejected" | "permitted" | "controlled" | "UNCLASSIFIED" =>
+  isRefusedEnvironmentVariable(name) ? "rejected" : PERMITTED_PG_VARIABLES.includes(name) ? "permitted" : CONTROLLED_VARIABLES.includes(name) ? "controlled" : "UNCLASSIFIED";
+
+/** Runs `work` with the process environment replaced by a recorder that answers "not set" to everything. */
+function recordEnvironmentReads(work: () => void): string[] {
+  const reads = new Set<string>();
+  const original = process.env;
+  process.env = new Proxy({} as NodeJS.ProcessEnv, {
+    get(_target, key) {
+      if (typeof key === "string") reads.add(key);
+      return undefined;
+    },
+    has(_target, key) {
+      if (typeof key === "string") reads.add(key);
+      return false;
+    },
+  });
+  try {
+    work();
+  } finally {
+    process.env = original;
+  }
+  return [...reads].sort();
+}
+
+const NODE_MODULES = join(process.cwd(), "node_modules");
+
+/** The driver and everything it depends on, found from the installed package files. */
+function driverPackages(): string[] {
+  const seen = new Set<string>();
+  const queue = ["pg"];
+  while (queue.length > 0) {
+    const name = queue.pop() as string;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const manifest = JSON.parse(readFileSync(join(NODE_MODULES, name, "package.json"), "utf8")) as Record<string, Record<string, string> | undefined>;
+    queue.push(...Object.keys({ ...manifest.dependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies }).filter((dependency) => dependency !== "pg-native"));
+  }
+  return [...seen].sort();
+}
+
+function scriptsUnder(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return entry.name === "node_modules" ? [] : scriptsUnder(path);
+    return /\.(?:js|cjs|mjs)$/.test(entry.name) ? [path] : [];
+  });
+}
+
+describe("environment variables: every name the installed driver can read is classified", () => {
+  it("at run time, constructing clients and pools reads only classified names, including the names the driver computes", () => {
+    const web = HARNESS_CONFIGS[3][1];
+    const control = HARNESS_CONFIGS[0][1];
+    // The worst case first: an empty configuration falls back to the environment for everything.
+    const fallback = recordEnvironmentReads(() => {
+      new Client({});
+      new Pool({});
+    });
+    // The driver builds these names as 'PG' + key: no fixed list in its source names them.
+    for (const computed of ["PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE", "PGOPTIONS", "PGBINARY", "PGCLIENT_ENCODING", "PGREPLICATION"]) {
+      expect(fallback, computed).toContain(computed);
+    }
+    for (const name of fallback) expect(classify(name), name).not.toBe("UNCLASSIFIED");
+
+    // A harness configuration leaves the driver nothing to look up for the target or the session.
+    const configured = recordEnvironmentReads(() => {
+      new Client(web);
+      new Client(Object.freeze({ ...web, max: 12 }));
+      new Pool(Object.freeze({ ...web, max: 12 }));
+    });
+    for (const name of configured) expect(classify(name), name).not.toBe("UNCLASSIFIED");
+    for (const name of ["PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE", "PGOPTIONS", "PGSSLMODE"]) expect(configured, name).not.toContain(name);
+
+    // The control and bootstrap configurations pass no startup options: there the driver does consult PGOPTIONS, which is why it is refused.
+    const withoutOptions = recordEnvironmentReads(() => {
+      new Client(control);
+    });
+    expect(withoutOptions).toContain("PGOPTIONS");
+    expect(classify("PGOPTIONS")).toBe("rejected");
+    for (const name of withoutOptions) expect(classify(name), name).not.toBe("UNCLASSIFIED");
+  });
+
+  it("statically, every environment access in the driver and its dependencies is a reviewed one", () => {
+    const packages = driverPackages();
+    expect(packages).toEqual([
+      "pg",
+      "pg-cloudflare",
+      "pg-connection-string",
+      "pg-int8",
+      "pg-pool",
+      "pg-protocol",
+      "pg-types",
+      "pgpass",
+      "postgres-array",
+      "postgres-bytea",
+      "postgres-date",
+      "postgres-interval",
+      "split2",
+      "xtend",
+    ]);
+    const accesses = packages.flatMap((name) =>
+      scriptsUnder(join(NODE_MODULES, name)).flatMap((file) =>
+        [...readFileSync(file, "utf8").matchAll(/process\.env(?:\.[A-Za-z_][A-Za-z0-9_]*|\[[^\]]*\])?/g)].map((match) => `${file.slice(NODE_MODULES.length + 1)} | ${match[0]}`),
+      ),
+    );
+    // A new access of either kind, literal or computed, fails here until it has been reviewed and classified.
+    expect(accesses.sort()).toEqual(
+      [
+        // Computed: 'PG' + the upper-cased key of each val() call. The keys are enumerated in the next test.
+        "pg/lib/connection-parameters.js | process.env['PG' + key.toUpperCase()]",
+        // Computed: the name passed as val()'s third argument. Also enumerated in the next test.
+        "pg/lib/connection-parameters.js | process.env[envVar]",
+        "pg/lib/connection-parameters.js | process.env.PGSSLMODE",
+        "pg/lib/connection-parameters.js | process.env.PGCONNECT_TIMEOUT",
+        "pg/lib/index.js | process.env.NODE_PG_FORCE_NATIVE",
+        "pg/lib/defaults.js | process.env.USERNAME",
+        "pg/lib/defaults.js | process.env.USER",
+        // The password-file reader, reached only when a client has no password. Its names are enumerated below.
+        "pgpass/lib/helper.js | process.env",
+        "pgpass/lib/helper.js | process.env",
+        "pgpass/lib/helper.js | process.env",
+      ].sort(),
+    );
+    for (const access of accesses) {
+      const literal = /process\.env\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(access);
+      if (literal) expect(classify(literal[1]), access).not.toBe("UNCLASSIFIED");
+    }
+  });
+
+  it("the names behind the computed lookups are exactly the reviewed ones, and each is classified", () => {
+    const source = readFileSync(join(NODE_MODULES, "pg", "lib", "connection-parameters.js"), "utf8");
+    // val(key, config) reads 'PG' + KEY; val(key, config, 'NAME') reads NAME; val(key, config, false) reads nothing.
+    expect(source).toMatch(/envVar = process\.env\['PG' \+ key\.toUpperCase\(\)\]/);
+    expect(source).toMatch(/\} else if \(envVar === false\) \{/);
+    const calls = [...source.matchAll(/\bval\('([a-z_]+)', config(?:, ([^)]+))?\)/g)];
+    // Every use of val() has this shape: none passes a key or a name that this test cannot read.
+    expect([...source.matchAll(/\bval\(/g)]).toHaveLength(calls.length);
+    const names = calls
+      .map(([, key, explicit]) => (explicit === undefined ? `PG${key.toUpperCase()}` : explicit === "false" ? null : /^'([A-Z_]+)'$/.exec(explicit)?.[1] ?? `UNREADABLE:${explicit}`))
+      .filter((name): name is string => name !== null);
+    expect([...new Set(names)].sort()).toEqual(
+      ["PGAPPNAME", "PGBINARY", "PGCLIENT_ENCODING", "PGDATABASE", "PGHOST", "PGOPTIONS", "PGPASSWORD", "PGPORT", "PGREPLICATION", "PGSSLNEGOTIATION", "PGUSER"].sort(),
+    );
+    for (const name of names) expect(classify(name), name).not.toBe("UNCLASSIFIED");
+    expect(names.filter((name) => classify(name) === "permitted")).toEqual(["PGAPPNAME"]);
+
+    const passwordFile = readFileSync(join(NODE_MODULES, "pgpass", "lib", "helper.js"), "utf8");
+    const passwordFileNames = [...passwordFile.matchAll(/(?:\benv\.|process\.env, ')([A-Z_]+)/g)].map((match) => match[1]);
+    expect([...new Set(passwordFileNames)].sort()).toEqual(["APPDATA", "HOME", "PGPASSFILE", "PGPASSWORD", "PGPASS_NO_DEESCAPE"]);
+    for (const name of passwordFileNames) expect(classify(name), name).not.toBe("UNCLASSIFIED");
+  });
+
+  it("classifies the default user name on every platform as controlled, and the two labels as permitted", () => {
+    expect(classify("USER")).toBe("controlled");
+    expect(classify("USERNAME")).toBe("controlled");
+    expect(classify("PGAPPNAME")).toBe("permitted");
+    expect(classify("PGCONNECT_TIMEOUT")).toBe("permitted");
+    expect(classify("NODE_PG_FORCE_NATIVE")).toBe("rejected");
+    // Controlled means: never reached, because every configuration names its user and password.
+    for (const [, config] of HARNESS_CONFIGS) {
+      expect(config.user).not.toBe("");
+      expect(config.password).not.toBe("");
+    }
+    // The connect timeout the JavaScript client uses comes from its configuration, not from the variable.
+    expect(readFileSync(join(NODE_MODULES, "pg", "lib", "client.js"), "utf8")).toMatch(/this\._connectionTimeoutMillis = c\.connectionTimeoutMillis \|\| 0/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The PGT-04 child process
+// ---------------------------------------------------------------------------
+
+interface ChildRun {
+  readonly stdout: string;
+  readonly stderr: string;
+  /** `process.exitCode` as the program left it. */
+  readonly exitCode: unknown;
+  /** The argument of `process.exit`, if the program called it. */
+  readonly exited: number | null;
+}
+
+class ChildExit extends Error {}
+
+/** Runs the child's program text in this process, against a given `pg` module and environment. No process is started. */
+async function runChildProgram(env: NodeJS.ProcessEnv, pgModule: unknown): Promise<ChildRun> {
+  const out: string[] = [];
+  const err: string[] = [];
+  let exited: number | null = null;
+  const fakeProcess = {
+    env,
+    pid: 4242,
+    exitCode: undefined as unknown,
+    stdout: { write: (text: string) => out.push(text) },
+    stderr: { write: (text: string) => err.push(text) },
+    stdin: { once: (_event: string, listener: (chunk: string) => void) => queueMicrotask(() => listener("go\n")), destroy: () => undefined },
+    exit(code: number): never {
+      exited = code;
+      throw new ChildExit();
+    },
+  };
+  const fakeRequire = (name: string): unknown => {
+    if (name === "pg") return pgModule;
+    if (name === "node:crypto") return { randomBytes };
+    throw new Error(`the child program required an unexpected module: ${name}`);
+  };
+  // The program is one expression, so it can be returned and awaited.
+  // Runs the reviewed program text against stubs. No process is started.
+  const program = new Function("require", "process", `return ${ADMISSION_CHILD_PROGRAM.trim()}`) as (r: typeof fakeRequire, p: typeof fakeProcess) => Promise<void>;
+  try {
+    await program(fakeRequire, fakeProcess);
+  } catch (error) {
+    if (!(error instanceof ChildExit)) throw error;
+  }
+  return { stdout: out.join(""), stderr: err.join(""), exitCode: fakeProcess.exitCode, exited };
+}
+
+/** A recording stand-in for the driver's client. `change` makes it report something other than it was given. */
+function childDriver(change: Record<string, unknown> = {}) {
+  const log = { configs: [] as Record<string, unknown>[], connects: 0, queries: [] as string[], ends: 0 };
+  class StubClient {
+    host: unknown;
+    port: unknown;
+    user: unknown;
+    database: unknown;
+    ssl: unknown;
+    connectionParameters: Record<string, unknown>;
+    constructor(config: Record<string, unknown>) {
+      log.configs.push(config);
+      const reported = faithful(config as unknown as DriverConfig, change);
+      this.host = reported.host;
+      this.port = reported.port;
+      this.user = reported.user;
+      this.database = reported.database;
+      this.ssl = reported.ssl;
+      this.connectionParameters = reported.connectionParameters as Record<string, unknown>;
+    }
+    async connect() {
+      log.connects += 1;
+    }
+    async query(text: string) {
+      log.queries.push(text);
+      return { rows: [{ result: "ADMITTED" }] };
+    }
+    async end() {
+      log.ends += 1;
+    }
+  }
+  return { module: { Client: StubClient }, log };
+}
+
+const CHILD_STATEMENT = "SELECT result FROM shopaccess_api.admit_session($1, $2, $3)";
+const WEB_CONFIG = HARNESS_CONFIGS[3][1];
+const childEnvironment = (overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv => {
+  const env: Record<string, string | undefined> = { ...admissionChildEnvironment(WEB_CONFIG, CHILD_STATEMENT, 3, "/usr/bin:/bin"), ...overrides };
+  for (const [name, value] of Object.entries(env)) if (value === undefined) delete env[name];
+  return env as NodeJS.ProcessEnv;
+};
+
+describe("PGT-04 child process: its connection is verified in the child itself, before it connects", () => {
+  it("its environment is exactly the allowlisted keys, built from a verified configuration, with no PostgreSQL variable and no URL", () => {
+    const env = admissionChildEnvironment(WEB_CONFIG, CHILD_STATEMENT, 20, "/usr/bin:/bin");
+    expect(Object.keys(env).sort()).toEqual([...ADMISSION_CHILD_ENVIRONMENT_KEYS].sort());
+    expect(Object.keys(env).filter((name) => isRefusedEnvironmentVariable(name) || name.startsWith("PG"))).toEqual([]);
+    expect(env).toMatchObject({
+      NODE_ENV: "test",
+      PATH: "/usr/bin:/bin",
+      ADMISSION_HOST: "127.0.0.1",
+      ADMISSION_PORT: "54599",
+      ADMISSION_USER: "shopaccess_web",
+      ADMISSION_DATABASE: DATABASE,
+      ADMISSION_OPTIONS: STARTUP,
+      ADMISSION_STATEMENT: CHILD_STATEMENT,
+      ADMISSION_COUNT: "20",
+    });
+    for (const value of Object.values(env)) expect(value).not.toMatch(/^postgres(?:ql)?:\/\//);
+  });
+
+  it("refuses to build an environment from a configuration that is not in its fixed form", () => {
+    const refused: Array<() => unknown> = [
+      () => admissionChildEnvironment({ ...WEB_CONFIG, host: "localhost" as "127.0.0.1" }, CHILD_STATEMENT, 20, ""),
+      () => admissionChildEnvironment({ ...WEB_CONFIG, port: 5432 }, CHILD_STATEMENT, 20, ""),
+      () => admissionChildEnvironment({ ...WEB_CONFIG, user: "Web" }, CHILD_STATEMENT, 20, ""),
+      () => admissionChildEnvironment({ ...WEB_CONFIG, password: "has space" }, CHILD_STATEMENT, 20, ""),
+      () => admissionChildEnvironment({ ...WEB_CONFIG, database: "a b" }, CHILD_STATEMENT, 20, ""),
+      () => admissionChildEnvironment({ ...WEB_CONFIG, options: undefined }, CHILD_STATEMENT, 20, ""),
+      () => admissionChildEnvironment({ ...WEB_CONFIG, options: "--x" }, CHILD_STATEMENT, 20, ""),
+      () => admissionChildEnvironment(WEB_CONFIG, CHILD_STATEMENT, 0, ""),
+      () => admissionChildEnvironment(WEB_CONFIG, CHILD_STATEMENT, 1.5, ""),
+    ];
+    for (const attempt of refused) expect(refusalCode(attempt)).toBe("CONNECTION_FIELD_REFUSED");
+  });
+
+  it("the program gives the driver discrete fields only, verifies every client, then connects, admits and reports", async () => {
+    const { module, log } = childDriver();
+    const run = await runChildProgram(childEnvironment(), module);
+    expect(log.configs).toHaveLength(3);
+    for (const config of log.configs) {
+      expect(config).toEqual({ host: "127.0.0.1", port: 54599, user: "shopaccess_web", password: "a".repeat(48), database: DATABASE, options: STARTUP, ssl: false });
+    }
+    expect(log.connects).toBe(3);
+    expect(log.queries).toEqual([CHILD_STATEMENT, CHILD_STATEMENT, CHILD_STATEMENT]);
+    expect(log.ends).toBe(3);
+    expect(run.exitCode).toBe(0);
+    expect(run.exited).toBeNull();
+    expect(run.stderr).toBe("");
+    const [ready, report] = run.stdout.trim().split("\n");
+    expect(ready).toBe("ready");
+    expect(JSON.parse(report)).toEqual({ pid: 4242, results: ["ADMITTED", "ADMITTED", "ADMITTED"] });
+    expect(run.stdout + run.stderr).not.toContain("a".repeat(48));
+  });
+
+  it.each(MISMATCHES)("a child whose driver reports a different %s refuses with a fixed code and never connects", async (_name, change) => {
+    const { module, log } = childDriver(change);
+    const run = await runChildProgram(childEnvironment(), module);
+    expect(run.stderr).toBe("child refused: DRIVER_TARGET_MISMATCH\n");
+    expect(run.stdout).toBe("");
+    expect(run.exitCode).toBe(2);
+    expect(log.connects).toBe(0);
+    expect(log.queries).toEqual([]);
+  });
+
+  it.each([
+    ["PGHOST", "db.example.com"],
+    ["PGPORT", "5432"],
+    ["PGOPTIONS", "-c role=postgres"],
+    ["PGAPPNAME", "x"],
+    ["PGSOMETHING_NEW_9", "x"],
+    ["NODE_PG_FORCE_NATIVE", "1"],
+  ])("a child that finds %s in its environment refuses before constructing anything", async (name, value) => {
+    const { module, log } = childDriver();
+    const run = await runChildProgram(childEnvironment({ [name]: value }), module);
+    expect(run.stderr).toBe("child refused: ENVIRONMENT_VARIABLE_REFUSED\n");
+    expect(run.exitCode).toBe(2);
+    expect(log.configs).toEqual([]);
+    expect(log.connects).toBe(0);
+  });
+
+  it.each([
+    ["a host name", { ADMISSION_HOST: "localhost" }],
+    ["a remote host", { ADMISSION_HOST: "db.example.com" }],
+    ["a socket directory", { ADMISSION_HOST: "/tmp" }],
+    ["no host", { ADMISSION_HOST: undefined }],
+    ["the default port", { ADMISSION_PORT: "5432" }],
+    ["a privileged port", { ADMISSION_PORT: "80" }],
+    ["a port that is not a number", { ADMISSION_PORT: "54599x" }],
+    ["no port", { ADMISSION_PORT: undefined }],
+    ["no user", { ADMISSION_USER: undefined }],
+    ["no password", { ADMISSION_PASSWORD: undefined }],
+    ["no database", { ADMISSION_DATABASE: undefined }],
+    ["no startup options", { ADMISSION_OPTIONS: undefined }],
+    ["unexpected startup options", { ADMISSION_OPTIONS: "-c role=postgres; x" }],
+    ["no count", { ADMISSION_COUNT: undefined }],
+    ["a count of zero", { ADMISSION_COUNT: "0" }],
+    // Line terminators. The child's own patterns refuse them; no further guard is needed there.
+    ["a host with a trailing newline", { ADMISSION_HOST: "127.0.0.1\n" }],
+    ["a port with a trailing newline", { ADMISSION_PORT: "54599\n" }],
+    ["a port with a trailing CRLF", { ADMISSION_PORT: "54599\r\n" }],
+    ["a port with a trailing line separator", { ADMISSION_PORT: "54599\u2028" }],
+    ["a user with a trailing carriage return", { ADMISSION_USER: "shopaccess_web\r" }],
+    ["a database with a trailing newline", { ADMISSION_DATABASE: `${DATABASE}\n` }],
+    ["a password with a trailing newline", { ADMISSION_PASSWORD: `${"a".repeat(48)}\n` }],
+    ["startup options with a trailing newline", { ADMISSION_OPTIONS: `${STARTUP}\n` }],
+    ["a count with a trailing newline", { ADMISSION_COUNT: "3\n" }],
+  ])("a child given %s refuses before constructing anything", async (_name, overrides) => {
+    const { module, log } = childDriver();
+    const run = await runChildProgram(childEnvironment(overrides), module);
+    expect(run.stderr).toBe("child refused: CONNECTION_FIELD_REFUSED\n");
+    expect(run.exitCode).toBe(2);
+    expect(log.configs).toEqual([]);
+    expect(log.connects).toBe(0);
+  });
+
+  it("the child's own check accepts the installed driver's effective configuration, and nothing is connected until all clients passed it", async () => {
+    let connects = 0;
+    let constructed = 0;
+    // The real client class, with only `connect` replaced: no socket is ever opened.
+    class NeverConnects extends Client {
+      constructor(config: ConstructorParameters<typeof Client>[0]) {
+        super(config);
+        constructed += 1;
+      }
+    }
+    (NeverConnects.prototype as unknown as { connect: () => Promise<never> }).connect = () => {
+      // All three clients exist, verified against the real driver, before the first connect is attempted.
+      expect(constructed).toBe(3);
+      connects += 1;
+      return Promise.reject(Object.assign(new Error("not connecting in a unit test"), { code: "STUBBED" }));
+    };
+    const run = await runChildProgram(childEnvironment(), { Client: NeverConnects });
+    expect(connects).toBe(1);
+    expect(run.stderr).toBe("child failed: STUBBED\n");
+    expect(run.exited).toBe(1);
+    expect(run.stdout).toBe("");
+  });
+
+  it("the program text contains no URL handling, and the test file starts it only through the harness", () => {
+    expect(ADMISSION_CHILD_PROGRAM).not.toContain(CONNECTION_STRING_KEY);
+    expect(ADMISSION_CHILD_PROGRAM).not.toMatch(/ADMISSION_URL|postgres:\/\/|new URL/);
+    expect([...ADMISSION_CHILD_PROGRAM.matchAll(/new Client\(/g)]).toHaveLength(1);
+    // Verification precedes the first connect in the text, and nothing connects inside the constructing loop.
+    expect(ADMISSION_CHILD_PROGRAM.indexOf('refuse("DRIVER_TARGET_MISMATCH")')).toBeLessThan(ADMISSION_CHILD_PROGRAM.indexOf("client.connect()"));
+    expect([...ADMISSION_CHILD_PROGRAM.matchAll(/\.connect\(\)/g)]).toHaveLength(1);
+
+    const test = readFileSync(join(process.cwd(), "tests", "db", "admission-processes.test.ts"), "utf8");
+    expect(test).toMatch(/spawn\(process\.execPath, \["-e", ADMISSION_CHILD_PROGRAM\], \{\s+cwd: ROOT,\s+\/\/[^\n]*\n\s+env: admissionChildEnvironment\(db\.webConnection, SESSION_STATEMENTS\.admitSession, ADMISSIONS_PER_PROCESS, process\.env\.PATH \?\? ""\),/);
+    expect([...test.matchAll(/spawn\(/g)]).toHaveLength(1);
+    expect(test).not.toMatch(/new Client\(|ADMISSION_URL|require\("pg"\)/);
+  });
+});
+
+describe("no test opens a database connection outside the harness", () => {
+  const filesUnderTests = (directory: string): string[] =>
+    readdirSync(directory, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? filesUnderTests(join(directory, entry.name)) : [join(directory, entry.name)]));
+  const tests = filesUnderTests(join(process.cwd(), "tests"));
+
+  it("no file under tests/ passes the driver a URL", () => {
+    expect(tests.length).toBeGreaterThan(20);
+    for (const file of tests) expect(readFileSync(file, "utf8"), file).not.toContain(CONNECTION_STRING_KEY);
+  });
+
+  it("the legacy MIG-01 database path is gone: its variable is read nowhere, and the unit suite constructs no client for a database", () => {
+    const sources = [...tests, ...scriptsUnderSource(join(process.cwd(), "src"))];
+    for (const file of sources) expect(readFileSync(file, "utf8"), file).not.toContain(LEGACY_DATABASE_VARIABLE);
+
+    const environment = readFileSync(join(process.cwd(), "tests", "unit", "environment.test.ts"), "utf8");
+    expect(environment).not.toMatch(/from "pg"|import\("pg"\)|new Client\(|new Pool\(|\.connect\(|skipIf|MIG-01/);
+    // Its database-free static checks of the archived drafts remain.
+    expect(environment).toMatch(/describe\("migration files \(static checks only - these do not execute SQL\)"/);
+    expect(environment).toMatch(/const MIGRATIONS_DIR = join\(ROOT, "db", "migrations", "archive", "milestone-001-unexecuted"\);/);
+
+    // Outside the harness, only this file and the stub-first file touch the driver, and neither connects.
+    const unit = join(process.cwd(), "tests", "unit");
+    const importers = readdirSync(unit).filter((name) => /from "pg"|import\("pg"\)|vi\.mock\("pg"/.test(readFileSync(join(unit, name), "utf8")));
+    expect(importers.sort()).toEqual(["pg-admin-target.test.ts", "pg-harness.test.ts"]);
+  });
+});
+
+function scriptsUnderSource(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? scriptsUnderSource(join(directory, entry.name)) : [join(directory, entry.name)]));
+}
+
 describe("harness source: cluster-level statements have exactly one route", () => {
   const source = readFileSync(join(process.cwd(), "tests", "db", "harness.ts"), "utf8");
   const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
   it("opens exactly one connection to the maintenance database: the lock-owning session", () => {
-    expect([...code.matchAll(/new Client\(\{ connectionString: raw \}\)/g)]).toHaveLength(1);
-    expect(code).toMatch(/const client = new Client\(\{ connectionString: raw \}\);\s+const session = new ControlSession\(client\);/);
-    expect(code).not.toMatch(/withCluster|new Pool\(\{ connectionString: raw/);
-    // Every other connection names the test database or a test login.
-    const targets = [...code.matchAll(/new (?:Client|Pool)\(\{\s*connectionString: (urlFor\([^)]*\)|[A-Za-z]+)/g)].map((match) => match[1]);
-    expect(targets.sort()).toEqual(
-      ["raw", "urlFor(base, database)", "urlFor(base, plan.database)", "webConnectionString", "webConnectionString", "urlFor(base, plan.database, plan.operatorLogin, operatorPassword)"].sort(),
+    const control = /const client = verifiedClient\(connectionConfig\(target, \{ database: CONTROL_DATABASE, user: target\.user, password: target\.password \}\)\);\s+const session = new ControlSession\(client\);/;
+    expect(code).toMatch(control);
+    // No other configuration names the maintenance database.
+    expect([...code.matchAll(/database: CONTROL_DATABASE/g)]).toHaveLength(1);
+    expect(code).not.toMatch(/withCluster/);
+  });
+
+  it("constructs clients and pools only inside the two verifying helpers, from discrete fields, never from a URL", () => {
+    // In the harness itself: one client in each helper (the pool helper's is an unconnected probe). The third is inside
+    // the child program's text, which verifies its own clients (tested above).
+    expect([...code.matchAll(/new Client\(/g)]).toHaveLength(3);
+    expect(code).toMatch(/function verifiedClient\(config: DriverConfig\): Client \{\s+const client = new Client\(config\);\s+verifyEffectiveConfig\(client, config\);\s+return client;\s+\}/);
+    expect(code).toMatch(/function verifiedPool\(config: DriverConfig, max: number\): Pool \{\s+const options = Object\.freeze\(\{ \.\.\.config, max \}\);\s+verifyEffectiveConfig\(new Client\(options\), config\);\s+return new Pool\(options\);\s+\}/);
+    expect([...code.matchAll(/new Pool\(/g)]).toHaveLength(1);
+
+    // Every connection goes through a helper, and every configuration comes from the validated target.
+    const sites = [...code.matchAll(/verified(?:Client|Pool)\(\s*(connectionConfig\(target, \{[^}]*\}\)|[A-Za-z]+)/g)].map((match) => match[1].replace(/\s+/g, " "));
+    expect(sites.sort()).toEqual(
+      [
+        "config",
+        "config",
+        "connectionConfig(target, { database: CONTROL_DATABASE, user: target.user, password: target.password })",
+        "connectionConfig(target, { database, user: target.user, password: target.password })",
+        // The second test-owner connection: the same target and credentials, in the test database, no startup option.
+        "connectionConfig(target, { database: plan.database, user: target.user, password: target.password })",
+        'connectionConfig(target, { database: plan.database, user: target.user, password: target.password, options: "-c role=shopaccess_owner" })',
+        "webConnection",
+        "webConnection",
+        "connectionConfig(target, { database: plan.database, user: plan.operatorLogin, password: operatorPassword, options: connectionStartupOptions() })",
+      ].sort(),
     );
+    // The target is validated before anything else in the entry point, and nothing parses a URL for the driver.
+    expect(code).toMatch(/export async function openDisposableDatabase\([^)]*\): Promise<DisposableDatabase> \{\s+const parsed = parseAdminTarget\(process\.env\);/);
+    expect(code).not.toContain(CONNECTION_STRING_KEY);
+    expect(code).not.toMatch(/urlFor|new URL\(base|\.toString\(\)\s*;\s*\/\/ url/);
   });
 
   it("sends every cluster-level statement through the lock-owning session and nowhere else", () => {

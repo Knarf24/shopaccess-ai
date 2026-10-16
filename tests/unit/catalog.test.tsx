@@ -1,9 +1,11 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfirmationSummary } from "@/components/ConfirmationSummary";
 import { ExternalProductCard } from "@/components/ExternalProductCard";
+import { MerchantProductCard } from "@/components/MerchantProductCard";
+import { spanishProductDescription, spanishVariantLabel } from "@/lib/catalog/demo-translations";
 import { DEMO_MERCHANT_CATALOG, findMerchantVariant, formatUsd } from "@/lib/catalog/merchant-catalog";
 import { ExternalProductSchema, MerchantCatalogSchema, MerchantVariantSchema, type ExternalProduct } from "@/lib/catalog/schemas";
 import { parseSafeExternalUrl } from "@/lib/catalog/url";
@@ -33,6 +35,103 @@ describe("demo merchant catalog", () => {
     expect(DEMO_MERCHANT_CATALOG.products.length).toBeLessThanOrEqual(5);
     expect(DEMO_MERCHANT_CATALOG.merchant.simulatedSandbox).toBe(true);
     for (const product of DEMO_MERCHANT_CATALOG.products) expect(product.imagePath).toMatch(/^\/catalog\//);
+  });
+
+  it("is revision 2 with the three researched configurations, structured prices, and local illustrations", () => {
+    const expected = [
+      {
+        productId: "dmp_aspirego15",
+        variantId: "dmv_aspirego15",
+        unitAmountCents: 57999,
+        ramGb: 8,
+        storageGb: 256,
+        model: "AG15-21PT-R9TL",
+        part: "NX.JJJAA.008",
+        spanishDescription: "Modelo AG15-21PT-R9TL, pieza NX.JJJAA.008. Pantalla táctil IPS de 1920 × 1080.",
+        spanishLabel: "8 GB LPDDR5, SSD PCIe NVMe de 256 GB",
+      },
+      {
+        productId: "dmp_aspire14ai",
+        variantId: "dmv_aspire14ai",
+        unitAmountCents: 87999,
+        ramGb: 16,
+        storageGb: 512,
+        model: "A14-52M-51S1",
+        part: "NX.J8LAA.002",
+        spanishDescription: "Modelo A14-52M-51S1, pieza NX.J8LAA.002. Pantalla IPS de 1920 × 1200.",
+        spanishLabel: "16 GB LPDDR5X, SSD PCIe NVMe de 512 GB",
+      },
+      {
+        productId: "dmp_vivobook16",
+        variantId: "dmv_vivobook16",
+        unitAmountCents: 99900,
+        ramGb: 16,
+        storageGb: 1024,
+        model: "F1605VA-DS74",
+        part: "90NB10N3-M004M0",
+        spanishDescription: "Modelo F1605VA-DS74, pieza 90NB10N3-M004M0. Pantalla de 1920 × 1200 sin función táctil.",
+        spanishLabel: "16 GB DDR4, SSD PCIe NVMe de 1 TB",
+      },
+    ] as const;
+
+    expect(DEMO_MERCHANT_CATALOG.revision).toBe(2);
+    expect(DEMO_MERCHANT_CATALOG.products).toHaveLength(3);
+    expect(
+      DEMO_MERCHANT_CATALOG.products.map((product) => [product.productId, product.variants.map((variant) => variant.variantId)]),
+    ).toEqual(expected.map((row) => [row.productId, [row.variantId]]));
+
+    for (const row of expected) {
+      const entry = findMerchantVariant(DEMO_MERCHANT_CATALOG, row.productId, row.variantId);
+      if (!entry) throw new Error(row.productId);
+      expect(entry.product.variants).toHaveLength(1);
+      expect(entry.variant.unitAmountCents).toBe(row.unitAmountCents);
+      expect(entry.variant.specs.ramGb).toBe(row.ramGb);
+      expect(entry.variant.specs.storageGb).toBe(row.storageGb);
+      expect(entry.product.description).toContain(row.model);
+      expect(entry.product.description).toContain(row.part);
+      expect(entry.product.description).not.toContain(entry.variant.specs.cpu);
+      expect(entry.product.description).not.toMatch(/\$|USD|579|879|999/);
+      expect(spanishProductDescription(row.productId)).toBe(row.spanishDescription);
+      expect(spanishVariantLabel(row.variantId)).toBe(row.spanishLabel);
+      expect(existsSync(join(process.cwd(), "public", entry.product.imagePath.slice(1)))).toBe(true);
+
+      const card = renderToStaticMarkup(
+        <MerchantProductCard product={entry.product} merchantName={DEMO_MERCHANT_CATALOG.merchant.displayName} />,
+      );
+      expect(card).toContain(`Fixed demo price <span class="font-semibold">${formatUsd(row.unitAmountCents)}</span> USD`);
+      expect(card).toContain(row.model);
+      expect(card).toContain(row.part);
+    }
+
+    expect(spanishProductDescription("dmp_missing")).toBeNull();
+    expect(spanishVariantLabel("dmv_missing")).toBeNull();
+  });
+
+  it("shows a catalog illustration on the homepage, keeps cards on their own images, and scopes the presentation stylesheet", () => {
+    const page = readFileSync(join(SRC, "app/page.tsx"), "utf8");
+    const card = readFileSync(join(SRC, "components/MerchantProductCard.tsx"), "utf8");
+    const css = readFileSync(join(SRC, "app/guided-presentation.css"), "utf8");
+    const pictured = DEMO_MERCHANT_CATALOG.products.find((product) => product.imagePath === "/catalog/aspire-14-ai.svg");
+    expect(pictured?.title).toBe("Acer Aspire 14 AI");
+    expect(page).toContain('src="/catalog/aspire-14-ai.svg"');
+    expect(page).toContain('alt="Acer Aspire 14 AI, illustration"');
+    expect(page).toContain("Simplified illustration of the Acer Aspire 14 AI from the demo catalog. It is not a product photo.");
+    expect(existsSync(join(process.cwd(), "public/catalog/aspire-14-ai.svg"))).toBe(true);
+    expect(page).not.toContain("demo-laptop.png");
+    expect(existsSync(join(process.cwd(), "public/images/demo-laptop.png"))).toBe(false);
+    expect(card).toContain("product.imagePath");
+    expect(css).not.toMatch(/https?:|url\s*\(/i);
+    const selectors = css
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("}")
+      .map((block) => block.split("{")[0] ?? "");
+    for (const group of selectors) {
+      if (!group.trim() || group.trim().startsWith("@")) continue;
+      for (const selector of group.split(",")) {
+        const trimmed = selector.trim();
+        if (trimmed) expect(trimmed.startsWith(".guided-presentation"), trimmed).toBe(true);
+      }
+    }
   });
 
   it("rejects invalid variants: bad IDs, non-integer or non-positive amounts, wrong currency, bad quantities", () => {
@@ -76,7 +175,7 @@ describe("CAT-01: external discovery IDs are rejected in merchant checkout", () 
       ok: false,
       error: "PRODUCT_NOT_IN_MERCHANT_CATALOG",
     });
-    expect(findMerchantVariant(world.catalog, "dmp_studybook14", "dmv_codebook15a")).toBeNull();
+    expect(findMerchantVariant(world.catalog, "dmp_aspirego15", "dmv_aspire14ai")).toBeNull();
     expect(await stateOf(world, intent.id)).toBe("DRAFT");
   });
 
@@ -189,17 +288,125 @@ describe("URL-01: unsafe external URLs are rejected and never fetched by the ser
   });
 
   it("has no network-capable code or provider SDK imports anywhere in src/", () => {
+    const fetchCall = /\bfetch\s*\(/;
+    const advisoryAdapter = join(SRC, "lib", "providers", "qwen-advisory.ts");
+    const paypalTransport = join(SRC, "lib", "providers", "paypal-sandbox.ts");
+    const channel3Adapter = join(SRC, "lib", "providers", "channel3-discovery.ts");
+    // First-party adapter exception. The filename is the Channel3 adapter, not a way around the scan.
+    const channel3FetchOnlyInTransport = (text: string): boolean => {
+      const start = text.indexOf("export function createFetchChannel3Transport(");
+      const end = text.indexOf("\nasync function readChannel3Response");
+      if (start < 0 || end < start) return false;
+      const inside = text.slice(start, end);
+      const outside = text.slice(0, start) + text.slice(end);
+      return inside.match(/\bfetch\s*\(/g)?.length === 1 && !fetchCall.test(outside);
+    };
+    const paypalFetchOnlyInTransport = (text: string): boolean => {
+      const start = text.indexOf("export function createFetchPaypalTransport()");
+      const end = text.indexOf("\nexport class PayPalSandboxProvider");
+      if (start < 0 || end < start) return false;
+      const inside = text.slice(start, end);
+      const outside = text.slice(0, start) + text.slice(end);
+      return inside.match(/\bfetch\s*\(/g)?.length === 1 && !fetchCall.test(outside);
+    };
+    const providerImport = /from\s+["'][^"']*(?:paypal|openai|supabase|google\/generative|genai|channel3|axios|undici|node-fetch)[^"']*["']/i;
+    const internalPaypalAdapter = "@/lib/providers/paypal-sandbox";
+    const internalChannel3Adapter = "@/lib/providers/channel3-discovery";
+    const runtimeImporter = join(SRC, "server", "runtime.ts");
+    const paypalAdapterImporters = new Set([runtimeImporter]);
+    const channel3AdapterImporters = new Set([runtimeImporter]);
+    const unauthorizedProviderImport = (file: string, text: string): boolean => {
+      for (const match of text.matchAll(/from\s+["']([^"']*)["']/g)) {
+        const specifier = match[1] ?? "";
+        if (!/(?:paypal|openai|supabase|google\/generative|genai|channel3|axios|undici|node-fetch)/i.test(specifier)) continue;
+        if (specifier === internalPaypalAdapter && paypalAdapterImporters.has(file)) continue;
+        if (specifier === internalChannel3Adapter && channel3AdapterImporters.has(file)) continue;
+        return true;
+      }
+      return false;
+    };
     const forbidden = [
-      /\bfetch\s*\(/,
+      fetchCall,
       /XMLHttpRequest|WebSocket\s*\(|EventSource\s*\(/,
       /from\s+["'](?:node:)?(?:http|https|http2|dgram|tls|dns|child_process)["']/,
-      /from\s+["'][^"']*(?:paypal|openai|supabase|google\/generative|genai|channel3|axios|undici|node-fetch)[^"']*["']/i,
+      providerImport,
       /require\s*\(/,
     ];
     for (const file of sourceFiles(SRC)) {
       const text = readFileSync(file, "utf8");
-      for (const pattern of forbidden) expect(pattern.test(text), `${file} matches ${pattern}`).toBe(false);
+      for (const pattern of forbidden) {
+        if (pattern === fetchCall && file === advisoryAdapter) continue;
+        if (pattern === fetchCall && file === paypalTransport) {
+          expect(paypalFetchOnlyInTransport(text), file).toBe(true);
+          continue;
+        }
+        if (pattern === fetchCall && file === channel3Adapter) {
+          expect(channel3FetchOnlyInTransport(text), file).toBe(true);
+          continue;
+        }
+        if (pattern === providerImport) {
+          expect(unauthorizedProviderImport(file, text), file).toBe(false);
+          continue;
+        }
+        expect(pattern.test(text), `${file} matches ${pattern}`).toBe(false);
+      }
     }
+    expect(fetchCall.test(readFileSync(advisoryAdapter, "utf8"))).toBe(true);
+    const paypal = readFileSync(paypalTransport, "utf8");
+    expect(paypalFetchOnlyInTransport(paypal)).toBe(true);
+    expect(paypalFetchOnlyInTransport(`${paypal}\nfetch("https://api-m.sandbox.paypal.com/v2/checkout/orders");`)).toBe(false);
+    expect(paypalFetchOnlyInTransport(paypal.replace("export function createFetchPaypalTransport()", "export function unusedTransport()"))).toBe(false);
+    expect(readFileSync(join(SRC, "server", "runtime.ts"), "utf8")).not.toMatch(/\bfetch\s*\(|createFetchPaypalTransport|createFetchChannel3Transport/);
+    const channel3 = readFileSync(channel3Adapter, "utf8");
+    expect(channel3FetchOnlyInTransport(channel3)).toBe(true);
+    expect(channel3FetchOnlyInTransport(`${channel3}\nfetch("https://api.trychannel3.com/v1/search");`)).toBe(false);
+    expect(channel3FetchOnlyInTransport(channel3.replace("export function createFetchChannel3Transport(", "fetch(\"https://api.trychannel3.com/v1/search\");\nexport function createFetchChannel3Transport("))).toBe(false);
+    expect(channel3FetchOnlyInTransport(channel3.replace("export function createFetchChannel3Transport(", "export function unusedTransport("))).toBe(false);
+    expect(channel3FetchOnlyInTransport(channel3.replace("async function readChannel3Response", "fetch(\"https://api.trychannel3.com/v1/search\");\nasync function readChannel3Response"))).toBe(false);
+    expect(readFileSync(join(SRC, "server", "config.ts"), "utf8")).not.toMatch(/\bfetch\s*\(/);
+    expect(readFileSync(join(SRC, "server", "handlers.ts"), "utf8")).not.toMatch(/\bfetch\s*\(/);
+
+    const handlersPath = join(SRC, "server", "handlers.ts");
+    const runtimePath = join(SRC, "server", "runtime.ts");
+    const handlers = readFileSync(handlersPath, "utf8");
+    const runtime = readFileSync(runtimePath, "utf8");
+    const exactAdapterImport = /from\s+["']@\/lib\/providers\/paypal-sandbox["']/g;
+    expect(handlers.match(exactAdapterImport)).toBeNull();
+    expect(runtime.match(exactAdapterImport)).toHaveLength(1);
+    const exactChannel3Import = /from\s+["']@\/lib\/providers\/channel3-discovery["']/g;
+    expect(handlers.match(exactChannel3Import)).toBeNull();
+    expect(runtime.match(exactChannel3Import)).toHaveLength(1);
+    expect(unauthorizedProviderImport(handlersPath, handlers)).toBe(false);
+    expect(unauthorizedProviderImport(runtimePath, runtime)).toBe(false);
+    for (const file of sourceFiles(SRC)) {
+      if (paypalAdapterImporters.has(file)) continue;
+      expect(readFileSync(file, "utf8"), file).not.toMatch(exactAdapterImport);
+    }
+    const lookalikes = [
+      "@/lib/providers/paypal-sandbox.ts",
+      "@/lib/providers/paypal-sandbox/index",
+      "@/lib/provider/paypal-sandbox",
+      "@/lib/providers/paypal-sandboxes",
+      "@/lib/providers/PayPal-sandbox",
+      "../lib/providers/paypal-sandbox",
+      "paypal-sandbox",
+    ];
+    for (const specifier of lookalikes) {
+      const added = `\nimport { PayPalSandboxProvider } from "${specifier}";`;
+      expect(unauthorizedProviderImport(handlersPath, `${handlers}${added}`), specifier).toBe(true);
+      expect(unauthorizedProviderImport(runtimePath, `${runtime}${added}`), specifier).toBe(true);
+    }
+    for (const specifier of ["@paypal/checkout-server-sdk", "paypal", "@paypal/paypal-server-sdk"]) {
+      const added = `\nimport checkout from "${specifier}";`;
+      expect(unauthorizedProviderImport(handlersPath, `${handlers}${added}`), specifier).toBe(true);
+      expect(unauthorizedProviderImport(runtimePath, `${runtime}${added}`), specifier).toBe(true);
+    }
+    const configPath = join(SRC, "server", "config.ts");
+    const panelPath = join(SRC, "components", "SimulatedPaymentPanel.tsx");
+    const exactAdded = `\nimport { PayPalSandboxProvider } from "${internalPaypalAdapter}";`;
+    expect(unauthorizedProviderImport(configPath, `${readFileSync(configPath, "utf8")}${exactAdded}`)).toBe(true);
+    expect(unauthorizedProviderImport(panelPath, `${readFileSync(panelPath, "utf8")}${exactAdded}`)).toBe(true);
+    expect(unauthorizedProviderImport(handlersPath, `${handlers}\nimport openai from "openai";`)).toBe(true);
   });
 });
 
@@ -251,8 +458,8 @@ describe("confirmation summary UI", () => {
     const html = renderToStaticMarkup(<ConfirmationSummary challenge={challenge.value} csrfToken={session.csrfToken} action="/checkout/confirm" />);
 
     expect(html).toContain("ShopAccess Demo Store (simulated)");
-    expect(html).toContain("CodeBook 15");
-    expect(html).toContain("$799.00");
+    expect(html).toContain("Acer Aspire 14 AI");
+    expect(html).toContain("$879.99");
     expect(html).toMatch(/<button type="submit"[^>]*aria-describedby="confirm-explanation"/);
     expect(html).toMatch(/<input type="checkbox"[^>]*required=""/);
     expect(html).toContain("approving the payment in PayPal is the step that would authorize payment");

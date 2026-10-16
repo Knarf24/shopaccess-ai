@@ -60,7 +60,7 @@ export function createWorld() {
 
 export type World = ReturnType<typeof createWorld>;
 
-export const SAMPLE_REQUEST = { productId: "dmp_codebook15", variantId: "dmv_codebook15a", quantity: 1 };
+export const SAMPLE_REQUEST = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 };
 
 export async function newSession(world: World) {
   const issued = await world.sessions.establish(null);

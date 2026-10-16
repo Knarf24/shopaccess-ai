@@ -1,11 +1,14 @@
 import type { PaymentSnapshot, TransitionRecord } from "../payment/state-machine";
 import type { Quote } from "../quote/quote";
+import { deleteNeedsDrafts } from "../session/store";
 
 export interface CheckoutIntentRecord {
   readonly id: string;
   readonly sessionId: string;
   readonly snapshot: PaymentSnapshot;
   readonly createdAt: string;
+  /** Mock journey language. Absent from quotes, digests, nonces, and payment state. */
+  readonly interfaceLanguage?: "en" | "es";
 }
 
 export interface ConfirmationSummary {
@@ -267,6 +270,7 @@ export class InMemoryCheckoutStore implements CheckoutRepository {
 
   // No `await` inside: the whole removal is one uninterrupted step.
   async deleteForSessions(sessionIds: readonly string[]): Promise<string[]> {
+    deleteNeedsDrafts(this, sessionIds);
     if (sessionIds.length === 0) return [];
     const owners = new Set(sessionIds);
     const removedIntents: string[] = [];

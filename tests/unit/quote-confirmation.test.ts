@@ -23,16 +23,16 @@ describe("immutable quotes", () => {
       sessionId: session.id,
       checkoutIntentId: intentId,
       merchantId: "dmm_shopaccessdemo",
-      productId: "dmp_codebook15",
-      variantId: "dmv_codebook15a",
-      catalogRevision: 1,
+      productId: "dmp_aspire14ai",
+      variantId: "dmv_aspire14ai",
+      catalogRevision: 2,
       quantity: 2,
-      unitAmountCents: 79900,
-      subtotalCents: 159800,
+      unitAmountCents: 87999,
+      subtotalCents: 175998,
       discountCents: 0,
       taxCents: 0,
       shippingCents: 0,
-      totalCents: 159800,
+      totalCents: 175998,
       currency: "USD",
       assumptions: SANDBOX_ASSUMPTIONS,
     });
@@ -69,7 +69,7 @@ describe("immutable quotes", () => {
 
     // The same request without overrides is priced by the server alone.
     const clean = await requestQuote(world.checkout, session.id, intent.id, SAMPLE_REQUEST);
-    expect(clean.ok && clean.value.totalCents).toBe(79900);
+    expect(clean.ok && clean.value.totalCents).toBe(87999);
   });
 
   it("rejects invalid quantities, unavailable variants and quantities above the per-order maximum", async () => {
@@ -82,7 +82,8 @@ describe("immutable quotes", () => {
       expect(await ask({ ...SAMPLE_REQUEST, quantity }), String(quantity)).toEqual({ ok: false, error: "REQUEST_INVALID" });
     }
     expect(await ask({ ...SAMPLE_REQUEST, quantity: 3 })).toEqual({ ok: false, error: "QUANTITY_EXCEEDS_LIMIT" });
-    expect(await ask({ productId: "dmp_campusbook16", variantId: "dmv_campusbook16a", quantity: 1 })).toEqual({ ok: false, error: "VARIANT_UNAVAILABLE" });
+    world.catalog.products[2].variants[0].availability = "OUT_OF_STOCK";
+    expect(await ask({ productId: "dmp_vivobook16", variantId: "dmv_vivobook16", quantity: 1 })).toEqual({ ok: false, error: "VARIANT_UNAVAILABLE" });
     expect(await ask(null)).toEqual({ ok: false, error: "REQUEST_INVALID" });
   });
 
@@ -185,11 +186,11 @@ describe("explicit confirmation", () => {
       consumedAt: null,
       summary: {
         merchantName: "ShopAccess Demo Store (simulated)",
-        productTitle: "CodeBook 15",
-        variantLabel: "16 GB memory, 512 GB SSD",
+        productTitle: "Acer Aspire 14 AI",
+        variantLabel: "16 GB LPDDR5X, 512 GB PCIe NVMe SSD",
         quantity: 1,
         currency: "USD",
-        totalCents: 79900,
+        totalCents: 87999,
       },
     });
     expect(Date.parse(record!.expiresAt) - Date.parse(record!.issuedAt)).toBe(CONFIRMATION_TTL_MS);

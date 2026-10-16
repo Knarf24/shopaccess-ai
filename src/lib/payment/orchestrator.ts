@@ -15,7 +15,8 @@ import type { Clock } from "../shared/clock";
 import { sha256Hex } from "../shared/crypto";
 import type { IdGenerator } from "../shared/ids";
 import { err, ok, type Result } from "../shared/result";
-import { describeRejectedEvidence, validateCaptureEvidence } from "./capture-evidence";
+import { sandboxCorrelationId } from "./adapter-config";
+import { describeRejectedEvidence, validateCaptureEvidence, type ExpectedCapture } from "./capture-evidence";
 import type { OperationLedger, PaymentOperation } from "./operations";
 import type { PaymentEvent, PaymentState } from "./state-machine";
 
@@ -44,6 +45,8 @@ export interface PaymentDeps {
   readonly ids: IdGenerator;
   readonly workerId: string;
   readonly leaseMs: number;
+  /** Sandbox seller account. Absent in mock mode, so payee checks do not run. */
+  readonly paypalMerchantId?: string;
 }
 
 export type PaymentFlowFailure =
@@ -111,6 +114,25 @@ async function loadQuote(deps: PaymentDeps, intent: CheckoutIntentRecord): Promi
 const orderMatchesQuote = (order: ProviderOrder, quote: Quote): boolean =>
   order.amountCents === quote.totalCents && order.currency === quote.currency && order.merchantId === quote.merchantId;
 
+function expectedCapture(
+  deps: PaymentDeps,
+  providerRequestId: string,
+  quote: Quote,
+  providerOrderId: string,
+  knownCaptureId: string | null,
+): ExpectedCapture {
+  const expected: ExpectedCapture = {
+    providerRequestId,
+    providerOrderId,
+    totalCents: quote.totalCents,
+    currency: quote.currency,
+    merchantId: quote.merchantId,
+    knownCaptureId,
+  };
+  if (deps.paypalMerchantId === undefined) return expected;
+  return { ...expected, paypalMerchantId: deps.paypalMerchantId, correlationId: sandboxCorrelationId(quote.quoteId) };
+}
+
 /** A thrown error from a provider call is an unknown outcome, never a failure. */
 async function callProvider<T>(call: () => Promise<ProviderCallResult<T>>): Promise<ProviderCallResult<T>> {
   try {
@@ -168,7 +190,7 @@ async function settleOrderFound(
 ): Promise<void> {
   const intent = await deps.store.findIntent(operation.checkoutIntentId);
   const quote = intent ? await loadQuote(deps, intent) : null;
-  const observationId = await observe(deps, operation, source, "ORDER", { providerOrderId: order.orderId, observedStatus: order.status });
+  const observationId = await observe(deps, operation, source, "ORDER", { providerOrderId: order.orderId, observedStatus: order.reportedStatus ?? order.status });
   await deps.ledger.recordOutcome(operation.id, deps.workerId, { state: "SUCCEEDED", providerReference: order.orderId }, deps.clock());
   if (!quote || !orderMatchesQuote(order, quote)) {
     await emit(deps, operation.checkoutIntentId, { type: "ORDER_DETAILS_MISMATCH", actor: source, observationId });
@@ -196,6 +218,8 @@ export async function sendOrderCreate(deps: PaymentDeps, operation: PaymentOpera
       amountCents: quote.totalCents,
       currency: quote.currency,
       merchantId: quote.merchantId,
+      quoteId: quote.quoteId,
+      intentId,
     }),
   );
 
@@ -251,8 +275,14 @@ export async function verifyApproval(deps: PaymentDeps, intentId: string): Promi
   }
 
   const order = readback.value;
-  const observationId = await observe(deps, reference, "provider_readback", "ORDER", { providerOrderId, observedStatus: order.status });
-  if (!quote || !orderMatchesQuote(order, quote)) {
+  const observationId = await observe(deps, reference, "provider_readback", "ORDER", {
+    providerOrderId,
+    observedStatus: order.reportedStatus ?? order.status,
+  });
+  const payeeMatches =
+    deps.paypalMerchantId === undefined ||
+    (quote !== null && order.paypalMerchantId === deps.paypalMerchantId && order.correlationId === sandboxCorrelationId(quote.quoteId));
+  if (!quote || !orderMatchesQuote(order, quote) || !payeeMatches) {
     await emit(deps, intentId, { type: "ORDER_DETAILS_MISMATCH", actor: "provider_readback", observationId });
   } else if (order.status === "APPROVED") {
     await emit(deps, intentId, { type: "APPROVAL_VERIFIED", actor: "provider_readback", observationId, providerOrderId: order.orderId });
@@ -319,14 +349,7 @@ export async function settleCaptureEvidence(
 
   const verdict =
     intent && quote && providerOrderId
-      ? validateCaptureEvidence(raw, {
-          providerRequestId: operation.providerRequestId,
-          providerOrderId,
-          totalCents: quote.totalCents,
-          currency: quote.currency,
-          merchantId: quote.merchantId,
-          knownCaptureId: intent.snapshot.context.providerCaptureId,
-        })
+      ? validateCaptureEvidence(raw, expectedCapture(deps, operation.providerRequestId, quote, providerOrderId, intent.snapshot.context.providerCaptureId))
       : null;
 
   if (!verdict || !verdict.ok) {
@@ -501,14 +524,7 @@ export async function observeCaptureAftermath(deps: PaymentDeps, intentId: strin
   const quote = await loadQuote(deps, intent);
   const verdict =
     quote && context.providerOrderId
-      ? validateCaptureEvidence(readback.value, {
-          providerRequestId: operation.providerRequestId,
-          providerOrderId: context.providerOrderId,
-          totalCents: quote.totalCents,
-          currency: quote.currency,
-          merchantId: quote.merchantId,
-          knownCaptureId: context.providerCaptureId,
-        })
+      ? validateCaptureEvidence(readback.value, expectedCapture(deps, operation.providerRequestId, quote, context.providerOrderId, context.providerCaptureId))
       : null;
   if (!verdict || !verdict.ok) {
     // Evidence that does not match this checkout is recorded but never acted on.
@@ -524,11 +540,11 @@ export async function observeCaptureAftermath(deps: PaymentDeps, intentId: strin
     return ok(state);
   }
   const capture = verdict.value;
-  const refundStatus = capture.refundedCents >= capture.amountCents ? "FULL" : capture.refundedCents > 0 ? "PARTIAL" : "NONE";
+  const refundStatus = capture.refundedCents === null ? null : capture.refundedCents >= capture.amountCents ? "FULL" : capture.refundedCents > 0 ? "PARTIAL" : "NONE";
   const observationId = await observe(deps, operation, "provider_readback", "CAPTURE", {
     providerOrderId: capture.orderId,
     providerCaptureId: capture.captureId,
-    observedStatus: `${capture.status};refund=${refundStatus};reversedOrDisputed=${capture.reversedOrDisputed}`,
+    observedStatus: `${capture.status};refund=${refundStatus ?? "unobserved"};reversedOrDisputed=${capture.reversedOrDisputed === null ? "unobserved" : capture.reversedOrDisputed}`,
   });
 
   if (refundStatus === "FULL" && state !== "REFUNDED_OBSERVED") {
@@ -536,7 +552,7 @@ export async function observeCaptureAftermath(deps: PaymentDeps, intentId: strin
   } else if (refundStatus === "PARTIAL" && state === "CAPTURED_VERIFIED") {
     await emit(deps, intentId, { type: "REFUND_OBSERVED", actor: "provider_readback", observationId, extent: "PARTIAL" });
   }
-  if (capture.reversedOrDisputed) {
+  if (capture.reversedOrDisputed === true) {
     await emit(deps, intentId, { type: "REVERSAL_OR_DISPUTE_OBSERVED", actor: "provider_readback", observationId });
   }
   return finalState(deps, intentId);

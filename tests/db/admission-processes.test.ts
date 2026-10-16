@@ -1,9 +1,17 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { connectionStartupOptions } from "@/lib/pg/client";
 import { computeKeyCheckValue } from "@/lib/pg/key-ring";
 import { OPERATOR_STATEMENTS, SESSION_STATEMENTS } from "@/lib/pg/statements";
-import { adminUrl, openDisposableDatabase, resetAdmissionWindow, ROOT, TEST_KEY_V1, type DisposableDatabase } from "./harness";
+import {
+  ADMISSION_CHILD_PROGRAM,
+  admissionChildEnvironment,
+  adminUrl,
+  openDisposableDatabase,
+  resetAdmissionWindow,
+  ROOT,
+  TEST_KEY_V1,
+  type DisposableDatabase,
+} from "./harness";
 
 /**
  * PGT-04: admission from two INDEPENDENT operating-system processes.
@@ -27,41 +35,14 @@ import { adminUrl, openDisposableDatabase, resetAdmissionWindow, ROOT, TEST_KEY_
  * processes then interleave, so the outcome is deterministic.
  *
  * The child's program is passed on the command line; the statement it sends is
- * the catalogue's `admitSession`, and the connection string travels in the
- * child's environment, never in its arguments.
+ * the catalogue's `admitSession`. The program and the child's complete
+ * environment come from the harness (`ADMISSION_CHILD_PROGRAM`,
+ * `admissionChildEnvironment`): the child receives verified, discrete
+ * connection fields in its environment, never a URL and never in its
+ * arguments, and it verifies its own driver configuration before any of its
+ * clients connects. Changed by the connection-target remediation; this
+ * changed text has not been run against a database.
  */
-const CHILD_PROGRAM = `
-const { Client } = require("pg");
-const { randomBytes } = require("node:crypto");
-(async () => {
-  const clients = [];
-  for (let i = 0; i < Number(process.env.ADMISSION_COUNT); i += 1) {
-    const client = new Client({ connectionString: process.env.ADMISSION_URL, options: process.env.ADMISSION_OPTIONS });
-    await client.connect();
-    clients.push(client);
-  }
-  process.stdout.write("ready\\n");
-  await new Promise((resolve) => process.stdin.once("data", resolve));
-  // Nothing more is read. An open stdin would keep this process alive after its work is done.
-  process.stdin.destroy();
-  const results = await Promise.all(clients.map(async (client) => {
-    try {
-      const values = ["ses_" + randomBytes(16).toString("hex"), 1, randomBytes(32).toString("hex")];
-      return (await client.query(process.env.ADMISSION_STATEMENT, values)).rows[0].result;
-    } catch (error) {
-      return "ERROR:" + (error && error.code ? error.code : "UNKNOWN");
-    }
-  }));
-  await Promise.all(clients.map((client) => client.end()));
-  // The exit code is set and the process ends by itself once the report has been flushed.
-  process.exitCode = 0;
-  process.stdout.write(JSON.stringify({ pid: process.pid, results }) + "\\n");
-})().catch((error) => {
-  // An error code only: never a message that could carry the connection string.
-  process.stderr.write("child failed: " + (error && error.code ? error.code : "UNKNOWN") + "\\n");
-  process.exit(1);
-});
-`;
 
 const ADMISSIONS_PER_PROCESS = 20;
 /** A child that has not exited by then is killed and reported. Shorter than the test timeout, so the reason is visible. */
@@ -96,17 +77,10 @@ describe.skipIf(!adminUrl())("PGT-04: two independent processes admit under the 
   });
 
   function startAdmitter(): Admitter {
-    const child = spawn(process.execPath, ["-e", CHILD_PROGRAM], {
+    const child = spawn(process.execPath, ["-e", ADMISSION_CHILD_PROGRAM], {
       cwd: ROOT,
-      // A minimal environment: the child inherits nothing else from the test process.
-      env: {
-        NODE_ENV: "test",
-        PATH: process.env.PATH ?? "",
-        ADMISSION_URL: db.webConnectionString,
-        ADMISSION_OPTIONS: connectionStartupOptions(),
-        ADMISSION_STATEMENT: SESSION_STATEMENTS.admitSession,
-        ADMISSION_COUNT: String(ADMISSIONS_PER_PROCESS),
-      },
+      // The complete environment: exactly the harness's allowlisted keys. The child inherits nothing else from the test process.
+      env: admissionChildEnvironment(db.webConnection, SESSION_STATEMENTS.admitSession, ADMISSIONS_PER_PROCESS, process.env.PATH ?? ""),
       stdio: "pipe",
     });
     children.push(child);
@@ -117,7 +91,7 @@ describe.skipIf(!adminUrl())("PGT-04: two independent processes admit under the 
       announceReady = resolve;
     });
     const reportLine = () => output.split("\n").find((candidate) => candidate.startsWith("{"));
-    /** How far the child got. Contains no connection string: the child prints only "ready", its report and error codes. */
+    /** How far the child got. Contains no credential: the child prints only "ready", its report and error or refusal codes. */
     const progress = () =>
       `ready=${output.includes("ready\n")}, reported=${reportLine() !== undefined}, stderr=${JSON.stringify(errors.trim().slice(0, 300))}`;
     const report = new Promise<ChildReport>((resolve, reject) => {

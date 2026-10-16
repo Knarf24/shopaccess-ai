@@ -49,7 +49,7 @@ function post(path: string, fields: Record<string, string>, shopper: Pick<Shoppe
   });
 }
 
-const QUOTE_FIELDS = { productId: "dmp_codebook15", variantId: "dmv_codebook15a", quantity: "1", use: "programming", budget: "900" };
+const QUOTE_FIELDS = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: "1", use: "programming", budget: "900" };
 
 async function startCheckoutFor(runtime: Runtime, shopper: Shopper, extra: Record<string, string> = {}): Promise<string> {
   const response = await handleCheckoutStart(post("/checkout/start", { ...QUOTE_FIELDS, ...extra, csrfToken: shopper.csrfToken }, shopper), runtime);
@@ -159,11 +159,9 @@ describe("recommendations view", () => {
 
     const statuses = Object.fromEntries(view.variants.map((entry) => [entry.variant.variantId, entry.assessment.status]));
     expect(statuses).toEqual({
-      dmv_codebook15a: "READY",
-      dmv_studybook14a: "READY_WITH_CAVEATS",
-      dmv_codebook15b: "NOT_RECOMMENDED",
-      dmv_valuebook11a: "NOT_RECOMMENDED",
-      dmv_campusbook16a: "NOT_RECOMMENDED",
+      dmv_aspire14ai: "READY",
+      dmv_aspirego15: "READY_WITH_CAVEATS",
+      dmv_vivobook16: "NOT_RECOMMENDED",
     });
     for (const entry of view.variants) {
       expect(entry.assessment.authorizesPurchase).toBe(false);
@@ -194,7 +192,7 @@ describe("mock application flow through the HTTP handlers", () => {
     // Client-supplied monetary fields in the form are ignored: the server prices the quote.
     const intentId = await startCheckoutFor(runtime, shopper, { unitAmountCents: "1", totalCents: "1", currency: "EUR", price: "0.01" });
     const quote = (await runtime.store.findQuoteForSession(shopper.sessionId, (await runtime.store.findIntent(intentId))!.snapshot.context.quoteId!))!;
-    expect(quote).toMatchObject({ unitAmountCents: 79900, totalCents: 79900, currency: "USD", quantity: 1 });
+    expect(quote).toMatchObject({ unitAmountCents: 87999, totalCents: 87999, currency: "USD", quantity: 1 });
     expect(await stateOf(runtime, intentId)).toBe("QUOTED");
 
     // Confirmation needs the explicit acknowledgement.
@@ -268,7 +266,8 @@ describe("mock application flow through the HTTP handlers", () => {
       (await handleCheckoutStart(post("/checkout/start", { ...QUOTE_FIELDS, ...fields, csrfToken: shopper.csrfToken }, shopper), runtime)).headers.get("location");
 
     expect(await attempt({ productId: "ext_mock-aurora-13", variantId: "ext_mock-aurora-13" })).toBe("/shop?use=programming&budget=900&error=REQUEST_INVALID");
-    expect(await attempt({ productId: "dmp_campusbook16", variantId: "dmv_campusbook16a" })).toContain("error=VARIANT_UNAVAILABLE");
+    runtime.catalog.products[2].variants[0].availability = "OUT_OF_STOCK";
+    expect(await attempt({ productId: "dmp_vivobook16", variantId: "dmv_vivobook16" })).toContain("error=VARIANT_UNAVAILABLE");
     expect(await attempt({ quantity: "99" })).toContain("error=REQUEST_INVALID");
     expect(await attempt({ quantity: "abc" })).toContain("error=REQUEST_INVALID");
   });

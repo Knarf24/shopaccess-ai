@@ -19,7 +19,15 @@ const QUALITY_LABELS = {
 } as const;
 
 /** Shows the deterministic assessment with the evidence behind each factor. Text only; status is never conveyed by colour alone. */
-export function ReadinessPanel({ assessment, explanation }: { assessment: ReadinessAssessment; explanation: string | null }) {
+export function ReadinessPanel({
+  assessment,
+  explanation,
+  explanationLabel = "Assistant explanation (local mock, advisory only): ",
+}: {
+  assessment: ReadinessAssessment;
+  explanation: string | null;
+  explanationLabel?: string;
+}) {
   return (
     <section className="flex flex-col gap-2 rounded border border-zinc-300 p-3 text-sm dark:border-zinc-700">
       <p className="font-semibold">{STATUS_LABELS[assessment.status]}</p>
@@ -41,7 +49,7 @@ export function ReadinessPanel({ assessment, explanation }: { assessment: Readin
       </ul>
       {explanation ? (
         <p className="border-t border-zinc-300 pt-2 dark:border-zinc-700">
-          <span className="font-medium">Assistant explanation (local mock, advisory only): </span>
+          <span className="font-medium">{explanationLabel}</span>
           {explanation}
         </p>
       ) : null}

@@ -511,7 +511,7 @@ describe("AUD-002: one active confirmation challenge per quote", () => {
     const session = established.value.session;
     const { startCheckout, requestQuote } = await import("@/lib/checkout/service");
     const intent = await startCheckout(runtime.checkout, session.id);
-    await requestQuote(runtime.checkout, session.id, intent.id, { productId: "dmp_codebook15", variantId: "dmv_codebook15a", quantity: 1 });
+    await requestQuote(runtime.checkout, session.id, intent.id, { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 });
 
     const seen = new Set<string>();
     for (let view = 0; view < 200; view += 1) {
@@ -551,7 +551,7 @@ describe("AUD-002: one active confirmation challenge per quote", () => {
     const { startCheckout, requestQuote } = await import("@/lib/checkout/service");
     const { messageFor } = await import("@/server/views");
     const intent = await startCheckout(runtime.checkout, session.id);
-    await requestQuote(runtime.checkout, session.id, intent.id, { productId: "dmp_codebook15", variantId: "dmv_codebook15a", quantity: 1 });
+    await requestQuote(runtime.checkout, session.id, intent.id, { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 });
     const tabA = (await buildCheckoutView(runtime, session, intent.id))!.challenge!;
     await buildCheckoutView(runtime, session, intent.id);
 

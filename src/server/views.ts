@@ -30,6 +30,8 @@ export interface CheckoutView {
   readonly transitions: readonly TransitionRecord[];
   readonly observations: readonly ProviderObservation[];
   readonly operations: readonly PaymentOperation[];
+  /** Set only when the mock journey sent a language. Null leaves the existing English checkout markup. */
+  readonly interfaceLanguage: "en" | "es" | null;
 }
 
 /** Loads a checkout for display. Returns null unless it belongs to the given session. */
@@ -63,6 +65,7 @@ export async function buildCheckoutView(runtime: Runtime, session: Session, inte
     transitions: await runtime.store.listTransitions(intentId),
     observations: await runtime.store.listObservations(intentId),
     operations: [...(await runtime.ledger.listForIntent(intentId, "ORDER_CREATE")), ...(await runtime.ledger.listForIntent(intentId, "CAPTURE"))],
+    interfaceLanguage: intent.interfaceLanguage ?? null,
   };
 }
 
@@ -84,6 +87,27 @@ const MESSAGES: Record<string, string> = {
   CAPTURE_ALREADY_DISPATCHED: "This checkout cannot be canceled because a capture request may already have been sent.",
   NOT_CANCELABLE: "This checkout cannot be canceled in its current state.",
   STEP_NOT_AVAILABLE: "That simulation step is not available in the current state.",
+  // PostgreSQL mode only (specification 19.19). None of these codes is produced by the mock.
+  CANCELED: "This checkout was canceled.",
+  REVIEW_NOT_READY: "The purchase summary could not be prepared just now. Use Review again to try once more.",
+  START_UNCERTAIN:
+    "We could not tell whether your checkout was created. If it appears in the list below, open it from there. If it is not listed, it may not have been created, or it may not be visible yet. Nothing has been resubmitted for you.",
+  // The three local outcomes of a confirmation that was not sent to the database. Each says what was seen when the
+  // form arrived, and none says what has or has not happened since.
+  FORM_OUT_OF_DATE: "This form could not be processed. Reload to see the current checkout status.",
+  ALREADY_CONFIRMED: "This checkout was shown as confirmed when this form arrived. Reload to see the current checkout status.",
+  CHECKOUT_NOT_CONFIRMABLE: "This checkout was not awaiting confirmation when this form arrived. Reload to see the current checkout status.",
+  CONFIRMATION_UNAVAILABLE: "This summary could not be confirmed. Use Review again, or request a new quote.",
+  NOT_AWAITING_CONFIRMATION: "This checkout is not awaiting confirmation.",
+  CHALLENGE_LIMIT_REACHED: "This quote has been reviewed too many times. Request a new quote.",
+  AT_PURCHASE_CAPACITY: "You have reached the number of checkouts that can be open at once. Cancel one you no longer need, then try again.",
+  GROUP_INTENT_LIMIT: "This purchase has been quoted too many times. Start a new checkout from the shop.",
+  REPLACEMENT_NOT_ALLOWED: "This checkout can no longer be replaced by a new quote.",
+  STALE_DRAFT: "This page is out of date. The current draft was kept. Review it and submit again.",
+  DRAFT_EXPIRED: "That draft expired. Nothing was confirmed. Start again.",
+  DRAFT_NOT_FOUND: "There is no draft to confirm. Nothing was confirmed.",
+  TEXT_TOO_LONG: "That message is too long. Shorten it and submit again.",
+  CONFIRM_INCOMPLETE: "Choose a use and enter a budget before confirming.",
 };
 
 export function messageFor(code: string | undefined): string | null {

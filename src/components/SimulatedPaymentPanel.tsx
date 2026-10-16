@@ -1,5 +1,44 @@
+import type { JourneyCopy } from "@/lib/i18n/demo-copy";
 import { STATE_DESCRIPTIONS, STEP_LABELS, type SimulationStep } from "@/server/simulation";
 import type { CheckoutView } from "@/server/views";
+
+/** Sandbox checkout actions. Approval and capture are separate, and success is only a verified capture. */
+export function SandboxCheckoutActions({
+  view,
+  csrfToken,
+  copy,
+}: {
+  view: CheckoutView;
+  csrfToken: string;
+  copy: JourneyCopy["sandboxCheckout"];
+}) {
+  return (
+    <section aria-labelledby="sandbox-heading" className="flex flex-col gap-4 rounded-lg border border-zinc-400 p-4">
+      <h2 id="sandbox-heading" className="text-xl font-semibold">
+        {copy.heading}
+      </h2>
+      {view.state === "CAPTURED_VERIFIED" ? <p role="status">{copy.captured}</p> : null}
+      {view.state === "APPROVED_VERIFIED" ? (
+        <>
+          <p>{copy.approved}</p>
+          <form method="post" action={`/checkout/${view.intentId}/capture`}>
+            <input type="hidden" name="csrfToken" value={csrfToken} />
+            <button type="submit" className="rounded border border-zinc-600 px-3 py-2">{copy.capture}</button>
+          </form>
+        </>
+      ) : null}
+      {view.state === "USER_CONFIRMED" ? (
+        <form method="post" action={`/checkout/${view.intentId}/approve`}>
+          <input type="hidden" name="csrfToken" value={csrfToken} />
+          <button type="submit" className="rounded border border-zinc-600 px-3 py-2">{copy.approve}</button>
+        </form>
+      ) : null}
+      {view.state === "AWAITING_APPROVAL" || view.state === "APPROVAL_CHECK_PENDING" ? <p>{copy.awaiting}</p> : null}
+      {view.state === "CANCELED_LOCAL" ? <p>{copy.canceled}</p> : null}
+      {view.state === "MANUAL_REVIEW" || view.state === "ORDER_CREATE_UNKNOWN" || view.state === "CAPTURE_UNKNOWN" ? <p>{copy.unknown}</p> : null}
+    </section>
+  );
+}
 
 /** Shows the SIMULATED payment lifecycle: local state, what the mock provider reported, and the controls that drive the mock. */
 export function SimulatedPaymentPanel({ view, csrfToken }: { view: CheckoutView; csrfToken: string }) {

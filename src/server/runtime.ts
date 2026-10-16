@@ -5,8 +5,18 @@ import { InMemoryCheckoutStore } from "@/lib/checkout/store";
 import { InMemoryOperationLedger } from "@/lib/payment/operations";
 import type { PaymentDeps } from "@/lib/payment/orchestrator";
 import { createMockAdvisoryAi, type AdvisoryAiProvider } from "@/lib/providers/ai";
+import { createFetchAdvisoryTransport, createQwenAdvisoryProvider, type AdvisoryTransport } from "@/lib/providers/qwen-advisory";
 import { createMockDiscoveryProvider, type ProductDiscoveryProvider } from "@/lib/providers/discovery";
+import {
+  channel3ClientForProcess,
+  readChannel3Listings,
+  searchChannel3Listings,
+  type Channel3Snapshot,
+  type Channel3Transport,
+  type ListingOutcome,
+} from "@/lib/providers/channel3-discovery";
 import { MockPaymentProvider } from "@/lib/providers/payment";
+import { isPayPalSandboxProvider, PayPalSandboxProvider, type PaypalTransport } from "@/lib/providers/paypal-sandbox";
 import { InMemoryAuditLog } from "@/lib/security/audit";
 import { createFixedWindowRateLimiter, InMemoryRateLimitStore, type RateLimiter } from "@/lib/security/rate-limit";
 import { createSessionService, SESSION_IDLE_TIMEOUT_MS, type SessionService } from "@/lib/session/service";
@@ -14,12 +24,16 @@ import { InMemorySessionStore } from "@/lib/session/store";
 import { systemClock, type Clock } from "@/lib/shared/clock";
 import { randomIdGenerator, type IdGenerator } from "@/lib/shared/ids";
 import type { Result } from "@/lib/shared/result";
-import { parseRuntimeConfig, type RuntimeConfig, type RuntimeConfigError } from "./config";
+import { advisoryBudgetPresence, createBudgetedAdvisoryTransport } from "./advisory-budget";
+import { parsePersistenceMode, parseRuntimeConfig, type RuntimeConfig, type RuntimeConfigError } from "./config";
+import { resolveDemoAdmission, type DemoAdmission } from "./demo-admission";
+import { createPgRuntime, type PgRuntime } from "./pg-runtime";
 
 /**
  * Everything the mock demonstration runs on. All state is held in this
  * process's memory: it is lost on restart and is not shared between server
- * instances. There is no database and no external service behind it.
+ * instances. There is no database behind it. The assistant is the local mock unless
+ * advisory configuration selects the external provider.
  */
 export interface Runtime {
   readonly clock: Clock;
@@ -30,8 +44,26 @@ export interface Runtime {
   readonly store: InMemoryCheckoutStore;
   readonly ledger: InMemoryOperationLedger;
   readonly provider: MockPaymentProvider;
+  /** `sandbox` uses the PayPal sandbox adapter for checkout commands. Simulation stays on the mock provider. */
+  readonly paymentMode: "mock" | "sandbox";
+  readonly sandbox: PayPalSandboxProvider | null;
   readonly discovery: ProductDiscoveryProvider;
   readonly ai: AdvisoryAiProvider;
+  /** `local` keeps the in-process assistant. `external` uses one configured advisory provider. */
+  readonly advisory: "local" | "external";
+  /**
+   * Channel3 live search is disabled. `read` returns a result only when this process
+   * already stored one. It does not call the network.
+   */
+  readonly channel3: {
+    readonly mode: "disabled";
+    read(sessionId: string, draftId: string, version: number): Channel3Snapshot | null;
+    /**
+     * Set only when a test injects a transport. Production leaves it null.
+     * A null search returns the unavailable response and does not call the network.
+     */
+    readonly search: ((request: Channel3SearchRequest) => Promise<ListingOutcome>) | null;
+  };
   readonly limiter: RateLimiter;
   readonly audit: InMemoryAuditLog;
   readonly checkout: CheckoutDeps;
@@ -41,17 +73,91 @@ export interface Runtime {
    * request path but does real work at most once a minute. Mock-only cleanup.
    */
   maintain(): Promise<void>;
+  /**
+   * Demonstration admission. Omitted configuration stays off so a runtime built
+   * for the existing local flow is unchanged. The process application sets this
+   * from the environment.
+   */
+  readonly admission: DemoAdmission;
 }
 
 const MAINTENANCE_INTERVAL_MS = 60_000;
 
-export function createRuntime(config: RuntimeConfig, overrides: { clock?: Clock; ids?: IdGenerator } = {}): Runtime {
+type RuntimeOverrides = {
+  clock?: Clock;
+  ids?: IdGenerator;
+  transport?: AdvisoryTransport;
+  admission?: DemoAdmission;
+  paymentTransport?: PaypalTransport;
+  paymentTimeoutMs?: number;
+  /**
+   * A provider already constructed by `PayPalSandboxProvider`. Used when that
+   * construction happened in another copy of the provider module. A value that
+   * was not constructed there is ignored.
+   */
+  sandboxProvider?: PayPalSandboxProvider;
+  /** Offline tests supply this. Production never does, and it is not the live transport. */
+  channel3Transport?: Channel3Transport;
+};
+
+export interface Channel3SearchRequest {
+  readonly sessionId: string;
+  readonly draftId: string;
+  readonly version: number;
+  readonly use: "schoolwork" | "programming" | "general_productivity";
+  readonly budgetDollars: string;
+  readonly currentDraft: () => { readonly draftId: string; readonly version: number } | null;
+  readonly now: () => string;
+}
+
+const SANDBOX_INSTALLATION = Symbol.for("shopaccess.runtimeSandboxInstallation");
+
+function sandboxInstallations(): WeakMap<Runtime, PayPalSandboxProvider> {
+  const host = globalThis as typeof globalThis & { [SANDBOX_INSTALLATION]?: WeakMap<Runtime, PayPalSandboxProvider> };
+  const existing = host[SANDBOX_INSTALLATION];
+  if (existing) return existing;
+  const created = new WeakMap<Runtime, PayPalSandboxProvider>();
+  Object.defineProperty(host, SANDBOX_INSTALLATION, { value: created, enumerable: false, writable: false, configurable: false });
+  return created;
+}
+
+/**
+ * The sandbox provider this runtime installed, or null.
+ * The mode, the stored provider, and the payment provider must all name that
+ * same constructed object. Ordinary mock mode, a missing provider, a swapped
+ * provider, and any object that was not constructed as one all refuse.
+ * PostgreSQL mode never builds this runtime.
+ */
+export function runtimeSandboxProvider(runtime: Runtime): PayPalSandboxProvider | null {
+  const installed = sandboxInstallations().get(runtime);
+  if (!installed || runtime.paymentMode !== "sandbox" || runtime.sandbox !== installed || runtime.payment.provider !== installed) return null;
+  if (!isPayPalSandboxProvider(installed)) return null;
+  return installed;
+}
+
+export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides = {}): Runtime {
   const clock = overrides.clock ?? systemClock;
   const ids = overrides.ids ?? randomIdGenerator;
   const catalog = DEMO_MERCHANT_CATALOG;
+  const advisory = config.advisory?.mode === "external" ? config.advisory : { mode: "local" as const };
   const store = new InMemoryCheckoutStore();
   const ledger = new InMemoryOperationLedger(ids);
   const provider = new MockPaymentProvider();
+  const paymentTransport = overrides.paymentTransport;
+  const candidate =
+    config.payment?.mode === "sandbox"
+      ? (overrides.sandboxProvider ??
+        new PayPalSandboxProvider({
+          apiBaseUrl: config.payment.apiBaseUrl,
+          clientId: config.payment.clientId,
+          clientSecret: config.payment.clientSecret,
+          merchantId: config.payment.merchantId,
+          clock,
+          ...(overrides.paymentTimeoutMs !== undefined ? { timeoutMs: overrides.paymentTimeoutMs } : {}),
+          ...(paymentTransport ? { transport: paymentTransport } : {}),
+        }))
+      : null;
+  const sandbox = candidate !== null && isPayPalSandboxProvider(candidate) ? candidate : null;
   const audit = new InMemoryAuditLog();
 
   // LOCAL MOCK ONLY: when a session is reclaimed, the checkout data it owned goes with it. The ledger
@@ -67,6 +173,11 @@ export function createRuntime(config: RuntimeConfig, overrides: { clock?: Clock;
   // Synchronous: the checkout store calls this inside its atomic commit (single-process mock only).
   const sessionIsLive = (sessionId: string): boolean => sessionStore.isLive(sessionId, clock(), SESSION_IDLE_TIMEOUT_MS);
 
+  if (channel3ClientForProcess() !== "disabled") {
+    throw new Error("Channel3 live transport is not installed.");
+  }
+  const channel3Transport = overrides.channel3Transport;
+  const transport = selectAdvisoryTransport(config, overrides);
   let nextMaintenanceAt = Number.NEGATIVE_INFINITY;
   const maintain = async (): Promise<void> => {
     const now = clock().getTime();
@@ -75,7 +186,7 @@ export function createRuntime(config: RuntimeConfig, overrides: { clock?: Clock;
     await sessions.purgeExpired();
   };
 
-  return {
+  const runtime: Runtime = {
     clock,
     ids,
     catalog,
@@ -84,29 +195,117 @@ export function createRuntime(config: RuntimeConfig, overrides: { clock?: Clock;
     store,
     ledger,
     provider,
+    paymentMode: sandbox ? "sandbox" : "mock",
+    sandbox,
     discovery: createMockDiscoveryProvider(),
-    ai: createMockAdvisoryAi(),
+    ai:
+      advisory.mode === "external"
+        ? createQwenAdvisoryProvider({
+            modelId: advisory.modelId,
+            endpoint: advisory.endpoint,
+            apiKey: advisory.apiKey,
+            ...(transport ? { transport } : {}),
+          })
+        : createMockAdvisoryAi(),
+    advisory: advisory.mode,
+    channel3: {
+      mode: "disabled",
+      read(sessionId, draftId, version) {
+        return readChannel3Listings(store, sessionId, draftId, version);
+      },
+      search: channel3Transport ? (request) => searchChannel3Listings({ ...request, store, transport: channel3Transport }) : null,
+    },
     limiter: createFixedWindowRateLimiter(new InMemoryRateLimitStore(), clock),
     audit,
     checkout: { store, sessionIsLive, catalog, clock, ids },
-    payment: { store, ledger, provider, catalog, audit, clock, ids, workerId: "demo-worker", leaseMs: 30_000 },
+    payment: {
+      store,
+      ledger,
+      provider: sandbox ?? provider,
+      catalog,
+      audit,
+      clock,
+      ids,
+      workerId: "demo-worker",
+      leaseMs: 30_000,
+      ...(sandbox && config.payment?.mode === "sandbox" ? { paypalMerchantId: config.payment.merchantId } : {}),
+    },
     maintain,
+    admission: overrides.admission ?? { mode: "off" },
   };
+  if (sandbox) sandboxInstallations().set(runtime, sandbox);
+  return runtime;
 }
 
-const GLOBAL_KEY = Symbol.for("shopaccess.demo.runtime");
-type GlobalWithRuntime = typeof globalThis & { [GLOBAL_KEY]?: Result<Runtime, RuntimeConfigError[]> };
+function selectAdvisoryTransport(config: RuntimeConfig, overrides: { transport?: AdvisoryTransport }): AdvisoryTransport | undefined {
+  if (config.advisoryBudget?.mode !== "on") return overrides.transport;
+  const inner = overrides.transport ?? createFetchAdvisoryTransport();
+  return createBudgetedAdvisoryTransport(config.advisoryBudget.directory, inner, process.cwd());
+}
 
 /**
- * Process-wide runtime, created once from environment configuration. This is
- * the only place in the application that reads process.env. If configuration
- * is missing or invalid the result is an error and nothing is served.
+ * What this process serves. Decided once, from the environment:
+ *  - `mock`: the in-memory demonstration above, or the list of what its configuration lacks;
+ *  - `postgres`: the opt-in PostgreSQL mode (specification 19.19). Its runtime is built in `./pg-runtime`, connects
+ *    only when first used and never falls back to the mock;
+ *  - `invalid`: the mode setting has a value that is not recognised. Nothing is served.
+ */
+export type Application =
+  | { readonly mode: "mock"; readonly runtime: Result<Runtime, RuntimeConfigError[]> }
+  | { readonly mode: "postgres"; readonly runtime: PgRuntime }
+  | { readonly mode: "invalid" };
+
+const APPLICATION_KEY = Symbol.for("shopaccess.application");
+type GlobalWithApplication = typeof globalThis & { [APPLICATION_KEY]?: Application };
+
+/**
+ * The environment of this process. This function is the only place in the application that reads process.env;
+ * everything else receives configuration as an argument.
+ */
+function environment(): Readonly<Record<string, string | undefined>> {
+  return process.env;
+}
+
+/**
+ * The process-wide application, created once from environment configuration. In PostgreSQL mode no in-memory
+ * checkout or session store is ever built, and in mock mode nothing of the PostgreSQL runtime is.
+ */
+export function getApplication(): Application {
+  const holder = globalThis as GlobalWithApplication;
+  const existing = holder[APPLICATION_KEY];
+  if (existing) return existing;
+
+  const env = environment();
+  const mode = parsePersistenceMode(env);
+  let application: Application;
+  if (!mode.ok) {
+    application = { mode: "invalid" };
+  } else if (mode.value === "postgres" && advisoryBudgetPresence(env) === "present") {
+    // getApplication is the PostgreSQL gate. A budget setting must not construct that runtime.
+    application = { mode: "mock", runtime: { ok: false, error: ["ADVISORY_BUDGET_INVALID"] } };
+  } else if (mode.value === "postgres" && env.SHOPACCESS_DEMO_ADMISSION === "on") {
+    // Admission and PostgreSQL persistence together are unsupported. An absent admission setting does not take this branch.
+    application = { mode: "mock", runtime: { ok: false, error: ["DEMO_ADMISSION_UNSUPPORTED"] } };
+  } else if (mode.value === "postgres") {
+    application = { mode: "postgres", runtime: createPgRuntime(env) };
+  } else {
+    const config = parseRuntimeConfig(env);
+    application = {
+      mode: "mock",
+      runtime: config.ok
+        ? { ok: true, value: createRuntime(config.value, { admission: resolveDemoAdmission(env, config.value.sessionKey) }) }
+        : config,
+    };
+  }
+  holder[APPLICATION_KEY] = application;
+  return application;
+}
+
+/**
+ * The mock runtime. If its configuration is missing or invalid the result is an error and nothing is served. In
+ * any other mode the result is an error too, with nothing to list: the mock is never built beside another mode.
  */
 export function getRuntime(): Result<Runtime, RuntimeConfigError[]> {
-  const holder = globalThis as GlobalWithRuntime;
-  if (!holder[GLOBAL_KEY]) {
-    const config = parseRuntimeConfig(process.env);
-    holder[GLOBAL_KEY] = config.ok ? { ok: true, value: createRuntime(config.value) } : config;
-  }
-  return holder[GLOBAL_KEY];
+  const application = getApplication();
+  return application.mode === "mock" ? application.runtime : { ok: false, error: [] };
 }

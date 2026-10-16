@@ -270,7 +270,7 @@ describe("PostgreSQL session service against a fake database (no connection)", (
     expect(issued.ok && issued.value.issuedCookie?.keyVersion).toBe(3);
     expect(calls.filter((call) => call.text === ADMIT)).toHaveLength(2);
 
-    const stuck = world({ keyRows: () => [keyRow(2, "ACTIVE", KEY_2)], respond: () => ({ result: "KEY_NOT_ACTIVE" }) });
+    const stuck = world({ keyRows: () => [keyRow(2, "ACTIVE", KEY_2)], respond: () => ({ result: "KEY_NOT_ACTIVE", absolute_expires_at: null, idle_expires_at: null }) });
     expect(await service(stuck.db, [[2, KEY_2]]).establish(null)).toEqual({ ok: false, error: "KEY_UNAVAILABLE" });
     expect(stuck.calls.filter((call) => call.text === ADMIT)).toHaveLength(2);
   });

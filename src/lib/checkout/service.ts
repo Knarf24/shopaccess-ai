@@ -72,6 +72,7 @@ export async function startCheckoutWithQuote(
   deps: CheckoutDeps,
   sessionId: string,
   request: unknown,
+  interfaceLanguage?: "en" | "es",
 ): Promise<Result<{ intent: CheckoutIntentRecord; quote: Quote }, StartCheckoutFailure>> {
   const now = deps.clock();
   const intentId = deps.ids("checkoutIntent");
@@ -88,7 +89,13 @@ export async function startCheckoutWithQuote(
   });
   if (!quoted.ok) return err("CHECKOUT_NOT_CREATED");
 
-  const intent: CheckoutIntentRecord = { id: intentId, sessionId, snapshot: quoted.value.snapshot, createdAt: now.toISOString() };
+  const intent: CheckoutIntentRecord = {
+    id: intentId,
+    sessionId,
+    snapshot: quoted.value.snapshot,
+    createdAt: now.toISOString(),
+    ...(interfaceLanguage ? { interfaceLanguage } : {}),
+  };
   const committed = await deps.store.commitCheckoutStart({ intent, transitions: [quoted.value.record], quote: quote.value }, deps.sessionIsLive);
   if (!committed) return err("SESSION_NOT_ACTIVE");
   return ok({ intent, quote: quote.value });

@@ -1,6 +1,6 @@
 # ShopAccess AI — PostgreSQL Persistence & Recovery Specification v2.0
 
-**DRAFT — ARCHITECTURAL POLICIES RECORDED AS OWNER-APPROVED (§17.1) — INCREMENT 1 WRITTEN UNDER GATE B-W (§18.11) — INDEPENDENT AUDIT VERDICT FAIL, TARGETED CORRECTIONS WRITTEN AND NOT EXECUTED (§18.12) — RE-AUDIT VERDICT CONDITIONAL PASS, FINAL HARDENING WRITTEN AND NOT EXECUTED (§18.13) — THIRD AUDIT VERDICT CONDITIONAL PASS, TWO-ISSUE CLOSURE WRITTEN AND NOT EXECUTED (§18.14) — INCREMENT 1 EXECUTED UNDER GATE B-X ON A DISPOSABLE POSTGRESQL 17.11 CLUSTER: SECOND RUN 41 PASSED, 0 FAILED, 0 SKIPPED (§18.15) — INCREMENT 1 FORMALLY ACCEPTED BY THE PROJECT OWNER — INCREMENT 2.1 DOCUMENTATION INDEPENDENTLY REVIEWED; DESIGN-ONLY, NOT IMPLEMENTED OR DATABASE-TESTED — INCREMENT 2 GATE A REMAINS OPEN — NO OTHER DATABASE EXECUTION AUTHORIZED — INCREMENT 2 GATE A CONTRACT RECORDED (§19): INCREMENT 2.1 APPROVED FOR DESIGN ONLY — EVERY OTHER LATER INCREMENT NOT APPROVED IN DETAIL — NO IMPLEMENTATION OF ANY LATER INCREMENT AUTHORIZED**
+**DRAFT — ARCHITECTURAL POLICIES RECORDED AS OWNER-APPROVED (§17.1) — INCREMENT 1 WRITTEN UNDER GATE B-W (§18.11) — INDEPENDENT AUDIT VERDICT FAIL, TARGETED CORRECTIONS WRITTEN AND NOT EXECUTED (§18.12) — RE-AUDIT VERDICT CONDITIONAL PASS, FINAL HARDENING WRITTEN AND NOT EXECUTED (§18.13) — THIRD AUDIT VERDICT CONDITIONAL PASS, TWO-ISSUE CLOSURE WRITTEN AND NOT EXECUTED (§18.14) — INCREMENT 1 EXECUTED UNDER GATE B-X ON A DISPOSABLE POSTGRESQL 17.11 CLUSTER: SECOND RUN 41 PASSED, 0 FAILED, 0 SKIPPED (§18.15) — INCREMENT 1 FORMALLY ACCEPTED BY THE PROJECT OWNER — INCREMENT 2.1 DOCUMENTATION INDEPENDENTLY REVIEWED; DESIGN-ONLY, NOT IMPLEMENTED OR DATABASE-TESTED — INCREMENT 2 GATE A CLOSED BY THE PROJECT OWNER AS A DESIGN-ONLY ARCHITECTURE REVIEW MILESTONE (§19) — NO OTHER DATABASE EXECUTION AUTHORIZED — INCREMENT 2 GATE A CONTRACT RECORDED (§19): INCREMENT 2.1 APPROVED FOR DESIGN ONLY — INCREMENT 2.1 EXACT-SCHEMA CONTRACT APPROVED FOR DESIGN, CONDITIONAL ON LATER POSTGRESQL 17 EXECUTION EVIDENCE; NOT IMPLEMENTED, NOT EXECUTED — EVERY OTHER LATER INCREMENT NOT APPROVED IN DETAIL — NO IMPLEMENTATION OF ANY LATER INCREMENT AUTHORIZED**
 
 | | |
 | --- | --- |
@@ -8,7 +8,7 @@
 | Consolidates | Specification v1.1, v1.2, v1.3 and Correction Reports 007 to 013, with Targeted Corrections 014 (RA011-001 to RA011-004) and 015 (AR012-001 to AR012-004) applied in place |
 | Normative text | Sections 1 to 19 of this document only. For Increment 1, §18 governs where an earlier section differs. For Increment 2, §19 governs where an earlier section differs |
 | Non-normative | Appendices A and B, and every earlier document listed in Appendix B |
-| Verification | **Increment 1 only: executed.** Its bootstrap file, six migrations and seven database test files ran on a disposable PostgreSQL 17.11 cluster under Gate B-X; the record, its evidence and its limits are in §18.15. **Everything else: none executed.** For every later increment, each statement about constraints, locking, atomicity and privileges is design reasoning, and no SQL, migration or database test has been run. Sections written before the Gate B-X runs, including §18.11 to §18.14, say that nothing had been executed; that was true when they were written and they are kept as written |
+| Verification | **Increment 1 only: executed.** Its bootstrap file, six migrations and seven database test files ran on a disposable PostgreSQL 17.11 cluster under Gate B-X; the record, its evidence and its limits are in §18.15. **Increments 2.1 and 2.2: executed on disposable test clusters only.** Migrations `0007`, `0008` and `0009` and their database tests ran in six disposable-cluster runs (A3-E1, A3-E2, B-E1, B-E2, C-E1, C-E2); three of the six failed one or more tests and are kept as failed runs, and the last of each pair passed. **Increment 2.3, the opt-in application mode: written and never run**, with or without a database. §19.18 records exactly what was written and what ran, and no owner acceptance of Increment 2.1, 2.2 or 2.3 is recorded. **Everything else: none executed.** For every later increment, each statement about constraints, locking, atomicity and privileges is design reasoning, and no SQL, migration or database test has been run. Sections written before the Gate B-X runs, including §18.11 to §18.14, say that nothing had been executed; that was true when they were written and they are kept as written |
 
 Reading conventions:
 
@@ -29,7 +29,7 @@ Reading conventions:
 | Milestone | Content | Status |
 | --- | --- | --- |
 | 001 | Mock-only foundation: in-memory stores, pure payment reducer, mock adapters, demo flow | Accepted and closed |
-| 002 | PostgreSQL persistence and recovery, as specified here, against the mock adapter only | **Increment 1 only** (sessions, keys, catalog, audit table): written under Gate B-W and executed under Gate B-X on a disposable cluster (§18.11 to §18.15); formally accepted by the project owner, and the accepted baseline remains unchanged; not wired into the application. **Increment 2.1:** an independently reviewed, design-only specification (§19); not implemented and not database-tested; Increment 2 Gate A remains open. **Every later increment: not authorized.** Planning and review only |
+| 002 | PostgreSQL persistence and recovery, as specified here, against the mock adapter only | **Increment 1 only** (sessions, keys, catalog, audit table): written under Gate B-W and executed under Gate B-X on a disposable cluster (§18.11 to §18.15); formally accepted by the project owner, and the accepted baseline remains unchanged; not wired into the application. **Increment 2.1:** an independently reviewed, design-only specification (§19); not implemented and not database-tested. The project owner closed Increment 2 Gate A as a design-only architecture review milestone; the closure authorizes no implementation, migration-writing, database execution or deployment. **Every later increment: not authorized.** Planning and review only |
 | Later gates | Real PayPal, external AI, Channel3, public deployment | Not authorized; requirements in §16 |
 
 ### 1.2 Scope of this document
@@ -39,6 +39,8 @@ In scope: the durable schema, database roles, trusted entry points, transaction 
 Out of scope: user interface, the mock adapters' internals, any real provider, hosting, and the resolution of manual-review items (D-12).
 
 No assumption from any other project's payment provider, database platform or hosting is carried into this document.
+
+Product intent is recorded in `docs/product-governance.md` (October 12, 2026). The bounded engineering scope of this specification does not replace that wider intent. The cross-reference authorizes no live call, payment execution, deployment, database change, or change to a gate in §1.1 or §16.
 
 ### 1.3 Relationship to the approved foundation
 
@@ -198,6 +200,8 @@ Append-only.
 
 ### 2.9 `checkout_intents`
 
+**Increment 2.1 (§19.2, §19.3).** The table created in Increment 2.1 has only the thirteen columns, the five stored states and the constraints of §19.2 and §19.3. The table below is the full-milestone design. `provider`, the operation pointers and their type columns, `capture_dispatched`, the provider IDs, the `DRAFT` default and version 1 are not created in Increment 2.1; a later increment would add them by migration.
+
 | Column | Type and rule |
 | --- | --- |
 | `id` | text PK (`ci_…`) |
@@ -268,18 +272,18 @@ Indexes: `(owner_id)`, `(purchase_group_id)`, `(state, updated_at)`.
 | `id` | text PK (`qt_…`) |
 | `owner_id`, `checkout_intent_id` | text NOT NULL; F-1 `(checkout_intent_id, owner_id)` to `checkout_intents (id, owner_id)` |
 | `merchant_id` | text NOT NULL, FK to `merchants` |
-| `catalog_revision` | integer > 0 |
-| `subtotal_cents`, `total_cents` | bigint > 0 |
+| `catalog_revision` | integer > 0. In Increment 2.1 this is the **variant's** `catalog_revision` from the catalog snapshot (A-7) |
+| `subtotal_cents`, `total_cents` | bigint > 0; in Increment 2.1 at most 20,000,000 (A-4) |
 | `discount_cents`, `tax_cents`, `shipping_cents` | bigint, CHECK each `= 0` |
 | `currency` | text, CHECK `= 'USD'` |
-| `assumptions_code` | text NOT NULL, CHECK equals the single defined constant *(proposal)* |
+| `assumptions_code` | text NOT NULL, CHECK `= 'SANDBOX_ZERO_TAX_SHIPPING_DISCOUNT_V1'` (A-6): the value the vectors of §15.2 already use |
 | `created_at`, `expires_at` | timestamptz; CHECK `expires_at = created_at + interval '15 minutes'`. Owner-approved for PostgreSQL mode (G2-12). The Mock's equal value is a separate, earlier approval |
 | `digest` | text NOT NULL UNIQUE, 64 hex |
 | `digest_version` | text NOT NULL, CHECK `= 'SAQD-1'` |
 
-CHECK `total_cents = subtotal_cents - discount_cents + tax_cents + shipping_cents`. Unique: `(id, owner_id)`, `(id, checkout_intent_id)`, `(id, checkout_intent_id, owner_id)`.
+CHECK `total_cents = subtotal_cents - discount_cents + tax_cents + shipping_cents`. Unique: `(id, owner_id)`, `(id, checkout_intent_id)`, `(id, checkout_intent_id, owner_id)`. In Increment 2.1 also `(checkout_intent_id)`: one quote per intent (A-11).
 
-**`quote_items`**: `quote_id` FK, `line_number` CHECK `= 1`, `product_id`, `variant_id`, `quantity` 1..10, `unit_amount_cents` > 0, `line_subtotal_cents` CHECK `= unit_amount_cents * quantity`; PK `(quote_id, line_number)`; F-14 `(variant_id, product_id)` to `merchant_variants (id, product_id)`.
+**`quote_items`**: `quote_id` FK, `line_number` CHECK `= 1`, `product_id`, `variant_id`, `quantity` 1..10, `unit_amount_cents` > 0, `line_subtotal_cents` CHECK `= unit_amount_cents * quantity`; PK `(quote_id, line_number)`; F-14 `(variant_id, product_id)` to `merchant_variants (id, product_id)`. In Increment 2.1 the amount columns are `bigint`, `unit_amount_cents` is at most 2,000,000, and every committed quote has exactly one item, whose `line_subtotal_cents` equals the quote's `subtotal_cents` (§19.3).
 
 Both tables are immutable: triggers reject UPDATE, DELETE and TRUNCATE. Index: `quotes (expires_at)`.
 
@@ -289,7 +293,7 @@ One row per issued challenge.
 
 | Column | Type and rule |
 | --- | --- |
-| `id` | text PK (`cf_…`) |
+| `id` | text PK (`cf_…`): `cf_` + 32 lowercase hex, supplied by the caller (G2-07, A-5) |
 | `owner_id`, `checkout_intent_id`, `quote_id` | text NOT NULL; F-3 `(quote_id, checkout_intent_id, owner_id)` to `quotes (id, checkout_intent_id, owner_id)` |
 | `quote_digest` | text, 64 hex |
 | `nonce_digest` | text NOT NULL UNIQUE, 64 hex: SHA-256 of the nonce. The nonce is never stored |
@@ -306,7 +310,7 @@ Triggers:
 
 - Insert: status must be `ACTIVE` with all terminal timestamps NULL.
 - Update: only from `ACTIVE` to one terminal status, setting exactly the matching timestamp, with every other column unchanged.
-- Delete: only rows in `SUPERSEDED` or `EXPIRED`. TRUNCATE rejected.
+- Delete: **rejected for every row, in every status, in Increment 2.1** (A-8). TRUNCATE rejected. No purge exists. An earlier draft permitted deleting `SUPERSEDED` and `EXPIRED` rows; any such purge would need a later migration and a separate owner decision (D-11).
 
 ### 2.12 `dispatch_authorizations`
 
@@ -867,7 +871,7 @@ A mutation is authorized by its own transaction's decision at `t`, not by an ear
 
 Bytes: ASCII `SAQD`; version byte `0x01`; a 2-byte big-endian field count (19); then 19 fields, each one type byte, a 4-byte big-endian length and the value. Type `0x01` is ASCII text; type `0x02` is an 8-byte big-endian two's-complement integer.
 
-Field order: quote ID; owner ID; intent ID; purchase group ID; merchant ID; product ID; variant ID; catalog revision; quantity; unit amount; subtotal; discount; tax; shipping; total; currency; assumptions code; created-at and expires-at as microseconds since the Unix epoch, UTC.
+Field order: quote ID; owner ID; intent ID; purchase group ID; merchant ID; product ID; variant ID; catalog revision (the variant's, A-7); quantity; unit amount; subtotal; discount; tax; shipping; total; currency; assumptions code (`SANDBOX_ZERO_TAX_SHIPPING_DISCOUNT_V1`, A-6); created-at and expires-at as microseconds since the Unix epoch, UTC.
 
 The digest is SHA-256 over those bytes, in lowercase hex. It is computed by the database. Test vectors are in §15 (PGT-73).
 
@@ -901,6 +905,8 @@ The web process calls `read_checkout` (§3.5) with the session credential and th
 Refreshing, navigating and opening a second tab therefore show the same challenge. Whichever tab submits first consumes it.
 
 **[APPROVED-M1]** behaves differently: the mock replaces the challenge on every view. See §17.2.
+
+**Amended for Increment 2.3 (decision D1, §19.19; approved by the owner).** The last sentence of the first paragraph above, "Otherwise it calls `issue_challenge`", no longer describes the read path. In the application mode of §19.19 the read path sends `read_checkout` and nothing that writes a checkout row: a page load never issues a challenge. A challenge is asked for only by a guarded POST: once inside `POST /checkout/start`, after `start_checkout` has answered `STARTED`, and afterwards by the shopper's "Review again" (`POST /checkout/[intentId]/review`). The reuse conditions above are unchanged and are decided by the database: `read_checkout` reports whether the ACTIVE challenge is usable, and `issue_challenge` reuses it or issues another by its own policy. The web process additionally shows a challenge only when the nonce it derives again hashes to the stored digest. Refreshing, navigating and opening a second tab still show the same challenge.
 
 ### 5.5 `issue_challenge` (web)
 
@@ -1917,7 +1923,7 @@ This is analysis by inspection. It is not established until the concurrency test
 
 The `pgcrypto` extension is not part of Increment 1: owner IDs use core `gen_random_uuid()`. It is added by the increment that introduces worker claim secrets.
 
-Increment 2 continues at `0007`. Planned split: schema, then functions (2.1); challenge functions (2.2). File names are fixed when written. No Increment 2 migration file exists.
+Increment 2 continues at `0007`. Planned split: schema, then functions (2.1); challenge functions (2.2). File names are fixed when written. The 2.1 schema file is `0007_checkout_schema.sql`. The 2.1 functions file is `0008_checkout_functions.sql`: one file carries the internal helpers, the four entry points and every grant of §19.13. Which of these files has been written, and which has been executed, is recorded in §19.18 and nowhere else. For 2.1 the schema file is default-deny: it contains no GRANT. Neither 2.1 file runs a top-level INSERT, UPDATE or DELETE on the seven tables; statement text inside a `CREATE FUNCTION` body is not migration-time DML (§17.4, item 25). The function owner's table grants and the web role's EXECUTE grants belong to the functions file (§19.13). The 2.2 confirmation functions file is `0009_confirmation_functions.sql`, one file (decision 12, §19.17). It creates no table. It adds `issue_challenge` and `consume_challenge`, puts a 41-column `read_checkout` in the place of the 33-column one of `0008`, and carries the two table grants and three EXECUTE grants of §19.13. It is the only migration that contains a `DROP` or a role command, and it contains exactly three such statements, adjacent and in this order: `SET ROLE shopaccess_definer;`, `DROP FUNCTION shopaccess_api.read_checkout(smallint, text, text);`, `SET ROLE shopaccess_owner;` (§19.16).
 
 **Strategy (D-3: approved with restrictions).** The six unexecuted drafts are to be replaced by one coherent PostgreSQL 17 sequence, preserving history. The owner has approved, as an architectural direction, that the six legacy drafts are **archived before any later replacement**. They were uncommitted, so version control did not hold them. **Archived under Gate B-W** to `db/migrations/archive/milestone-001-unexecuted/`, with original filenames and byte-for-byte contents; SHA-256 checksums were recorded before the move, verified identical afterwards, written into that folder's README and re-checked by a unit test. The migration runner reads only files directly inside `db/migrations/`, refuses any path containing an `archive` segment, and never executes the archived drafts. After the independent audit this was hardened (§18.12, correction 4): paths are resolved with realpath, symlinks are refused, and only an explicit six-file inventory pinned by SHA-256 is accepted. The step table below is a proposal; exact contents remain unapproved.
 
@@ -2011,12 +2017,78 @@ Test identifiers are those of the source documents, so Appendix A can refer to t
 | PGT-19 | Issue racing consume | Never two active; never two consumed | S, P |
 | PGT-20 | Backdated challenge consumed | Marked expired; refused | P |
 | PGT-54c, g | Consume, and issue, waiting past challenge, session or quote expiry | Refused; no new row | P |
-| PGT-57 | Illegal status changes; insert with terminal status; binding column change; delete of `ACTIVE` or `CONSUMED`; pointer pairs `(NULL, 'CONSUMED')` and `(non-NULL, NULL)`; pointer at a non-consumed or foreign challenge; purge | All rejected; purge removes only superseded and expired rows and leaves the pointer intact | S |
+| PGT-57 | Illegal status changes; insert with terminal status; binding column change; delete of a row in any status; pointer pairs `(NULL, 'CONSUMED')` and `(non-NULL, NULL)`; pointer at a non-consumed or foreign challenge | All rejected. No purge exists in Increment 2.1 (A-8). In Increment 2.1 the structural cases are PGT-149 and PGT-150 (§19.15) | S |
 | PGT-73a | Vectors V1 to V3 encoded in the database and in TypeScript | V1 `cbb8289475d0e6784dae938e4038a5fd54dbb423d350adf3f4fbebf7b4cde944`; V2 `1763b05d5e4118f0d7dfac99e0f57c61e80eddbe02f52166e1c79fbddfe4b39c`; V3 `1eebb6d9507c3efdb5e094cad29230150dca6c834c7d20a5f8022d20be13d693` | P |
 | PGT-73b, c, d | Stored digest altered before issue; before consume; buyer submits a different digest | `QUOTE_DIGEST_MISMATCH` or `CONFIRMATION_MISMATCH`; nothing confirmed | P |
 | PGT-73e | `start_checkout` given an amount or digest | No such parameter | S |
 
 Vector inputs: owner `own_` + 32 × `2`; intent `ci_` + 32 × `3`; group `pur_` + 32 × `4`; merchant `dmm_shopaccessdemo`; product `dmp_codebook15`; variant `dmv_codebook15a`; revision 1; discount, tax, shipping 0; `USD`; assumptions `SANDBOX_ZERO_TAX_SHIPPING_DISCOUNT_V1`; created 1791460800000000; expires 1791461700000000. V1: quote `qt_` + 32 × `1`, quantity 1, amounts 79900. V2: quote `qt_` + 32 × `a`, quantity 2, subtotal and total 159800. V3: as V1 with amounts 79901. Each encodes to 411 bytes. The vectors were computed by a scratch script and have not been checked against a database.
+
+**Expansion of the vector inputs above (B-9).** The block below writes out, field by field, the inputs stated in the paragraph above. It adds no new vector and changes no digest. Three things in it are not stated word for word above and are reconstructions: (1) "amounts 79900" in V1 is read as unit amount, subtotal and total each 79900; (2) V2's unit amount is 79900, which the paragraph does not state and which follows from quantity 2 and subtotal 159800; (3) "amounts 79901" in V3 is read as unit amount, subtotal and total each 79901. The two timestamps are the stated microsecond values written as UTC times. If an implementation does not reproduce a digest of PGT-73a from these inputs, the implementation or this expansion is wrong; the expected digests are not changed to fit it.
+
+```text
+Common to V1, V2 and V3 (stated above)
+  field  2  owner ID           own_22222222222222222222222222222222
+  field  3  intent ID          ci_33333333333333333333333333333333
+  field  4  purchase group ID  pur_44444444444444444444444444444444
+  field  5  merchant ID        dmm_shopaccessdemo
+  field  6  product ID         dmp_codebook15
+  field  7  variant ID         dmv_codebook15a
+  field  8  catalog revision   1
+  field 12  discount           0
+  field 13  tax                0
+  field 14  shipping           0
+  field 16  currency           USD
+  field 17  assumptions code   SANDBOX_ZERO_TAX_SHIPPING_DISCOUNT_V1
+  field 18  created at         1791460800000000   (2026-10-08T12:00:00.000000Z)
+  field 19  expires at         1791461700000000   (2026-10-08T12:15:00.000000Z)
+
+V1
+  field  1  quote ID           qt_11111111111111111111111111111111    (stated)
+  field  9  quantity           1                                       (stated)
+  field 10  unit amount        79900                                   (reconstructed from "amounts")
+  field 11  subtotal           79900                                   (reconstructed from "amounts")
+  field 15  total              79900                                   (reconstructed from "amounts")
+  expected  cbb8289475d0e6784dae938e4038a5fd54dbb423d350adf3f4fbebf7b4cde944
+
+V2
+  field  1  quote ID           qt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    (stated)
+  field  9  quantity           2                                       (stated)
+  field 10  unit amount        79900                                   (reconstructed; not stated for V2)
+  field 11  subtotal           159800                                  (stated)
+  field 15  total              159800                                  (stated)
+  expected  1763b05d5e4118f0d7dfac99e0f57c61e80eddbe02f52166e1c79fbddfe4b39c
+
+V3
+  field  1  quote ID           qt_11111111111111111111111111111111    (stated: as V1)
+  field  9  quantity           1                                       (stated: as V1)
+  field 10  unit amount        79901                                   (reconstructed from "amounts")
+  field 11  subtotal           79901                                   (reconstructed from "amounts")
+  field 15  total              79901                                   (reconstructed from "amounts")
+  expected  1eebb6d9507c3efdb5e094cad29230150dca6c834c7d20a5f8022d20be13d693
+
+Encoding (§5.1): ASCII "SAQD", 0x01, 0x0013, then the 19 fields in order.
+  Text fields (type 0x01) have byte lengths 35, 36, 35, 36, 18, 14, 15 for
+  fields 1 to 7, 3 for field 16 and 37 for field 17.
+  Integer fields (type 0x02) have length 8, big-endian two's complement.
+```
+
+**`SADT-1` targets (B-7): proposed outside a database, and since computed by PostgreSQL.** `SADT-1` is defined in §19.2. The two targets below were computed outside a database and were recorded here, before any execution, as proposed targets. Run B-E2 (§19.18) then executed PGT-120 on PostgreSQL 17.11: `descriptive_terms_digest` computed both in the database and both equalled the targets below, for the inputs written here. The same run executed the database side of PGT-73a: `quote_digest_saqd1` gave the three `SAQD-1` digests above. The separate qualification about those three vectors stands: some of their amount inputs are reconstructions of the wording above, as the expansion (B-9) records. A mismatch is not resolved by editing a target or the implementation to agree: it is investigated and reported, with what PostgreSQL returned, before anything is changed.
+
+```text
+D1  description (74 bytes)
+      A 15-inch laptop with extra memory and storage for programming coursework.
+    specifications text (164 bytes): the text PostgreSQL 17 is PREDICTED to print
+    for the seeded specifications of dmv_codebook15a, on one line:
+      {"cpu": "8-core mobile processor", "ramGb": 16, "weightKg": 1.8, "storageGb": 512, "storageType": "SSD", "screenInches": 15.6, "operatingSystem": "Windows 11 Home"}
+    encoded length 255 bytes
+    target  69cf467b84e343c9678a70122b7d3dd50bd61117dfff28e08ac175300957c47e
+
+D2  description (22 bytes): Café laptop – 15″      (U+00E9, U+2013, U+2033)
+    specifications text (14 bytes): {"note": "é"}
+    encoded length 53 bytes
+    target  6bad0dfbbca9c34e18f8a72f28f22cdd9f4ed70a088cdfe4e4872b55f655b685
+```
 
 ### 15.3 Dispatch, roles and claims
 
@@ -2228,13 +2300,13 @@ V-16 and V-17 are not used. V-16 was retired in favour of TA-16. A recoverable o
 
 ## 16. Deferred real-PayPal and other gates
 
-Nothing in this section is authorized. Each item must be settled before the corresponding gate opens.
+Nothing in this section is authorized. An offline Channel3 adapter does not open any gate in this section. Each item must be settled before the corresponding gate opens.
 
 | Gate | Required first |
 | --- | --- |
 | PayPal Sandbox | A migration widening the `provider` CHECKs. A PayPal adapter contract with its own status order, replay declaration and finality clause, each established from the provider's documented behaviour and conformance-tested; **no PayPal replay, lookup or finality behaviour is assumed here**. A way to authenticate provider responses or notifications that the worker cannot forge, so "authenticated evidence" gains a cryptographic meaning. Mapping of real provider fields onto the evidence allowlist, including refund identifiers and totals. Webhook design. Funding-method decisions. Operator approval of dispatch and finality for that contract |
 | External AI | Model selection; spend limits; existing output guards re-verified against a real model |
-| Channel3 | Account terms and quotas; external-catalog separation re-verified |
+| Channel3 | Account terms and quotas; a verified credit balance; credential approval separate from the offline adapter; external-catalog separation re-verified; live activation stays disabled until this gate is separately authorized |
 | Public deployment | Managed PostgreSQL and its version; role and credential provisioning with real separation of the two runtimes; backups; the privileged retention procedure; a migration reversal procedure; a shared rate-limit store; a scheduler for recovery; headers and content-security-policy review; monitoring for parked operations, review entries and operations no worker supports |
 | Manual review | A resolution workflow for `MANUAL_REVIEW`, parked operations and review entries (D-12) |
 
@@ -2367,6 +2439,18 @@ No Re-Audit 010 source-missing hold remains. Other holds above remain because th
 23. Refused operator key requests write no audit row: only the two success event types are approved (§18.6).
 24. Three existing tests and the legacy query module depend on the six legacy migration drafts; they cannot stay byte-for-byte unchanged once the sequence is replaced (§18.9).
 22. In PostgreSQL mode no entry point escalates a checkout from `APPROVAL_CHECK_PENDING` to manual review, although the reducer permits it (§10.2).
+25. **Privileged writers that bypass the Increment 2.1 functions (policy P1 to P7; approved for design).** Only a superuser, or the migration credential acting as `shopaccess_owner` (which may also switch to `shopaccess_definer`), can write the seven tables without going through `start_checkout` or `cancel_checkout`. Constraints and triggers apply to such a writer unless it disables them; nothing the functions enforce applies to it: credential checks, throttle and capacity, predecessor eligibility, audit writing and the lock discipline.
+    - **P1.** No runtime path exists: besides the two functions, the only writers are a database administrator and the migration credential.
+    - **P2.** Migrations run no top-level INSERT, UPDATE or DELETE on the seven tables: no such statement executes when a migration is applied. Statement text inside a `CREATE FUNCTION` body is not migration-time DML and is not prohibited (static test PGT-156, §19.15).
+    - **P3.** Direct writes are permitted only as test fixtures in a disposable database, one transaction per fixture.
+    - **P4.** No fixture or test disables or replaces a production trigger, relaxes or drops a constraint, or changes the replication role (static test PGT-157, §19.15). **One exception, for PGT-112(c) only:** a test may create a test-only trigger of its own inside a transaction that is always rolled back, in a disposable PostgreSQL acceptance database whose tests run serially. The trigger is a `BEFORE INSERT` row trigger that returns NULL. It is never committed, never created by a migration, and never created in a production, staging or any other non-disposable database. It leaves every production trigger and every constraint in place and enabled. **Second exception, for PGT-128 only (B-8).** A test may revoke one privilege from `shopaccess_definer` inside a transaction that is always rolled back and never committed, in a disposable PostgreSQL acceptance database whose tests run serially. Exactly six cases exist (K1, K2, K3, A1, A2, A3; §19.15), and each sends exactly one of these four statements: `REVOKE INSERT ON shopaccess.owner_request_windows FROM shopaccess_definer` (K1); `REVOKE UPDATE (window_calls) ON shopaccess.owner_request_windows FROM shopaccess_definer` (K2); `REVOKE UPDATE (total_throttled) ON shopaccess.owner_request_windows FROM shopaccess_definer` (K3); `REVOKE INSERT ON shopaccess.audit_events FROM shopaccess_definer` (A1, A2, A3). **No test sends any other privilege statement:** no GRANT, no other REVOKE, no ALTER DEFAULT PRIVILEGES, no ALTER ROLE, no change of ownership, no REASSIGN OWNED or DROP OWNED. This exception is about what a test may send. It does not restrict a migration: the functions migration carries the grants, revocations and hand-over of §19.13, as migration 0006 does for Increment 1. PGT-157 stays fail-closed outside the two exceptions.
+    - **P4, Increment 2.2 (decision 14).** The two exceptions are used again for the confirmation functions, in these cases and no others. Reusing the statement text of an exception does not by itself permit a new case: each case is listed here. No new statement text is admitted. All of them are in `tests/db/confirmation-functions.test.ts`, on the test owner's first connection, inside a transaction that begins before the `try` and is rolled back in its `finally`; none is in `tests/db/confirmation-concurrency.test.ts`.
+        - **Case S3 (first exception).** Two of the three PGT-112(c) statements: the test-only function that returns NULL and its `BEFORE INSERT` row trigger on `checkout_transitions`. The trigger on `quote_items` is not used. One correct `consume_challenge` is called inside the transaction. Expected: the call raises SQLSTATE `23514` with constraint `checkout_intents_history_check`; after the rollback no test-only object is left and nothing of the call survives.
+        - **Cases A4 to A8 (second exception).** One of the four PGT-128 statements: `REVOKE INSERT ON shopaccess.audit_events FROM shopaccess_definer`. None of the three request-window revocations is used. One call is made inside the transaction: A4, `consume_challenge` with a wrong nonce; A5, `consume_challenge` on a quote whose stored digest is wrong; A6, `consume_challenge` under an ended nonce key; A7, `issue_challenge` on a quote whose stored digest is wrong; A8, a correct `consume_challenge`. Expected in each: the call raises `42501` for the insert into `audit_events`; the next statement is refused with `25P02`; after the rollback the privilege is back and nothing of the call survives, the admitted-call counter included.
+    - **P5.** Fixtures are written serially and committed before any function call or other fixture touches the same owner or intent.
+    - **P6.** A fixture that changes an existing row first locks the owner row, then the intent row, as the functions do.
+    - **P7.** Fixtures write their own synthetic audit rows where §19.15 requires them; nothing writes them automatically.
+    - **Limitation.** The design intends that a single privileged transaction which violates a constraint or a deferred check does not commit. **Nothing is guaranteed when two bypass writers act at once, or when a bypass writer races a function call:** the deferred checks of §19.3 take no lock. Making them lock the intent row is not part of Increment 2.1.
 
 ### 17.5 Decision consolidation for owner review
 
@@ -2417,7 +2501,7 @@ D-4, D-6, D-7, D-8, D-9, D-10, D-11, D-13, D-15, D-16, D-18 to D-29, D-33 to D-3
 
 ### 17.6 Remaining owner-approval register
 
-What is still undecided after the owner's record for Groups 1 to 10. Nothing here is approved, and nothing in Groups 1 to 10 is asked again. For the Increment 2.1 objects, the schema, function signatures and grants are approved for design in §19 (G2-02, G2-07); the rows below stand for every later increment.
+What is still undecided after the owner's record for Groups 1 to 10. Nothing here is approved, and nothing in Groups 1 to 10 is asked again. For the Increment 2.1 objects, the schema, function signatures and grants are approved for design in §19 (G2-02, G2-07); the rows below stand for every later increment. The Increment 2.1 exact-schema contract (A-1 to A-13) is approved for design, conditional on later PostgreSQL 17 execution evidence (§19.17). Final SQL approval, migration-writing and execution remain unauthorized.
 
 **1. Blocks final schema approval**
 
@@ -2709,6 +2793,7 @@ This lets staged rotation and verification-only keys work with one database call
 - Test-owner access does not exist in runtime environments.
 - Lock-ordering and wait-past-expiry cases use lock barriers and polling of the database clock, without sleeps.
 - Tests cover each exact boundary (just before, exactly at, just after) and the relevant lock orders (PGT-06, 54a, 54f, 83, 90).
+- **Increment 2.1 (design only; not implemented).** The same mechanism extends to the owner throttle. An internal, pure throttle-window classification helper takes the existing window's values and an explicit decision time (§19.7), so that PGT-124 can check the window boundary exactly in a disposable test database. It writes no table and performs no checkout operation. No runtime entry point accepts a caller-controlled time because of it: the production functions pass it only their own database clock reading.
 
 ### 18.9 Legacy drafts, legacy query module and existing tests
 
@@ -3082,9 +3167,11 @@ These are comments only. They do not affect behaviour and do not by themselves b
 
 ---
 
-## 19. Increment 2 — Gate A contract (design approved for 2.1; not implemented; not executed)
+## 19. Increment 2 — Gate A contract (design approved for 2.1; files written and behaviour executed are recorded in §19.18)
 
-**Status.** The owner approved the Increment 2.1 design at Gate A and authorized recording it in this document. That authorization covers documentation only. Nothing in this section has been implemented or executed: no Increment 2 migration, function, trigger, test or application code exists, and no SQL has been run for it. Gate A remains open. Where an earlier section differs for an Increment 2 object, this section governs. Increments 2.2 and 2.3 are not approved contracts (§19.16). The decision register is §19.17.
+**Status.** The owner approved the Increment 2.1 design at Gate A and authorized recording it in this document. That authorization covers documentation only. Nothing in this section has been implemented or executed: no Increment 2 migration, function, trigger, test or application code exists, and no SQL has been run for it. **Gate A is closed as a design-only architecture review milestone.** The owner closed it with §19.1 to §19.15 as the approved architecture baseline, subject to every recorded exclusion and unresolved decision. The closure authorizes no final SQL or schema approval, no migration-writing, no implementation of Increment 2.1, 2.2 or 2.3, no PostgreSQL connection, SQL execution or database test, no payment execution or recovery, and no commit, push or deployment. The owner then approved the **Increment 2.1 exact-schema contract** at design level (decisions A-1 to A-13 with their final corrections, §19.17). It is recorded in §19.2, §19.3, §19.7, §19.13 and §19.15. That approval is **conditional on later PostgreSQL 17 execution evidence** (§19.15) and likewise authorizes nothing to be written or run. Where an earlier section differs for an Increment 2 object, this section governs. Increments 2.2 and 2.3 are not approved contracts (§19.16). The decision register is §19.17.
+
+**Reading this section after the Gate A paragraph above was written.** The paragraph above is kept as the record of what was true at Gate A. Since then some Increment 2.1 files have been written and some have been executed. Three things are kept apart throughout §19: what the owner approved as design; which files have actually been written; and which behaviour PostgreSQL has actually executed. §19.18 is the only place that states the second and the third. A sentence elsewhere in §19 that says "not implemented", "not executed" or "has not been written" describes the time it was written and is superseded by §19.18 where the two differ.
 
 ### 19.1 Scope and status
 - Increment 2 ends at `USER_CONFIRMED`. It contains no dispatch, worker, provider call, capture, refund, finality or payment recovery.
@@ -3108,7 +3195,9 @@ These are comments only. They do not affect behaviour and do not by themselves b
 | 6 | `checkout_transitions` | State-change history | Insert-only |
 | 7 | `owner_request_windows` | Per-owner request counter | Insert; update |
 
-Every constraint and trigger is explicitly named. No table accepts truncate. No role is granted DELETE.
+Every constraint and trigger has an explicit name in the migration. A name is part of this contract only where `SET CONSTRAINTS` needs it or a test refers to it by name: the unique keys, foreign keys and partial unique indexes of `checkout_intents` named below, and the triggers and deferred constraints named in §19.3. Every other name is chosen when the SQL is written, unless separately specified. No table accepts truncate. No role is granted DELETE.
+
+**Exact-schema contract (A-1 to A-13; approved for design, conditional on later PostgreSQL 17 execution evidence).** States, events, actors and entry points are `text` columns with CHECK lists, as in Increment 1. `checkout_intents` and `checkout_transitions` have exactly the columns listed here: no `provider`, operation, observation or capture column exists in Increment 2.1, and no column has a default that implies a state. Group, intent, quote and event IDs are generated in the database from core `gen_random_uuid()`. Nothing in this subsection has been written as SQL or executed.
 
 **`purchase_groups`**
 - **Columns:** `id` (`pur_` + 32 hex, database-generated), `owner_id`, `created_at`.
@@ -3147,21 +3236,25 @@ Every constraint and trigger is explicitly named. No table accepts truncate. No 
   - confirmation pointer and status are both NULL, or both set with status `CONSUMED`;
   - state is `SUPERSEDED` exactly when a successor pointer is set;
   - neither pointer equals the row's own ID;
-  - `row_version` is at least 2.
+  - `row_version` is at least 2;
+  - `current_quote_id` is NOT NULL: it is set at insert and never changes (§19.3);
+  - `updated_at` is not before `created_at`.
+- **`EXPIRED` is a reserved stored state in Increment 2.1.** It stays in the CHECK list, and no insert, update or transition can produce it (§19.3). Quote expiry remains derived (§19.8).
 - A key is not checked while any of its own columns is NULL. A referenced row whose pointer is NULL matches nothing.
 
 **`quotes`** (columns as §2.10)
-- **Unique:** `(id, owner_id)`, `(id, checkout_intent_id)`, `(id, checkout_intent_id, owner_id)`, `(digest)`.
+- **Unique:** `(id, owner_id)`, `(id, checkout_intent_id)`, `(id, checkout_intent_id, owner_id)`, `(digest)`, and `(checkout_intent_id)`: one quote per intent (A-11).
 - **Keys:** F-1 to the intent's `(id, owner_id)`; to `merchants`.
-- **Checks:** total equals subtotal; discount, tax and shipping are zero; currency `USD`; `digest_version = 'SAQD-1'`; `expires_at = created_at + 15 minutes`.
+- **Checks:** total equals subtotal; discount, tax and shipping are zero; currency `USD`; `digest_version = 'SAQD-1'`; `expires_at = created_at + 15 minutes`. The cents columns are `bigint`; subtotal and total are from 1 to 20,000,000 (A-4); `assumptions_code = 'SANDBOX_ZERO_TAX_SHIPPING_DISCOUNT_V1'` (A-6); `catalog_revision` is the variant's (A-7).
 
 **`quote_items`** (columns as §2.10, plus the snapshot)
 - Primary key `(quote_id, line_number)`, line number 1.
-- Quantity 1 to 10; line subtotal equals unit amount times quantity.
+- Quantity 1 to 10; line subtotal equals unit amount times quantity. Amounts are `bigint`; the unit amount is from 1 to 2,000,000.
 - F-14 to the variant's `(id, product_id)`.
 - **Immutable snapshot columns:** `merchant_display_name`, `product_title`, `variant_label`, `descriptive_terms_digest` (64 hex, over product description and variant specifications).
+- **`descriptive_terms_digest` is `SADT-1` (B-7; approved for design).** It is computed in the database only, by the internal helper of §19.7a. Bytes: ASCII `SADT` (4 bytes); version byte `0x01`; a 2-byte big-endian field count, 2; then two fields, each one type byte `0x03`, a 4-byte big-endian **byte** length and the value in UTF-8. Field 1 is the product description. Field 2 is the variant specifications as PostgreSQL prints them (`jsonb::text`). The digest is SHA-256 over those bytes, in lowercase hex. Nothing is trimmed, case-folded or Unicode-normalized. The database encoding must be UTF8. No constraint enforces that a stored value equals `SADT-1` of the catalog at the time of the quote; that is a function-level responsibility (§19.3). Targets for testing, none of them PostgreSQL-verified, are in §15.2.
 
-**`confirmation_challenges`:** as §2.11, unchanged.
+**`confirmation_challenges`:** as §2.11. The ID is `cf_` + 32 lowercase hex and is supplied by the caller (A-5); it is never authority, and ownership comes only from `owner_id`. Every DELETE and every TRUNCATE is rejected, in every status (A-8).
 
 **`checkout_transitions`**
 - **Columns:** `checkout_intent_id`, `to_version`, `from_version`, `event_id`, `event_type`, `actor`, `entry_point`, `from_state`, `to_state`, `occurred_at`, `recorded_at`.
@@ -3169,23 +3262,86 @@ Every constraint and trigger is explicitly named. No table accepts truncate. No 
 - `event_type` is one of `QUOTE_ISSUED`, `SHOPPER_CONFIRMED`, `SHOPPER_CANCELED`, `SUPERSEDED`.
 - `actor` is `shopper` or `server`.
 - `from_state` may also be `DRAFT`, only for the first transition.
+- Foreign key `checkout_intent_id` → `checkout_intents (id)`, immediate and not deferrable. In every flow the intent row exists before any of its transitions is inserted (§19.3).
+- `recorded_at` is not before `occurred_at`. That table rule is unchanged. The 2.1 functions write the two equal (§19.7, timestamp contract); a fixture may still write them apart.
+- `entry_point` is one of `start_checkout`, `cancel_checkout`, `consume_challenge`.
+- **Legal combinations (A-10).** One CHECK permits exactly these six:
+
+| # | Event | Actor | From → to | Entry point | Versions |
+| --- | --- | --- | --- | --- | --- |
+| T1 | `QUOTE_ISSUED` | `server` | `DRAFT` → `QUOTED` | `start_checkout` | 1 → 2 |
+| T2 | `SHOPPER_CONFIRMED` | `shopper` | `QUOTED` → `USER_CONFIRMED` | `consume_challenge` | n → n+1, n ≥ 2 |
+| T3 | `SHOPPER_CANCELED` | `shopper` | `QUOTED` → `CANCELED_LOCAL` | `cancel_checkout` | n → n+1, n ≥ 2 |
+| T4 | `SHOPPER_CANCELED` | `shopper` | `USER_CONFIRMED` → `CANCELED_LOCAL` | `cancel_checkout` | n → n+1, n ≥ 2 |
+| T5 | `SUPERSEDED` | `server` | `QUOTED` → `SUPERSEDED` | `start_checkout` | n → n+1, n ≥ 2 |
+| T6 | `SUPERSEDED` | `server` | `USER_CONFIRMED` → `SUPERSEDED` | `start_checkout` | n → n+1, n ≥ 2 |
+
+- `DRAFT` appears only in T1, and `from_version = 1` only in T1. No row has a `to_state` of `DRAFT` or `EXPIRED`.
+- T2 is written by `consume_challenge` from Increment 2.2. In Increment 2.1 only the privileged fixture of §19.15 writes it.
 
 **`owner_request_windows`**
-- **Columns:** `owner_id` (primary key, key to `checkout_owners`), `window_started_at`, `window_calls`, `window_throttled`, `total_throttled`, `updated_at`.
-- Counters are non-negative. Delete is rejected.
+
+| Column | Type and rule (A-13) |
+| --- | --- |
+| `owner_id` | `text`, primary key, key to `checkout_owners`; immutable |
+| `window_started_at` | `timestamptz` NOT NULL |
+| `window_calls` | `integer`, 0 to 30. Only an admitted call starts a window (§19.7), so a row written by the functions always holds at least 1 |
+| `window_throttled` | `bigint`, at least 0 |
+| `total_throttled` | `bigint`, at least `window_throttled` |
+| `updated_at` | `timestamptz`, not before `window_started_at` |
+
+- An update that changes `owner_id` is rejected. DELETE and TRUNCATE are rejected.
+- There is no write-shape trigger: no approved invariant needs one.
 
 **Creation order:** tables 1 to 6 as listed; then the self-referencing and forward keys on `checkout_intents`; then the partial indexes; then triggers; then table 7.
 
 ### 19.3 Replacement chain
 
 **Triggers on `checkout_intents`**
-- **Insert:** state `QUOTED`; `row_version` 2; successor pointer NULL; a named predecessor must already exist.
+- **Insert:** state `QUOTED`; `row_version` 2; successor pointer and confirmation columns NULL; `current_quote_id` set. `replaces_intent_id` is either NULL (an initial intent, the root of its group) or the ID of a row that already exists when the trigger runs (a replacement).
 - **Update:**
   - `id`, `owner_id`, `purchase_group_id`, `created_at` and `replaces_intent_id` never change. For `replaces_intent_id` the comparison includes NULL: a root never acquires a predecessor.
   - `superseded_by_intent_id` may change once, from NULL to a value, only in the update that sets the state to `SUPERSEDED`.
   - A row in `SUPERSEDED`, `CANCELED_LOCAL` or `EXPIRED` accepts no update.
   - `row_version` rises by exactly one.
-- **Deferred history check:** the intent's transitions run from version 2 to `row_version` without a gap; the first is `DRAFT → QUOTED` from version 1; the last ends in the stored state.
+  - `current_quote_id` never changes.
+  - **Legal edges (A-9).** Only `QUOTED` → `USER_CONFIRMED`; `QUOTED` or `USER_CONFIRMED` → `SUPERSEDED`; `QUOTED` or `USER_CONFIRMED` → `CANCELED_LOCAL`.
+  - **Confirmation pointer.** `confirmation_id` and `confirmation_status` change once, from NULL to set, only in the update that sets the state to `USER_CONFIRMED`. In every other update they are unchanged.
+  - **Consumed matching challenge.** In the update to `USER_CONFIRMED`, the named challenge must have status `CONSUMED` and the same `checkout_intent_id`, `owner_id` and `quote_id` as the intent's ID, owner and current quote. F-5 enforces the status and the intent at once; the trigger checks all four. A consumed challenge can never change or be deleted, so the pointer stays valid.
+- These rules are enforced by the trigger `checkout_intents_guard`, before insert or update, for every role.
+- The trigger does not judge whether a predecessor is eligible; the function does. A successor inserted against a terminal predecessor cannot commit, because that predecessor cannot be updated and R-B then fails.
+
+**Deferred checks (A-12).** Four constraint triggers, all deferrable and initially deferred, per row, and the two deferred keys of §19.2. The two history triggers call `shopaccess.checkout_history_check()`.
+
+| Name | Fires after | Validates |
+| --- | --- | --- |
+| `checkout_intents_history_check` | INSERT or UPDATE on `checkout_intents` | H1 to H4 for that intent |
+| `checkout_transitions_history_check` | INSERT on `checkout_transitions` | H1 to H4 for that row's intent |
+| `quotes_item_check` | INSERT on `quotes` | Q1 and Q2 for that quote |
+| `quote_items_quote_check` | INSERT on `quote_items` | Q1 and Q2 for that item's quote |
+| `checkout_intents_predecessor_reciprocal_fkey` (R-B) | — | As §19.2 |
+| `checkout_intents_current_quote_fkey` (F-4) | — | As §19.2 |
+
+Update, delete and truncate on quotes, items and transitions are rejected at once by their append-only triggers, so inserts are the only writes left to cover.
+
+| # | Invariant, for an intent at `row_version` = v |
+| --- | --- |
+| H1 | Exactly v − 1 transition rows, with `to_version` 2 through v |
+| H2 | The row at `to_version` 2 is T1 (§19.2) |
+| H3 | Each later row's `from_state` and `from_version` equal the previous row's `to_state` and `to_version` |
+| H4 | The last row's `to_state` equals the stored state |
+
+| # | Invariant, for a committed quote |
+| --- | --- |
+| Q1 | Exactly one `quote_items` row exists, with `line_number` 1 |
+| Q2 | Its `line_subtotal_cents` equals the quote's `subtotal_cents` |
+
+- **Forcing is mandatory.** Before returning a result that wrote checkout rows, `start_checkout` and `cancel_checkout` set the six deferred constraints to immediate and then back to deferred. The functions contain no second, duplicate validator. Each deferred check raises with the name of its constraint, so that a caller can tell which one failed. That the forcing fires inside a function call is an unverified assumption (§19.15). PGT-112(c) is the test designed to establish it, for both `start_checkout` and `cancel_checkout`; it has not been executed.
+- **Rollback.** Any violation raises an error. Each mutating call is one statement in its own transaction (§19.5), so the error undoes everything from that call, including its throttle and audit writes. A fixture's violation surfaces at its commit.
+- **Locks.** The deferred checks only read and take no lock, so nothing is acquired after the last rank of §19.4. The foreign keys take key-share locks only on rows the same transaction already holds or created.
+- **Concurrency.** Every function that writes an intent holds the owner-row lock for the whole call, and locks an existing intent before changing it; a new intent's rows are invisible to others until commit. Writers that bypass the functions are outside this guarantee (§17.4, item 25).
+- **Privileges.** The trigger functions are in schema `shopaccess`, owned by `shopaccess_owner`, run with the invoker's rights and a fixed search path, and are executable by no role by grant (§19.13).
+- **Left to the functions, enforced by no constraint:** that a stored digest equals `SAQD-1` of the stored fields; that a purchase group has at least one intent; that audit rows exist for each event; eligibility, capacity and throttle semantics.
 
 **Why no cycle can exist.** A predecessor link is fixed at insertion, and the predecessor must already exist. Every link therefore points from a later row to an earlier one.
 - In one statement or transaction, the first row of any ring names a row that does not exist yet and is rejected.
@@ -3195,17 +3351,24 @@ Every constraint and trigger is explicitly named. No table accepts truncate. No 
 
 With one root per group and at most one successor per intent, each group is a single chain.
 
-**Order inside `start_checkout` when replacing:**
-1. Insert the successor (R-B and F-4 pending).
-2. Insert its quote, item and transition.
-3. Update the predecessor to `SUPERSEDED` with its pointer (R-A holds at once), and insert its transition.
-4. Insert both audit rows.
-5. Force R-B, F-4 and the history check before returning.
+**Required write sequence in `start_checkout`:**
+1. Generate the IDs: group (new checkout only), intent, quote, events. The quote ID exists before the intent is inserted.
+2. Insert the purchase group (new checkout only).
+3. Insert the intent with `current_quote_id` set. Pending: F-4, the intent history check, and R-B for a replacement.
+4. Insert the quote. Its key to the intent (F-1) is immediate, so the intent must come first. Pending: its item check.
+5. Insert the quote item. Pending: its quote check.
+6. Insert the T1 transition. Pending: the transition history check.
+7. Replacement only: update the predecessor to `SUPERSEDED` with its pointer (R-A holds at once), then insert its T5 or T6 transition.
+8. Insert the audit rows.
+9. Force the six deferred constraints, then restore them.
+
+A privileged fixture follows the same order within one transaction.
 
 | Guarantee | Enforced by |
 | --- | --- |
 | Pointers agree both ways; one successor; one root; same group and owner; `SUPERSEDED` exactly when replaced | Constraints |
-| No cycle; no rewriting of ancestry | Triggers |
+| One quote per intent; one item per quote with an equal subtotal; complete history H1 to H4 | Constraints and deferred checks |
+| No cycle; no rewriting of ancestry; legal edges only; a consumed matching challenge | Triggers |
 | Eligible predecessor; one winner; group intent limit | The sole authorized function and its locks |
 | Nothing against migration credentials with triggers disabled | Accepted limitation (§17.4, item 14) |
 
@@ -3234,7 +3397,10 @@ With one root per group and at most one successor per intent, each group is a si
 - The application acts on a result only after the database confirms the statement.
 - On an unknown outcome it reads state back; `start_checkout` is never blindly retried.
 - Re-runs only after deadlock or lock timeout, at most three (D-8).
-- Every Increment 2 function refuses a transaction that is not `READ COMMITTED`.
+- Every Increment 2 function refuses a transaction whose isolation level is not exactly `read committed` (mechanism B-5; approved for design). The refusal is an error with SQLSTATE `0A000` and a fixed message, raised by the internal helper `require_read_committed` (§19.7a). `read uncommitted` is refused as well.
+  - The mutating functions call the helper as their first statement, before step 0. A caller without a valid credential receives the same error. Nothing is locked or written.
+  - The read functions end their single SELECT with the helper as the LIMIT expression: `LIMIT require_read_committed(1)` in `read_checkout` and `LIMIT require_read_committed(100)` in `list_owner_checkouts`.
+  - That a LIMIT expression is evaluated when no row qualifies is a design intention, not an established fact (§19.15, unverified assumption 11). If the execution of PGT-133 shows otherwise, implementation stops and the conflict between this rule and §19.11 is an owner decision. No fallback is approved in advance.
 - A refusal is a normal result and commits its permitted side effects. An error rolls back everything.
 - A collision of a database-generated ID is an error; no handler exists for it.
 
@@ -3297,20 +3463,22 @@ All functions: schema `shopaccess_api`; owner `shopaccess_definer`; definer-righ
 - It performs no data change, including when the owner is over the limit.
 - A caller without a session that appears live receives `NOT_AUTHORIZED` instead.
 - It depends only on the arguments.
+- **Conversion failures are errors, not results (B-6).** A value that cannot be converted to a parameter's SQL type (non-numeric text, a fraction, a value outside `integer` or `smallint` range) is rejected by PostgreSQL before the function body runs. It takes no lock, writes nothing and is not counted. The application binds only integers it has already validated.
+- **No session touch.** The 2.1 functions never update a session row. Refreshing the idle timeout remains with `authorize_session`.
 
 **Sequence** (step 1 applies only to the 2.2 challenge functions)
 
 | Step | Action | Possible exit |
 | --- | --- | --- |
 | 1 | Nonce key row (share), when applicable | — |
-| 2 | Session row (share), found again by the exact credential | — |
+| 2 | Session row (share), found again by the exact credential. If no row is found, or the row's ID or owner differs from the row of step 0b, the call returns at once: no further lock is taken and nothing is written (B-6) | `NOT_AUTHORIZED` |
 | 3 | Owner row (update) | — |
-| 4 | Throttle row: if one exists for the owner, lock it with a locking read (`SELECT … FOR UPDATE`); if none exists, there is nothing to lock. First clock reading. Credential revalidation (§19.6) | `NOT_AUTHORIZED` |
-| 4a | Work out the current window and whether this call is over the limit. Nothing is written | — |
+| 4 | Throttle row: if one exists for the owner, lock it with a locking read (`SELECT … FOR UPDATE`); if none exists, there is nothing to lock. First clock reading: the **throttle-gate reading**. Credential revalidation (§19.6) | `NOT_AUTHORIZED` |
+| 4a | From the step 4 reading, work out which window this call belongs to and whether it is over the limit. Nothing is written | — |
 | 4b | If over the limit: apply the `RATE_LIMITED` policy and return | `RATE_LIMITED` |
 | 5 | Lock the requested resource, selected by its ID and the caller's owner together | — |
-| 6 | Second clock reading. Final credential revalidation (§19.6). Resource ownership: the row of step 5 was found | `NOT_AUTHORIZED` |
-| 7 | Admission: increment the admitted-call counter | — |
+| 6 | Second clock reading. Final credential revalidation (§19.6). Resource ownership: the row of step 5 was found. This reading does not change the throttle window assigned at step 4 | `NOT_AUTHORIZED` |
+| 7 | Admission: increment the admitted-call counter, in the window assigned at step 4 | — |
 | 8 | Business rules and writes | Success or a business refusal |
 
 - Owner and throttle locks are held until the call ends.
@@ -3326,9 +3494,36 @@ All functions: schema `shopaccess_api`; owner `shopaccess_definer`; definer-righ
 
 **Throttle policy (G2-34)**
 - 30 mutating calls per owner per 60 seconds; one counter per owner, shared by all mutating functions.
-- A window starts at the first admitted or throttled call at or after the previous window's start plus 60 seconds; that instant belongs to the new window.
+- A window starts at the first **admitted** call at or after the previous window's start plus 60 seconds; that instant belongs to the new window. A call can be throttled only inside a window that already holds 30 admitted calls, so a throttled call never starts a window.
 - **Over the limit (4b):** `window_throttled` and `total_throttled` each rise by one, on every such call. One `OWNER_RATE_LIMITED` audit row is written when `window_throttled` goes from 0 to 1. The result is `RATE_LIMITED`.
 - **Admitted (7):** `window_calls` rises by one. A business refusal at step 8 stays counted.
+- **Throttle clock (owner decision).** The step 4 reading is the authoritative time for the throttle. It decides which fixed window the call belongs to, whether the call is over the limit, and the value of any new `window_started_at`. The step 6 reading never reassigns the window.
+- **Starting a window.** A call that finds no row, or whose step 4 reading is at or after the stored window's start plus 60 seconds, belongs to a new window. When it is admitted at step 7, `window_started_at` is its step 4 reading, `window_calls` is 1 and `window_throttled` is 0.
+- **A call that crosses the boundary while waiting.** If the step 4 reading is before the boundary and the call then waits at step 5 until after it, the call stays in the window assigned at step 4. Admitted at step 7, it raises that window's `window_calls` by one and leaves `window_started_at` unchanged. It was counted against that window's limit at step 4, so the limit of 30 is not exceeded. A new window starts only with a later call whose own step 4 reading is at or after the boundary. If the waiting call instead exits `NOT_AUTHORIZED` at step 6, nothing is written (§19.10).
+- **Window classification helper (`owner_window_decision`; signature in §19.7a).** Step 4a is computed by one internal, pure helper. It is given the existing window's values, or their absence, and an explicit decision time, and it answers which window the call belongs to and whether the call is over the limit of 30 per 60 seconds.
+  - It reads no table, writes no table and performs no checkout operation. Its answer depends only on its arguments.
+  - In production the only decision time ever passed to it is the calling function's own step 4 reading. No function granted to a runtime role has a time parameter, and no session setting changes the decision time (§18.8).
+  - It is an internal helper: EXECUTE is granted to no role, and `shopaccess_web`, `shopaccess_operator`, `shopaccess_worker` and PUBLIC cannot call it (§19.13). It is used by the function owner inside the two mutating functions.
+  - In a disposable test database the test owner may call it directly with explicit values and times. That access comes from being that database's administrator, not from a grant, and does not exist in runtime environments.
+  - It does not change the policy above: the step 4 reading stays authoritative, and a call that crosses the boundary while waiting stays in the window assigned at step 4.
+- Quote times and credential revalidation still use their own readings (§19.6, §19.8).
+- **Timestamp contract (B-4; approved for design; amends the sentence this bullet replaces, which left `updated_at` to the functions migration).** `t4` is the step 4 reading and `t6` the step 6 reading. Holding the owner lock serializes the calls of one owner. **It does not make the clock monotonic:** `t6` may be earlier than `t4`, and either may be earlier than a time already stored.
+  - **Classification, from `t4`.** No row: a new window. A row with `t4 − window_started_at ≥ 60 seconds`: a new window. Otherwise, including `t4 < window_started_at`, the stored window. A call is over the limit only in a stored window with `window_calls ≥ 30`.
+
+  | Value written | Rule |
+  | --- | --- |
+  | `window_started_at` | New window: `t4`. Stored window: unchanged |
+  | `owner_request_windows.updated_at`, first insertion of the row | `t4` |
+  | `owner_request_windows.updated_at`, every write to an existing row: a new-window reset, an admitted call in the stored window, a `RATE_LIMITED` call | `GREATEST(stored updated_at, t4)` |
+  | `OWNER_RATE_LIMITED` audit row | `occurred_at = recorded_at = t4` |
+  | Quote | `created_at = t6`; `expires_at = t6 + 15 minutes` |
+  | New purchase group, new intent | `created_at = t6`; the intent's `updated_at = t6` |
+  | Updated intent (cancel, supersession) | `updated_at = GREATEST(stored updated_at, t6)` |
+  | Transition | `occurred_at = recorded_at = t6` |
+  | Every other audit row | `occurred_at = recorded_at = t6` |
+
+  - **Consequences.** A window row's `updated_at` never decreases. `updated_at ≥ window_started_at` and the intent's `updated_at ≥ created_at` hold whatever the clock does: a new window starts at `t4`, and `GREATEST(stored updated_at, t4)` is not before it. `window_started_at` only moves forward. A backward step of the clock lengthens the current window and never admits more than 30 calls in one stored window. No ordering is promised between the times of successive transition or audit rows.
+  - **Forward time is unchanged.** With a clock that does not step backward, every value above equals the reading named, as before; PGT-145 (a) to (d) are unchanged.
 - If the counter or the audit row cannot be written, the call raises an error.
 
 **Precedence of outcomes for the 2.1 functions:** credential `NOT_AUTHORIZED` → `REQUEST_INVALID` → `RATE_LIMITED` → resource or final-credential `NOT_AUTHORIZED` → business result.
@@ -3353,11 +3548,116 @@ All functions: schema `shopaccess_api`; owner `shopaccess_definer`; definer-righ
 - Replacement eligibility is decided on the stored state only. A predecessor stored as `QUOTED` or `USER_CONFIRMED` is eligible even if its quote has expired. There is no expiry-based replacement refusal.
 - The successor receives a newly calculated quote from the current catalog. It is stored as `QUOTED` with no confirmation and requires a fresh buyer confirmation.
 - The call is not idempotent.
+- **Order of business results at step 8 (B-2; approved for design).** First match. Every row is reached after admission at step 7, so the admitted-call counter has risen by one.
+
+  | Order | Condition | Result | Audit row |
+  | --- | --- | --- | --- |
+  | 1 | Replacement only: `checkout_transition` does not accept `SUPERSEDED` for the predecessor (its stored state is not `QUOTED` or `USER_CONFIRMED`), or the predecessor already has a successor | `REPLACEMENT_NOT_ALLOWED` | None |
+  | 2a | The catalog snapshot finds no row for this product and variant together | `PRODUCT_NOT_IN_MERCHANT_CATALOG` | None |
+  | 2b | Availability is not `IN_STOCK` | `VARIANT_UNAVAILABLE` | None |
+  | 2c | Quantity above the variant's limit | `QUANTITY_EXCEEDS_LIMIT` | None |
+  | 2d | Subtotal outside 1 to 20,000,000 | `AMOUNT_OUT_OF_RANGE` | None |
+  | 3a | Replacement: the group already has 10 intents | `GROUP_INTENT_LIMIT` | One `CHECKOUT_REFUSED_AT_CAPACITY` |
+  | 3b | New checkout: the owner has 10 active or unresolved groups | `AT_PURCHASE_CAPACITY` | One `CHECKOUT_REFUSED_AT_CAPACITY` |
+  | 4 | Otherwise: the write sequence of §19.3 | `STARTED` | `QUOTE_ISSUED`; and `CHECKOUT_SUPERSEDED` for a replacement |
+
+  - **Overlapping conditions.** At capacity, and the product is missing, unavailable or over its quantity limit: the catalog result, and no audit row. An ineligible predecessor in a full group, or together with an invalid product: `REPLACEMENT_NOT_ALLOWED`, and no audit row. Rows 3a and 3b never both apply: a replacement creates no group. A `CHECKOUT_REFUSED_AT_CAPACITY` row therefore always records a request that was otherwise purchasable. This order follows §5.2, which lists the variant checks (step 3) before the purchase group (step 4).
+  - `AMOUNT_OUT_OF_RANGE` cannot be produced by catalog rows that satisfy the constraints of migration `0003`: the largest unit amount times the largest quantity equals the limit. It is kept as a defensive result and is covered by reading, not by a data test.
+  - The 2.1 functions contain no exception handler and no row-count check after their own inserts.
 
 **`cancel_checkout`**
 - **Parameter:** `p_intent_id text`. **Returns:** `result`.
 - **Results:** `CANCELED`; `NOT_AUTHORIZED` (including a missing or foreign intent); `RATE_LIMITED`; `REQUEST_INVALID`; `NOT_CANCELABLE` (terminal stored state).
 - On success: state `CANCELED_LOCAL`, one transition, one audit row.
+- **Step 8.** `checkout_transition` accepts `SHOPPER_CANCELED` (stored `QUOTED` or `USER_CONFIRMED`): `CANCELED`. Otherwise `NOT_CANCELABLE`, with no audit row. An expired quote does not prevent cancelling. Cancelling a `USER_CONFIRMED` intent leaves its confirmation pointer exactly as it is.
+
+### 19.7a Internal helpers (B-10; approved for design)
+
+Six helpers. Common properties: schema `shopaccess_api`; owner `shopaccess_definer`; `SECURITY INVOKER`; `SET search_path = pg_catalog, pg_temp`; no table is read or written; EXECUTE is revoked from PUBLIC and granted to no role. In a disposable test database the test owner may call them as that database's administrator; that access is not a grant and does not exist at runtime.
+
+```text
+1. require_read_committed(p_value integer) RETURNS integer
+   PL/pgSQL, STABLE. Returns p_value when
+   current_setting('transaction_isolation') = 'read committed';
+   otherwise raises SQLSTATE 0A000 with a fixed message.
+
+2. owner_window_decision(
+     p_window_started_at timestamptz,   -- NULL: no row
+     p_window_calls      integer,       -- NULL: no row
+     p_t                 timestamptz)
+   RETURNS TABLE (starts_new_window boolean, over_limit boolean)
+   SQL, IMMUTABLE. Always one row. The classification of the timestamp
+   contract (§19.7), using only timestamptz subtraction and interval
+   comparison.
+
+3. checkout_transition(
+     p_from_state                       text,
+     p_from_version                     integer,
+     p_event_type                       text,
+     p_actor                            text,
+     p_entry_point                      text,
+     p_current_quote_id                 text,
+     p_current_confirmation_id          text,
+     p_current_superseded_by_intent_id  text,
+     p_event_quote_id                   text,
+     p_event_confirmation_id            text,
+     p_event_successor_intent_id        text)
+   RETURNS TABLE (
+     accepted                boolean,
+     to_state                text,
+     to_version              integer,
+     quote_id                text,
+     confirmation_id         text,
+     superseded_by_intent_id text)
+   SQL, IMMUTABLE. Always one row.
+
+4. quote_digest_saqd1(
+     p_quote_id text, p_owner_id text, p_intent_id text,
+     p_purchase_group_id text, p_merchant_id text, p_product_id text,
+     p_variant_id text,
+     p_catalog_revision bigint, p_quantity bigint, p_unit_amount_cents bigint,
+     p_subtotal_cents bigint, p_discount_cents bigint, p_tax_cents bigint,
+     p_shipping_cents bigint, p_total_cents bigint,
+     p_currency text, p_assumptions_code text,
+     p_created_at timestamptz, p_expires_at timestamptz)
+   RETURNS text
+   SQL, STABLE. SAQD-1 of §5.1 over exactly these 19 fields, in this order.
+
+5. descriptive_terms_digest(p_description text, p_specs jsonb) RETURNS text
+   SQL, STABLE. SADT-1 of §19.2.
+
+6. quote_material_change(
+     p_q_unit_amount_cents bigint, p_q_currency text, p_q_quantity integer,
+     p_q_merchant_id text, p_q_product_id text,
+     p_q_merchant_display_name text, p_q_product_title text,
+     p_q_variant_label text, p_q_descriptive_terms_digest text,
+     p_c_unit_amount_cents bigint, p_c_currency text, p_c_availability text,
+     p_c_max_quantity_per_order integer, p_c_merchant_id text,
+     p_c_product_id text, p_c_merchant_display_name text,
+     p_c_product_title text, p_c_variant_label text,
+     p_c_description text, p_c_specs jsonb)
+   RETURNS boolean
+   SQL, STABLE. The p_q_ values are the stored snapshot; the p_c_ values are
+   the catalog as the calling statement sees it.
+```
+
+**`checkout_transition` is the whole predicate, not a state lookup.** `accepted` is true exactly for T1 to T6 of §19.2, each with its event, actor, from state, entry point and version rule (`p_from_version = 1` only for T1; otherwise at least 2), and with the pointer rules below. It receives the pointers the intent holds now and returns the pointers it holds afterwards; **an event that does not change a pointer returns the value it was given.**
+
+| | Further conditions | `quote_id` | `confirmation_id` | `superseded_by_intent_id` |
+| --- | --- | --- | --- | --- |
+| T1 | The three current pointers are NULL; `p_event_quote_id` present | `p_event_quote_id` | NULL | NULL |
+| T2 | `p_event_quote_id = p_current_quote_id` (the quote-match guard); `p_current_confirmation_id` NULL; `p_event_confirmation_id` present; no successor | unchanged | `p_event_confirmation_id` | unchanged (NULL) |
+| T3, T4 | No successor | unchanged | **unchanged**: NULL from `QUOTED`, the consumed challenge's ID from `USER_CONFIRMED` | unchanged (NULL) |
+| T5, T6 | No successor yet; `p_event_successor_intent_id` present | unchanged | **unchanged**, as for T3 and T4 | `p_event_successor_intent_id` |
+
+- `to_version = p_from_version + 1`. When `accepted` is false every other column is NULL.
+- Cancellation and supersession never clear a confirmation pointer. The reducer leaves its context unchanged on `SHOPPER_CANCELED` and `SUPERSEDED`, and the intent guard of §19.3 rejects any change to the pointer outside the change to `USER_CONFIRMED`.
+- The helper does not re-check the table's own pairing of state and confirmation pointer (§19.2); it preserves what it is given.
+- The mutating functions take the new state, the new version and the pointer values from this row and contain no second copy of the rules.
+
+**`quote_material_change`** is true when a current identity value is NULL (a missing merchant, product or variant row) or any material fact of §19.8 differs: unit amount; currency; availability other than `IN_STOCK`; a quantity limit below the quoted quantity; merchant ID; the variant's product; merchant display name; product title; variant label; or `SADT-1` of the current description and specifications differing from the stored digest. Image path and either `catalog_revision` are not compared.
+
+**Volatility.** Helpers 4 to 6 are declared `STABLE` only because built-in functions they use are labelled stable. Their results must not depend on session settings (PGT-73a, PGT-120).
 
 ### 19.8 Quotes, `SAQD-1`, expiry and material change
 - **`SAQD-1`** as §5.1: 19 fields, computed in the database, owner taken from the session.
@@ -3384,13 +3684,18 @@ The same invariant applies to `REQUEST_INVALID`.
 
 **Audit events.** Each row is written by the deciding entry point, in the same transaction, with a database-generated ID. No row contains a nonce, token, digest of either, or key material.
 
-| Event | Written |
-| --- | --- |
-| `QUOTE_ISSUED` | Every successful `start_checkout` |
-| `CHECKOUT_SUPERSEDED` | Every supersession |
-| `CHECKOUT_REFUSED_AT_CAPACITY` | Every `AT_PURCHASE_CAPACITY` and `GROUP_INTENT_LIMIT` refusal; no quota |
-| `CHECKOUT_CANCELED` | Every successful `cancel_checkout` |
-| `OWNER_RATE_LIMITED` | First throttled call of a window |
+| Event | Written | Actor | `checkout_intent_id` | `detail` keys, exactly these (B-3) |
+| --- | --- | --- | --- | --- |
+| `QUOTE_ISSUED` | Every successful `start_checkout` | `server` | The new intent | `transitionEventId`, `quoteId`, `purchaseGroupId`, `productId`, `variantId`, `quantity`, `totalCents` |
+| `CHECKOUT_SUPERSEDED` | Every supersession | `server` | The predecessor | `transitionEventId`, `supersededByIntentId` |
+| `CHECKOUT_REFUSED_AT_CAPACITY` | Every `AT_PURCHASE_CAPACITY` and `GROUP_INTENT_LIMIT` refusal; no quota | `server` | The predecessor for `GROUP_INTENT_LIMIT`; NULL for `AT_PURCHASE_CAPACITY` | `reason`, `limit`; and `purchaseGroupId` for `GROUP_INTENT_LIMIT` |
+| `CHECKOUT_CANCELED` | Every successful `cancel_checkout` | `shopper` | The intent | `transitionEventId`, `fromState` |
+| `OWNER_RATE_LIMITED` | First throttled call of a window | `server` | NULL | `limit`, `windowSeconds`, `windowStartedAt` (UTC text with microseconds) |
+
+- **Every row:** `event_id` is `ev_` and 32 hex from `gen_random_uuid()`; `owner_id` is the owner derived from the session; `session_id` is the ID of the session row locked at step 2; `operation_id` is NULL; `occurred_at` and `recorded_at` as the timestamp contract of §19.7. Detail keys are camelCase, as in the audit rows of migration `0006`.
+- **Never in any detail:** a token, a nonce, a key version, any digest (including the quote digest and `descriptive_terms_digest`), catalog free text, or a rejected argument.
+- **Write order on a throttled call:** the counters first, then the audit row.
+- **No row** is written for `NOT_AUTHORIZED`, `REQUEST_INVALID`, `REPLACEMENT_NOT_ALLOWED`, `NOT_CANCELABLE` or a catalog refusal.
 
 **Permitted changes by outcome (2.1)**
 
@@ -3404,34 +3709,143 @@ The same invariant applies to `REQUEST_INVALID`.
 | Catalog refusals, `REPLACEMENT_NOT_ALLOWED`, `NOT_CANCELABLE` | Admitted-call counter |
 | Error | None; everything rolls back |
 
+**Increment 2.2: the confirmation events (decision 17).** Both are written by the deciding function, in the same transaction, like every row above.
+
+| Column | `CONFIRMATION_ACCEPTED` | `CONFIRMATION_REJECTED` |
+| --- | --- | --- |
+| `event_id` | `ev_` and 32 hex from `gen_random_uuid()` | The same |
+| `actor` | `shopper` | `shopper` |
+| `owner_id` | The owner derived from the session | The same |
+| `session_id` | The session row locked at step 2 | The same |
+| `checkout_intent_id` | The challenge's intent | `consume_challenge`: the intent of the locked challenge. `issue_challenge`: the intent of the call |
+| `operation_id` | NULL | NULL |
+| `occurred_at`, `recorded_at` | Both the step 6 reading | Both the step 6 reading |
+| `detail` keys, exactly these | `transitionEventId`, `challengeId`, `quoteId` | `result`, `challengeId` |
+| `detail` values | The event ID of the inserted transition; the ID of the locked challenge; the challenge's quote ID | The result code; `consume_challenge`: the ID of the locked challenge; `issue_challenge`: JSON null |
+
+- **One `CONFIRMATION_ACCEPTED` row:** `CONFIRMED`, and no other result.
+- **One `CONFIRMATION_REJECTED` row, on every occurrence, with no quota (G2-38):** `CONFIRMATION_KEY_REVOKED`, `CONFIRMATION_MISMATCH` and `QUOTE_DIGEST_MISMATCH` from `consume_challenge`; `QUOTE_DIGEST_MISMATCH` from `issue_challenge`.
+- **The issue-side rejection names no challenge.** No challenge row exists for it. Its `challengeId` is JSON null, and the challenge ID the caller sent is written nowhere.
+- **No audit row:** every other result of `issue_challenge` (`ISSUED`, `REUSED`, `REFUSED`, `CHALLENGE_LIMIT_REACHED`, `NONCE_KEY_NOT_ACTIVE`, `CONFIRMATION_ALREADY_USED`, `INTENT_NOT_AWAITING_CONFIRMATION`, `QUOTE_EXPIRED`, `QUOTE_STALE_CATALOG`); `CONFIRMATION_NOT_FOUND`, `CONFIRMATION_SUPERSEDED`, `CONFIRMATION_ALREADY_USED`, `CONFIRMATION_EXPIRED`, `QUOTE_EXPIRED`, `QUOTE_STALE_CATALOG` and `INTENT_NOT_AWAITING_CONFIRMATION` from `consume_challenge`; `NOT_AUTHORIZED` and `REQUEST_INVALID`. "Issuing a challenge writes no audit row" therefore has exactly one exception, the issue-side `QUOTE_DIGEST_MISMATCH`.
+- **`OWNER_RATE_LIMITED`** is unchanged: one row for the first throttled call of a window, timed at the step 4 reading, for all four mutating functions.
+- **Never in any detail:** a token, a nonce, key material, a key version, or any digest.
+
+**Permitted changes by outcome (2.2)**
+
+| Outcome | Permitted data changes |
+| --- | --- |
+| `NOT_AUTHORIZED`, `REQUEST_INVALID`, `CONFIRMATION_NOT_FOUND` | None. Not counted |
+| `RATE_LIMITED` | As 2.1 |
+| `CONFIRMATION_KEY_REVOKED`, `CONFIRMATION_MISMATCH`, `QUOTE_DIGEST_MISMATCH` | Admitted-call counter; one audit row |
+| `CONFIRMATION_EXPIRED` | Admitted-call counter; the challenge from `ACTIVE` to `EXPIRED` |
+| `ISSUED` | Admitted-call counter; at most one challenge from `ACTIVE` to `EXPIRED` or `SUPERSEDED`; one new challenge |
+| `REFUSED` | Admitted-call counter, and nothing else: no challenge row is created or changed |
+| `CONFIRMED` | Admitted-call counter; the challenge to `CONSUMED`; the intent to `USER_CONFIRMED` with its pointer; one transition; one audit row |
+| Every other refusal | Admitted-call counter |
+| Error | None; everything rolls back |
+
 ### 19.11 Read functions
 - Written in SQL; the body is exactly one `SELECT`; declared `STABLE`.
-- No helper that reads a table may be called. `session_is_live` is permitted: it is immutable and reads nothing.
+- No helper that reads a table may be called. Exactly four functions may be called: `session_is_live`, `require_read_committed`, `descriptive_terms_digest` and `quote_material_change`. None of them reads a table.
 - Under `READ COMMITTED` one statement sees one snapshot, and every mutating call is one transaction. A result therefore never mixes two versions.
 - Time is the statement's start time, returned as database time.
 - They perform no data change and take no lock.
-- **`read_checkout(p_key_version, p_token_digest, p_intent_id)`** always returns one row: `OK` or `NOT_AUTHORIZED`. With `OK` it returns:
-  - the owner ID;
-  - the intent: ID, group, stored state, version, effective status, predecessor and successor IDs;
-  - the quote, with its immutable amounts, snapshot labels, digest and times;
-  - a stale indicator;
-  - from 2.2, the active challenge and whether it is usable;
-  - database time.
+- **`read_checkout(p_key_version smallint, p_token_digest text, p_intent_id text)`** always returns exactly one row (B-1; approved for design):
 
-  With `NOT_AUTHORIZED` every other column is NULL.
-- **`list_owner_checkouts(p_key_version, p_token_digest)`** returns at most 100 rows, and none when not authorized.
+  ```text
+  result                   text         'OK' or 'NOT_AUTHORIZED'
+  owner_id                 text
+  intent_id                text
+  purchase_group_id        text
+  stored_state             text
+  row_version              integer
+  effective_status         text
+  replaces_intent_id       text         NULL for a root
+  superseded_by_intent_id  text         NULL unless superseded
+  intent_created_at        timestamptz
+  intent_updated_at        timestamptz
+  quote_id                 text
+  merchant_id              text
+  merchant_display_name    text
+  product_id               text
+  product_title            text
+  variant_id               text
+  variant_label            text
+  quantity                 integer
+  unit_amount_cents        bigint
+  subtotal_cents           bigint
+  discount_cents           bigint
+  tax_cents                bigint
+  shipping_cents           bigint
+  total_cents              bigint
+  currency                 text
+  assumptions_code         text
+  catalog_revision         integer
+  quote_digest             text
+  quote_created_at         timestamptz
+  quote_expires_at         timestamptz
+  quote_stale              boolean
+  database_time            timestamptz  the statement's start time
+  ```
+
+  - With `OK` every column is non-NULL except the two noted.
+  - With `NOT_AUTHORIZED` every other column, including `database_time`, is NULL. It is returned for a credential that fails §19.6 at the statement's start time, and for an intent ID that is NULL, malformed, missing or another owner's. These cases are indistinguishable. There is no `REQUEST_INVALID`.
+  - Never returned: the token digest, a session ID, `descriptive_terms_digest`, the intent's confirmation pointer, a challenge that is not `ACTIVE`.
+  - **Increment 2.2 (migration `0009`, decision 10): the function is replaced by one that returns 41 columns.** The 33 columns above are unchanged in name, type and order, and eight follow them:
+
+    ```text
+    challenge_id                 text         the quote's ACTIVE challenge; NULL when it has none
+    challenge_quote_digest       text         the digest the challenge is bound to
+    challenge_nonce_key_version  smallint
+    challenge_nonce_digest       text
+    challenge_summary            jsonb
+    challenge_issued_at          timestamptz
+    challenge_expires_at         timestamptz
+    challenge_usable             boolean
+    ```
+
+    - The challenge shown is the row of `confirmation_challenges` with the intent's current quote, the same intent, the same owner and status `ACTIVE`. There is at most one. A challenge in any other status is never shown.
+    - With `OK` and an `ACTIVE` challenge, columns 34 to 40 are non-NULL. With `OK` and no `ACTIVE` challenge, they are NULL and `challenge_usable` is false. With `NOT_AUTHORIZED`, all eight are NULL, like every other column.
+    - `challenge_usable` is true exactly when all of these hold at the statement's start time: there is an `ACTIVE` challenge; the intent is stored `QUOTED`; the time is before `quote_expires_at`; the time is before `challenge_expires_at`; `challenge_quote_digest` equals `quote_digest`; `quote_stale` is false; the status of the challenge's nonce key is `ACTIVE` or `VERIFY_ONLY`. It does not compute `SAQD-1` again and does not apply the 60-second reuse margin; `issue_challenge` and `consume_challenge` decide those.
+    - The function is still written in SQL, `STABLE`, one `SELECT` that ends `LIMIT require_read_committed(1)`, calls only the four permitted functions, takes no lock and changes nothing. There is no separate reader for confirmations.
+    - A function's result type cannot be changed in place, so migration `0009` removes the 33-column function and creates the 41-column one (§19.16).
+- **`list_owner_checkouts(p_key_version smallint, p_token_digest text)`** returns zero to 100 rows, and none when not authorized:
+
+  ```text
+  intent_id          text
+  purchase_group_id  text
+  stored_state       text
+  effective_status   text
+  intent_created_at  timestamptz
+  quote_expires_at   timestamptz
+  ```
+
+  - Every column is non-NULL. Order: `intent_created_at` descending, then `intent_id` descending. There is no truncation indicator: an owner with more than 100 intents sees the newest 100.
+- **`effective_status`** (both functions) is `QUOTE_EXPIRED` when `stored_state` is `QUOTED` or `USER_CONFIRMED` and the statement's start time is at or after `quote_expires_at`. Otherwise it equals `stored_state`. It never changes anything stored. `QUOTE_EXPIRED` is not a stored state; the reserved stored state `EXPIRED` (§19.2) is reported as itself if it is ever stored.
+- **`quote_stale`** is the result of `quote_material_change` (§19.7a) over the stored snapshot and the catalog as the statement sees it. It is independent of expiry and is reported for every stored state.
+- **Timestamp names.** A time of the intent is prefixed `intent_`, a time of the quote `quote_`, in both functions.
 
 ### 19.12 Identifiers and reducer parity
 - Group, intent, quote, transition-event and audit-event IDs are generated in the database. The challenge ID (2.2) is the only caller-supplied ID.
-- The four permitted state changes are coded in one internal helper. It must match the TypeScript reducer on accepted (state, event, actor) combinations, the quote-match guard, pointer changes, version increment and transition record fields.
+- The permitted state changes, T1 to T6 of §19.2, are coded in one internal helper, `checkout_transition` (§19.7a). From the stored state and version, the event, the actor, the entry point and the pointers the intent holds, it decides whether the change is accepted and returns the new state, the new version and the pointers afterwards.
+- It must agree with the TypeScript reducer on the accepted (state, event, actor) combinations, the quote-match guard, the pointer changes (including that cancellation and supersession leave the confirmation pointer as it is) and the version increment. Its output supplies every transition record field except the event ID and the times. The entry point has no counterpart in the reducer; it is checked against the table of §19.2.
+- **Reducer-accepted combinations that Increment 2.1 excludes,** each refused by the helper and listed one by one in PGT-138: `QUOTE_ISSUED` from `QUOTED` (no in-place re-quote); `QUOTE_INVALIDATED`; `SHOPPER_CANCELED`, `SUPERSEDED` and `EXPIRED` from `DRAFT` (`DRAFT` is never stored); `EXPIRED` from `QUOTED` or `USER_CONFIRMED` (no Increment 2 entry point raises it).
 
 ### 19.13 Privileges
 
 | Role | Increment 2 |
 | --- | --- |
-| `shopaccess_web` | EXECUTE on the Increment 2 functions. No new table privilege |
-| `shopaccess_definer` | SELECT on the three catalog tables; UPDATE on `checkout_owners` for locking only (its trigger rejects every update); SELECT, INSERT on `purchase_groups`, `quotes`, `quote_items`, `checkout_transitions`; SELECT, INSERT, UPDATE on `checkout_intents`, `confirmation_challenges`, `owner_request_windows` |
+| `shopaccess_web` | EXECUTE on the Increment 2 functions; in Increment 2.1 these are `start_checkout`, `cancel_checkout`, `read_checkout` and `list_owner_checkouts`, and nothing else. No new table privilege: every direct statement by the web role on any of the seven tables is refused |
+| `shopaccess_definer` | SELECT on the three catalog tables; UPDATE on `checkout_owners` for locking only (its trigger rejects every update); SELECT, INSERT on `purchase_groups`, `quotes`, `quote_items`, `checkout_transitions`; SELECT, INSERT, UPDATE on `checkout_intents`; **SELECT only** on `confirmation_challenges` in Increment 2.1 (INSERT and UPDATE are an Increment 2.2 decision); on `owner_request_windows`, SELECT, INSERT, and UPDATE on the five non-key columns only (A-13) |
 | `shopaccess_worker`, `shopaccess_operator`, PUBLIC | Nothing new |
+| `shopaccess_web`, Increment 2.2 (migration `0009`) | EXECUTE on `issue_challenge`, on `consume_challenge` and on the recreated `read_checkout`, and nothing else. Still no table privilege |
+| `shopaccess_definer`, Increment 2.2 (migration `0009`) | INSERT on `confirmation_challenges`; UPDATE there on the four columns `status`, `consumed_at`, `superseded_at` and `expired_marked_at` only. No table-level UPDATE, no DELETE, no TRUNCATE. It already holds SELECT there, and SELECT, INSERT and UPDATE on `server_key_versions`, which the lock on a nonce key row needs |
+
+- **The schema migration is default-deny.** It contains no GRANT. After it alone, only the table owner can reach the new tables.
+- **The functions migration carries every grant above.** Each SELECT is granted together with the matching write privilege, in that one file, so no trigger ever runs for the function owner without the SELECT it needs.
+- **Trigger functions** are created by the schema migration, revoked from PUBLIC and granted to no role. When they run inside a call they use the function owner's table privileges: the intent guard reads `checkout_intents` and `confirmation_challenges`; the history check reads `checkout_intents` and `checkout_transitions`; the quote checks read `quotes` and `quote_items`.
+- **Internal helpers** are granted to nobody. The six helpers of §19.7a are `SECURITY INVOKER`; the four entry points are `SECURITY DEFINER`.
+- **Already held from migration `0006` and sufficient:** SELECT and UPDATE on `shopper_sessions` (the session lock), SELECT on `server_key_versions`, INSERT on `audit_events`.
 
 ### 19.14 Boundaries
 - **Financial.** No payment table, state, event or function exists. The state and event checks reject payment values. The worker role has no grant.
@@ -3450,61 +3864,76 @@ The same invariant applies to `REQUEST_INVALID`.
   - a stable single-query function returning one snapshot;
   - the isolation check.
 
-### 19.15 Acceptance-test manifest, Increment 2.1 — ALL NOT EXECUTED
+### 19.15 Acceptance-test manifest, Increment 2.1 (which tests have been written and which executed: §19.18)
 
-**Fixtures.** Where a test needs a stored state that no 2.1 function can produce, it uses a privileged fixture in the disposable test database: rows written directly by the test owner in one transaction. A fixture must satisfy every constraint, key and trigger of §19.2 and §19.3, and the existing audit table's constraints. No trigger is disabled and no constraint relaxed.
+**Fixtures.** Where a test needs a stored state that no 2.1 function can produce, it uses a privileged fixture in the disposable test database: rows written directly by the test owner in one transaction. A fixture must satisfy every constraint, key and trigger of §19.2 and §19.3, and the existing audit table's constraints. No trigger is disabled and no constraint relaxed. Fixtures follow the bypass-writer policy P1 to P7 (§17.4, item 25) and the write sequence of §19.3.
+
+**Test connections.** In a disposable test database the harness gives a test: the test owner (a superuser) on two connections to that same database, `admin` and `secondAdmin`; a pool as `shopaccess_web`; and a pool as a named operator login. The second test-owner connection uses the same validated loopback target and the same administrator credentials as the first, is verified in the same way before it connects, and is closed with the others, after any transaction left open on it has been rolled back. It exists so that a test can hold a transaction open as the test owner and act as the test owner on an independent connection at the same time (PGT-118). It is a test facility only: it is not a role, it grants nothing, and no runtime role gains any privilege on the catalog or on any table through it.
 
 "No side effects" below means the invariant of §19.10. PGT-116 is not assigned.
 
 | ID | Test | Expected |
 | --- | --- | --- |
-| PGT-101 | Inventory after migration | Seven new tables; the 2.1 functions; ledger rows and checksums match the inventory |
-| PGT-102 | Privileges | Exactly the grants of §19.13; no DELETE; worker has nothing |
+| PGT-101 | Inventory after migration | Seven new tables; the 2.1 functions; the named triggers and deferred constraints of §19.3; the one-quote-per-intent key; ledger rows and checksums match the inventory |
+| PGT-102 | Privileges | Exactly the grants of §19.13, including the column-level UPDATE on `owner_request_windows` and SELECT only on `confirmation_challenges`; no DELETE; worker has nothing |
 | PGT-103 | Catalog privilege, as function owner | SELECT succeeds; row lock, UPDATE, INSERT, DELETE refused |
 | PGT-104 | Owner-row lock | Lock succeeds; every UPDATE on `checkout_owners` rejected by its trigger |
 | PGT-105 | State and event checks | Payment states, payment events, other actors, and `DRAFT` as a stored state rejected |
 | PGT-106 | Candidate keys | The five unique constraints exist and are not deferrable |
 | PGT-107 | Reciprocity, direct writes | Successor without a marked predecessor → rejected at commit; pointer to a root, unrelated or missing intent → rejected at once; a correct pair commits |
 | PGT-108 | Ancestry | Root's predecessor changed from NULL → rejected; predecessor changed to a descendant → rejected; two-row, three-row and fully reciprocal rings in one statement → rejected |
-| PGT-109 | Concurrent ring attempt | At least one transaction rejected; no ring exists |
+| PGT-109 | Ring attempts by privileged direct writes, made serially: one committed transaction after another tries to close a two-row and a three-row ring | Every attempt rejected; no ring exists. Nothing is claimed or tested for concurrent bypass writers (§17.4, item 25). Concurrency through the functions is PGT-113 |
 | PGT-110 | Successor pointer | Set without state change; changed; cleared; any update to a terminal row → each rejected |
 | PGT-111 | New checkout, atomic | Exactly one group, intent, quote, item, transition, audit row; version 2; `QUOTED` |
-| PGT-112 | Replacement, atomic | Exactly the rows of §19.3; a forced history violation leaves nothing |
+| PGT-112 | Replacement, atomic. (a) Through `start_checkout`. (b) Direct invalid fixtures by the test owner, one for each of the six deferred constraints of §19.3. (c) A deferred check failing inside a real function call, under the P4 exception (§17.4, item 25). In one transaction that is always rolled back, the test owner creates a test-only `BEFORE INSERT` row trigger that returns NULL, then calls the function: S1, on `quote_items`, then `start_checkout`; S2, on `checkout_transitions`, then `start_checkout`; C1, on `checkout_transitions`, then `cancel_checkout` of a `QUOTED` intent | (a) Exactly the rows of §19.3. (b) Each violating transaction is rejected and leaves nothing. (c) The trigger suppresses the child row, so that row's own row-level AFTER triggers, including its deferred constraint trigger, do not fire for it. The deferred validation that fails is the one queued by the parent row: the quote's insert in S1; the intent's insert in S2; the intent's update in C1. It is forced inside the call. **The function call itself must raise, with the expected constraint name:** `quotes_item_check` in S1; `checkout_intents_history_check` in S2 and C1. A call that returns `STARTED` or `CANCELED` fails the test, even if a later COMMIT would fail. As a control, the same invalid state made by direct writes without forcing raises only at COMMIT. After the rollback the test trigger no longer exists and every table is unchanged. Trigger-name order matters only among triggers of the same event and timing; nothing is claimed about the test trigger's order relative to AFTER or deferred constraint triggers |
 | PGT-113 | Two concurrent replacements | One `STARTED`, one `REPLACEMENT_NOT_ALLOWED`; one successor; pointers agree |
 | PGT-114 | Predecessor stored as `CANCELED_LOCAL`; separately, stored as `SUPERSEDED` | Each `REPLACEMENT_NOT_ALLOWED`; admitted-call counter rises by one; no other change |
 | PGT-115 | Replace racing cancel | Both orders; the second is refused |
-| PGT-73a, 73e | `SAQD-1` vectors; no amount or digest parameter | Three digests match in database and TypeScript |
+| PGT-73a, 73e | `SAQD-1` vectors; no amount or digest parameter | Three digests match in database and TypeScript The inputs are those of §15.2 with its expansion, on both sides; the database side calls `quote_digest_saqd1` as the test owner. The expected digests are the ones stated in §15.2 and are never changed to fit an implementation. The helper returns the same digest under different `TimeZone` and `DateStyle` settings |
 | PGT-12 (reworded), PGT-117 | Reprice committed while `start_checkout` waits; reprice uncommitted | New price and revision together; old values with no blocking; never a mixture |
-| PGT-118 | Catalog writer | Reprice neither waits nor blocks; variant deletion → error, nothing written |
-| PGT-119 | Quote lifetime | `expires_at` exactly 15 minutes after `created_at`; other values rejected; effective status just before, at and after expiry; stored state unchanged by expiry |
+| PGT-118 | Catalog writer | Reprice neither waits nor blocks; variant deletion → error, nothing written The reprice is tested directly on `merchant_variants`: a checkout of the variant is held open and uncommitted on one test-owner connection, so the key-share lock of its item's foreign-key check stays held; the lock is shown to be held by that transaction (a `FOR UPDATE` request for the variant row from the second test-owner connection waits for exactly that backend and is not granted); the update of price and revision on the second connection then completes and commits before the holder is released |
+| PGT-119 | Quote lifetime | `expires_at` exactly 15 minutes after `created_at`; other values rejected; effective status just before, at and after expiry; stored state unchanged by expiry The exact instant of expiry cannot be produced by a test, because no function takes a time (§18.8). The evidence for it is in two parts: PGT-135 establishes on the source of both read functions that the comparison is "at or after" (the statement's start time `>=` the quote's `expires_at`); and one quote is read as `QUOTED` while the server still reports its expiry ahead and as `QUOTE_EXPIRED` once the server reports it reached |
 | PGT-13 | Quote and item immutability | Update and delete rejected |
-| PGT-120 | Material change reported | One case per material field → stale; image path or revision alone → not stale; snapshot labels unchanged after a rename |
+| PGT-120 | Material change reported | One case per material field → stale; image path or revision alone → not stale; snapshot labels unchanged after a rename `descriptive_terms_digest` is computed in the database for D1 and D2 of §15.2 and compared with the proposed targets; a mismatch is investigated and reported, not edited away (§15.2). A specifications object rewritten with its keys in another order is not stale. `quote_material_change`, called by the test owner, reports a different currency and a different product for the variant as stale: the catalog's own constraints prevent producing those two by data |
 | PGT-81a, b, d, e; PGT-121 | Group capacity; expired quotes still count | Refused at 10, permitted at 9; history not counted; concurrent starts never exceed 10 |
 | PGT-122 | Intents per group | Tenth permitted, eleventh `GROUP_INTENT_LIMIT`; independent of the group limit |
-| PGT-123 | Capacity refusal audit | N refusals → N audit rows, distinct IDs |
-| PGT-124 | Throttle limit and boundary, from a missing row and from an existing row | 30 admitted, 31st `RATE_LIMITED`; a call at the boundary instant starts a new window; boundary burst of 60 admitted; `NOT_AUTHORIZED` calls in between consume none of the 30 |
-| PGT-125 | Over-limit evidence, from a missing row and from an existing row | 100 over-limit calls → `total_throttled` 100, one audit row; next window → one more on its first over-limit call |
+| PGT-123 | Capacity refusal audit: `AT_PURCHASE_CAPACITY`, and separately `GROUP_INTENT_LIMIT` | For each: N refusals → exactly N new audit rows, every one with event type `CHECKOUT_REFUSED_AT_CAPACITY`, the caller's owner ID and a distinct event ID; no other new audit row; none for any other owner |
+| PGT-124 | Throttle limit and boundary, from a missing row and from an existing row. (a) The limit. (b) The exact boundary, with the approved test clock (§18.8): the internal, pure window-classification helper of §19.7 called by the test owner with explicit existing-window values and explicit decision times; and function calls against backdated rows. A runtime role attempts to call the helper. (c) A call that crosses the boundary while waiting: its step 4 reading is confirmed to be before the boundary while it is blocked on the intent lock by the method of PGT-143; the database clock is polled past the boundary; the blocker is released | (a) 30 admitted, 31st `RATE_LIMITED`; boundary burst of 60 admitted; `NOT_AUTHORIZED` calls in between consume none of the 30. (b) Just before the boundary: the stored window; exactly at it and just after: a new window. A call at the boundary instant starts a new window. The helper writes nothing, and its call by a runtime role is refused. (c) The call is counted in the window assigned at step 4: `window_started_at` unchanged, `window_calls` one higher. The next call starts a new window whose start is its own step 4 reading. No fixed-duration sleep is used (b) also: `owner_window_decision` called with a decision time earlier than the window start answers "stored window" |
+| PGT-125 | Over-limit evidence, from a missing row and from an existing row | 100 over-limit calls → `total_throttled` 100 and exactly one new audit row, with event type `OWNER_RATE_LIMITED` and the caller's owner ID; next window → exactly one more, on its first over-limit call; none for any other owner |
 | PGT-126 | Throttle concurrency | Parallel calls → exactly 30 admitted |
 | PGT-127 | Throttle scope. (a) A second live session for the same owner, inserted as a fixture. (b) A different owner. (c) Rotation after 20 admitted calls. (d) A newly admitted session | (a) Both credentials draw on one counter, 30 in total. (b) Independent counter. (c) Counter stays at 20. (d) New owner and new counter, as accepted Increment 1 behaviour |
-| PGT-128 | Throttle fail-closed | Counter or audit write made to fail in a rolled-back test transaction → error, nothing written |
+| PGT-128 | Throttle and audit fail-closed (B-8). Six independent cases under the second exception of P4 (§17.4, item 25), each with one revocation from `shopaccess_definer` in a transaction that is always rolled back. K1: no throttle row, a call that will be admitted; INSERT on `owner_request_windows` revoked. K2: a row under the limit; UPDATE of `window_calls` revoked. K3: a row at the limit; UPDATE of `total_throttled` revoked. A1: a row at the limit with `window_throttled` 0; INSERT on `audit_events` revoked, so the counters are written first and the audit insert then fails. A2: an owner at group capacity; INSERT on `audit_events` revoked. A3: an ordinary new checkout; INSERT on `audit_events` revoked | For each case: the function call itself raises a privilege error and returns no row; the transaction is aborted; after ROLLBACK the privilege is present again and every row of the seven tables, the audit table and the throttle row is as before. If the call does not raise, the test issues ROLLBACK and fails. No other privilege statement is sent by any test |
 | PGT-129 | `REQUEST_INVALID`, each argument | Every rule of §19.7 violated in turn → `REQUEST_INVALID`; no side effects |
 | PGT-130 | `REQUEST_INVALID`, placement | Returns while the owner row is held by the test owner; over the limit still `REQUEST_INVALID`; with an unknown, expired or revoked session → `NOT_AUTHORIZED` |
 | PGT-131 | Well-formed missing intent ID and well-formed foreign intent ID, under the limit and over it | Under: both `NOT_AUTHORIZED`, no side effects, the foreign row never locked. Over: both `RATE_LIMITED` with identical counter changes |
 | PGT-132 | Credential revalidation: each element of §19.6 varied. Key revocation cases A, B1, B2 of §19.6, and activation during a call. The same cases for session revocation and rotation | A: revocation waits on the session row; checkout completes successfully; revocation completes afterward; a later call is `NOT_AUTHORIZED`. B1 and B2: `NOT_AUTHORIZED`, no side effects. Activation: call succeeds. In case A the waiting backend is identified by the method of PGT-143 |
-| PGT-133 | Transactions | A rolled-back call leaves no counter change or audit row; other isolation levels refused; static check that no entry point is wrapped |
-| PGT-134 | Declared column values and row counts of all seven tables and the audit table, before and after every outcome, from both a row-absent and a row-present throttle state | Exactly the permitted changes of §19.10 |
-| PGT-135 | Read function form | Static: SQL language, `STABLE`, one statement, no table-reading or volatile call |
+| PGT-133 | Transactions and isolation (B-5). (a) A rolled-back call. (b) At `REPEATABLE READ`, `SERIALIZABLE` and `READ UNCOMMITTED`: each read function in three situations (authorized with rows; authorized with none, which for `read_checkout` is a well-formed ID of no intent; unauthorized), and each mutating function with and without a valid credential. (c) The same three read situations at `READ COMMITTED`. (d) Static: no entry point is wrapped | (a) No counter change and no audit row. (b) Every call raises SQLSTATE `0A000`; every table is unchanged. (c) `read_checkout`: one `OK` row; one `NOT_AUTHORIZED` row; one `NOT_AUTHORIZED` row. `list_owner_checkouts`: the owner's rows; no rows; no rows. (d) Holds. If a read case of (b) does not raise, implementation stops (§19.5) |
+| PGT-134 | Declared column values and row counts of all seven tables and the audit table, before and after every outcome, from both a row-absent and a row-present throttle state | Exactly the permitted changes of §19.10. Audit rows are compared by count, event type and owner: one `CHECKOUT_REFUSED_AT_CAPACITY` for each `AT_PURCHASE_CAPACITY` and for each `GROUP_INTENT_LIMIT`; one `OWNER_RATE_LIMITED` for the first `RATE_LIMITED` of a window and none for later ones in it; none for `NOT_AUTHORIZED` or `REQUEST_INVALID`, which change nothing |
+| PGT-135 | Read function form | Static: SQL language, `STABLE`, one statement that is a single SELECT ending in the LIMIT guard of §19.5; the only functions called are the four listed in §19.11 The same reading establishes the exact-equality case of PGT-119: in both read functions the effective status is `QUOTE_EXPIRED` when `statement_timestamp() >= ` the quote's `expires_at`, with no other comparison |
 | PGT-136 | Read coherence | Barrier: an uncommitted change is invisible, then visible whole. Stress: no mixed state. Control: a two-statement reader in the test database does show a mixed state |
 | PGT-08, 09, 69c | Ownership | Expired or revoked session creates nothing; checkout survives session deletion; another owner's intent is unreachable |
-| PGT-137 | Cancel | Success from `QUOTED`, and from a `USER_CONFIRMED` fixture; `NOT_CANCELABLE` from terminal states; one transition, one audit row |
-| PGT-138 | Reducer parity | Database helper and reducer agree on every in-scope and out-of-scope case |
+| PGT-137 | Cancel | Success from `QUOTED`, and from a `USER_CONFIRMED` fixture; `NOT_CANCELABLE` from the terminal states `CANCELED_LOCAL` and `SUPERSEDED` (a stored `EXPIRED` cannot be constructed in Increment 2.1); one transition, one audit row |
+| PGT-138 | Reducer parity | `checkout_transition` and the reducer agree on every accepted combination, the quote-match guard, the pointer changes and the version increment; cancellation and supersession return the confirmation pointer they were given; entry point and version rules match T1 to T6; every combination outside T1 to T6 is not accepted; the exclusions listed in §19.12 are the only reducer-accepted cases refused |
 | PGT-139 | Generated IDs | Duplicate intent, quote, transition and audit IDs rejected by their constraints; static check that no 2.1 function handles a unique violation |
 | PGT-140 | `list_owner_checkouts` | Own rows only; at most 100; empty when not authorized |
 | PGT-141 | Regression | Every Increment 1 database test and the whole Mock suite still pass |
 | PGT-142 | Replacement of a predecessor whose quote has expired: stored `QUOTED`; separately, stored `USER_CONFIRMED` (fixtures below) | Each `STARTED`. Successor: `QUOTED`, no confirmation, a new quote from the current catalog. Predecessor: `SUPERSEDED`; its quote row unchanged. Audit: the fixture's synthetic rows are unchanged, and exactly two rows are added, `QUOTE_ISSUED` for the successor and `CHECKOUT_SUPERSEDED` |
 | PGT-143 | Session expiry while waiting on the intent lock (below) | `NOT_AUTHORIZED`, no side effects |
 | PGT-144 | Missing throttle row. (a) An owner's first call exits `NOT_AUTHORIZED`. (b) The owner's first admitted call. (c) Two first calls for the same owner in parallel | (a) No row exists afterward. (b) One row, call count 1. (c) One row, call count 2, no error |
-| PGT-145 | Existing throttle row. (a) `NOT_AUTHORIZED` within the window. (b) `NOT_AUTHORIZED` after the window has elapsed. (c) An admitted call after the window has elapsed. (d) A `RATE_LIMITED` call | (a), (b) Every declared column value unchanged, including window start and update time. (c) New window start, call count 1, window throttled count 0. (d) Only the two throttled counters and the update time change |
+| PGT-145 | Existing throttle row. Forward time: (a) `NOT_AUTHORIZED` within the window. (b) `NOT_AUTHORIZED` after the window has elapsed. (c) An admitted call after the window has elapsed. (d) A `RATE_LIMITED` call. Backward clock (B-4), by fixtures whose stored times are later than the database clock, because no function takes a time: (e) window start and `updated_at` in the future, under the limit; an admitted call. (f) The same at the limit; a `RATE_LIMITED` call. (g) Window start more than 60 seconds in the past and `updated_at` in the future; an admitted call. (h) An intent whose `created_at` and `updated_at` are in the future; `cancel_checkout` | (a), (b) Every declared column value unchanged, including window start and update time. (c) New window start, call count 1, window throttled count 0. (d) Only the two throttled counters and the update time change. (e) `window_calls` one higher; `window_started_at` and `updated_at` unchanged. (f) Only the two throttled counters change; `updated_at` unchanged. (g) A new window: `window_started_at` is the call's step 4 reading, `window_calls` 1, `window_throttled` 0; `updated_at` unchanged, because the stored value is the greater. (h) `CANCELED`; `updated_at` unchanged; the transition's two times are equal |
+| PGT-146 | Quote and item, direct writes: a quote with no item; with a mismatched subtotal; with a second item | Each rejected, at commit or at once; a correct pair commits (Q1, Q2) |
+| PGT-147 | History, direct writes by the test owner, made serially. (a) An orphan transition that names an intent which does not exist. (b) For an existing intent: missing T1; a version gap; a state discontinuity; a final-state mismatch; an extra transition | (a) Rejected at statement time by the immediate transition-to-intent foreign key. (b) Each rejected by the deferred history validation (H1 to H4) at the applicable constraint-check point: at COMMIT for a fixture that does not force the constraints, or at the statement that sets them to immediate. Nothing is claimed for concurrent bypass writers (§17.4, item 25) |
+| PGT-148 | Every illegal edge, and every transition outside T1 to T6, including a wrong actor, entry point or version | Each rejected |
+| PGT-149 | Confirmation pointer, direct writes: the challenge is not consumed; belongs to another intent; belongs to another owner; the pointer is changed or cleared after being set | Each rejected |
+| PGT-150 | Challenge table, direct writes: illegal status changes; insert with a terminal status; a binding column changed; DELETE in each of the four statuses; TRUNCATE | Each rejected |
+| PGT-151 | A second quote for one intent | Rejected |
+| PGT-152 | Throttle table: bounds; a change of `owner_id`, by privilege as the function owner and by trigger as the test owner; DELETE; TRUNCATE | Each rejected |
+| PGT-153 | Product and variant `catalog_revision` differ | The stored revision and the digest follow the variant (A-7) |
+| PGT-154 | Static: the schema migration file | Contains no GRANT |
+| PGT-155 | `EXPIRED`: inserted as a stored state; reached by update; named as a transition target | Each rejected |
+| PGT-156 | Static: the Increment 2.1 migration files (P2) | No top-level INSERT, UPDATE or DELETE on the seven tables, that is, none executed when the file is applied. Statement text inside a `CREATE FUNCTION` body is not examined by this test |
+| PGT-157 | Static: the Increment 2.1 database test files (P4) | No disabled or replaced production trigger, no relaxed or dropped constraint, no changed replication role. A trigger is created only in the PGT-112(c) test, only as a `BEFORE INSERT` row trigger returning NULL, and only inside a transaction that the test always rolls back and never commits The only privilege statements a 2.1 database test file may send are the four statements of the second exception of P4, each only inside the one function of the file that begins a transaction, always rolls it back and never commits. Negative controls, each refused by the reading: a GRANT; a REVOKE naming another table, column, privilege or role; one of the four statements outside that function; ALTER DEFAULT PRIVILEGES; ALTER ROLE; a change of ownership |
+| PGT-158 | Privileged TRUNCATE of each of the seven tables, as the table owner and as the test owner: plain, with CASCADE, and naming several tables at once | Every statement is refused, and every table's row count and content are unchanged. Which mechanism refuses a statement, PostgreSQL's foreign-key rule or the table's trigger, and with which SQLSTATE, is recorded from the run for each statement and is not assumed beforehand |
 
 **PGT-142 fixtures.** Both predecessors are backdated fixtures: group, intent, quote, item and first transition inserted with past timestamps, the quote digest computed with the same internal helper `start_checkout` uses. Each fixture also inserts a synthetic `QUOTE_ISSUED` audit row for the intent, timed at the fixture's quote creation.
 
@@ -3546,6 +3975,7 @@ The `USER_CONFIRMED` fixture continues, in the same transaction:
 - The test shows replacement given a valid stored state, not that the 2.2 functions produce one.
 - The audit rows of the fixture are synthetic; they show the fixture is internally consistent, not that any function writes them.
 - The fixture relies on the intent update trigger checking structure and not the calling function.
+- The fixture's synthetic `SHOPPER_CONFIRMED` transition names the entry point `consume_challenge`, as the rule of §19.2 requires, although that function does not exist in Increment 2.1 and did not run.
 
 **PGT-143 procedure.**
 1. The blocker transaction records its backend ID and its transaction ID.
@@ -3565,38 +3995,214 @@ Then the database clock is polled until it has passed the expiry, the blocker is
 
 **Acceptance evidence for 2.1:** static suite passing; one isolated run on a newly initialized disposable PostgreSQL 17 cluster; preserved logs; independent audit.
 
-### 19.16 Increment 2.2 and 2.3 — outside this contract; deferred gates
+PGT-146 to PGT-158 were added with the exact-schema contract and its audit corrections; their numbering follows the manifest. When they were added, like every test in this manifest, none had been written or executed. Which tests have since been written, and which executed, is recorded in §19.18.
 
-**Status.** This subsection records a boundary, not a contract. Increments 2.2 and 2.3 are **not approved** as requirements of this specification. Their proposed function behaviour, condition order, challenge lock sequence, result codes and tests are held in the Gate A design documents and are deliberately not recorded here. Sections 5.3 to 5.6 remain earlier proposed text.
+**Unverified PostgreSQL assumptions.** The exact-schema contract is approved on condition that the run above establishes each of these. Each is believed from documentation or from the Increment 1 design; none has been executed for Increment 2.1.
+1. `SET CONSTRAINTS` can name a constraint trigger as well as a foreign key.
+2. Setting constraints to immediate inside a function fires the checks queued earlier in that call, and setting them back to deferred suppresses nothing at commit.
+3. A row-level before-insert trigger sees rows inserted earlier in the same statement.
+4. A locking read of a `checkout_owners` row does not fire its update-rejecting trigger and needs only UPDATE privilege.
+5. A trigger fires for a role that holds no EXECUTE on its function, and runs with that role's table privileges.
+6. A column-level UPDATE grant is enough for the functions' updates and refuses a change to `owner_id`.
+7. Every TRUNCATE of the seven tables is refused, by PostgreSQL's foreign-key rule or by the table's trigger. Which of the two answers first, and with which SQLSTATE, is not assumed: it is recorded from the run (PGT-158). For Increment 1 the foreign-key rule answered first for referenced tables (§18.15).
+8. Microseconds since the epoch are derived exactly from `timestamptz`, and core `sha256` yields the vectors of §15.2.
+9. An anchored pattern in a CHECK matches the whole value and rejects a trailing line terminator.
+10. The role under which a deferred trigger runs when it fires at commit is not relied on: the functions force every pending check before returning.
+11. A LIMIT expression is evaluated, and so raises, whether or not any row qualifies, including in a SQL-language function that is not inlined (§19.5).
+12. A revocation made by the test owner inside a transaction is seen by a function called later in that transaction, disappears on rollback, and a single-column revocation leaves the locking read of the throttle row working (PGT-128).
+13. `jsonb::text` prints the seeded specifications as §15.2 predicts, and the database encoding is UTF8.
+14. `quote_digest_saqd1`, `descriptive_terms_digest` and `quote_material_change` return the same result under any `TimeZone` and `DateStyle`.
+15. `statement_timestamp()` inside a `STABLE` SQL function is the start time of the calling statement.
+16. A superuser's REVOKE of a privilege that `shopaccess_owner` granted removes that grant.
 
-**What Increment 2.1 already fixes for the later sub-increments (approved):**
+Rollback on every violation, and the concurrency properties of §19.3, are likewise design intentions until that run.
 
-- 2.1 creates the `confirmation_challenges` table with the constraints of §2.11. No 2.1 function inserts or updates a challenge.
-- The parameter and return lists below are part of approved G2-07. The behaviour of the two functions is not approved.
+**Acceptance-test manifest, Increment 2.2 (decisions 1 to 17, §19.17).** Which of these tests have been written and which executed is recorded in §19.18 and nowhere else. F is `tests/db/confirmation-functions.test.ts`; C is `tests/db/confirmation-concurrency.test.ts`; U is `tests/unit/pg-confirmation-nonce.test.ts`; S is `tests/unit/pg-static.test.ts`. Unless a row says otherwise, a case runs on a live `QUOTED` intent with an `ACTIVE`, unexpired challenge. Every case asserts the result, the returned columns, the owner's request window, the challenge rows, the intent and its transitions, and the audit rows.
 
-| Function | Parameters after the credential | Returns |
+| ID | Case | Expected | File |
+| --- | --- | --- | --- |
+| PGT-223 | `read_checkout`: (a) an `ACTIVE`, usable challenge; (b) no challenge; (c) `ACTIVE` and not usable, for each of: past its expiry, quote expired, bound to another digest, intent canceled, material change, nonce key ended; (d) only challenges that have ended | 41 columns. (a) columns 34 to 40 are the stored row's, usable. (b), (d) NULL, not usable. (c) shown, not usable. A `VERIFY_ONLY` key is still usable | F |
+| PGT-224 | `read_checkout`: failed credential; missing, foreign, malformed, no intent | One `NOT_AUTHORIZED` row; the 40 other columns NULL | F |
+| PGT-225 | Static: the recreated reader | One SELECT, `STABLE`, the guard as LIMIT, only the permitted calls; the 33 columns of `0008` unchanged, then the eight | S |
+| PGT-210 | First issue | `ISSUED`; one `ACTIVE` row bound to intent, owner, quote and stored digest; six-field summary from the stored quote; expiry rule; counter +1; no audit | F |
+| PGT-14 | 25 issue calls and 200 reads inside the reuse window | One row; every later issue `REUSED`, returning the first; reads change nothing. (The owner throttle of 30 calls a minute makes 200 issue calls impossible) | F |
+| PGT-16 | An `ACTIVE` challenge with 120 seconds left; with 30 seconds left; expired 30 seconds ago | `REUSED`; `ISSUED` with the old row `SUPERSEDED`; `ISSUED` with the old row `EXPIRED`. The comparison at exactly 60 seconds is static evidence only (PGT-227): no time seam exists | F, S |
+| PGT-17 | A newer nonce key is activated; then issue under it | The older challenge `SUPERSEDED`; its nonce later `CONFIRMATION_SUPERSEDED` | F |
+| PGT-211 | A quote with eight challenge rows in any status | `CHALLENGE_LIMIT_REACHED`; all eight unchanged, the `ACTIVE` one included; with seven, `ISSUED` | F |
+| PGT-212 | Issue naming a `VERIFY_ONLY`, an ended, and a non-existent key version | `NONCE_KEY_NOT_ACTIVE`; no row; counter +1 | F |
+| PGT-213 | Issue for an intent that is canceled, superseded, confirmed; a quote with a consumed challenge; an expired quote; a material change | The matching refusal; no row; counter +1 | F |
+| PGT-73b, PGT-73b-r | A quote whose stored digest is wrong; issue five times | `QUOTE_DIGEST_MISMATCH` each time; five `CONFIRMATION_REJECTED` rows with `challengeId` null; no challenge; none of the five submitted IDs in any audit row | F |
+| PGT-209 | Issue for a missing and for a foreign intent, under and over the limit | `NOT_AUTHORIZED`, nothing written; `RATE_LIMITED` over. The foreign intent is never locked: the call returns while another connection holds it | F, C |
+| PGT-214, PGT-220 | Each malformed argument of both functions, under and over the limit | `REQUEST_INVALID`; nothing written | F |
+| PGT-215 | (a) A challenge ID that already exists, on another quote of the same owner and on another owner's quote. (b) A new ID with a nonce digest that exists. (c) An ID that another owner's uncommitted call has inserted: the caller's insert waits for it; then that call is committed, and in a control undone | (a) `REFUSED`, counter only. (b) An error, `23505` on `confirmation_challenges_nonce_digest_key`; nothing survives. (c) `REFUSED`, counter only, the caller's previous `ACTIVE` challenge exactly as it was; in the control, `ISSUED` | F, C |
+| PGT-216, PGT-217 | A correct submission; then five replays | `CONFIRMED`: challenge `CONSUMED`, intent `USER_CONFIRMED` version 3 with its pointer, one T2 transition, one `CONFIRMATION_ACCEPTED` with exactly three keys, one time for all of them. Replays: `CONFIRMATION_ALREADY_USED`, counter only | F |
+| PGT-201a, b, c | Wrong nonce; wrong quote ID; wrong quote digest | `CONFIRMATION_MISMATCH`; one rejection; challenge still `ACTIVE` | F |
+| PGT-202a, b | The stored quote digest is wrong; the challenge is bound to another digest | `QUOTE_DIGEST_MISMATCH`; one rejection | F |
+| PGT-203a, b, c | Nonce key ended, correct values; ended, wrong nonce; `VERIFY_ONLY` | `CONFIRMATION_KEY_REVOKED` twice, audited; `CONFIRMED` | F |
+| PGT-205 | 201a, 202a, 203a five times each | Five rejections each; no quota | F |
+| PGT-206a to e | A `CONSUMED` challenge under an ended key; a `SUPERSEDED` one; both with a wrong nonce; an `ACTIVE` control; (a) five times | (a) `CONFIRMATION_ALREADY_USED`, 0 audits, +1. (b) `CONFIRMATION_SUPERSEDED`, 0, +1. (c) the same two. (d) `CONFIRMATION_KEY_REVOKED`, 1, +1. (e) 0 audits, +5 | F |
+| PGT-207R | **A new requirement (decision 11); the historical PGT-207 was not recovered.** A missing and a foreign challenge ID, each under and over the limit: four cases | `CONFIRMATION_NOT_FOUND` in all four; counters unchanged; no audit. The foreign challenge, its intent and its nonce key are never locked: the calls return while another connection holds all three | F, C |
+| PGT-208 | A challenge the holder has inserted and not committed; the call waits for its owner row; then another connection takes the challenge's nonce key row `FOR NO KEY UPDATE`; then the holder commits | `CONFIRMATION_NOT_FOUND`, returned while the key row is still held: a late `FOR SHARE` on it would conflict and end as a lock timeout. Nothing written | C |
+| PGT-20 | A challenge that expired 30 seconds ago, stored `ACTIVE` | `CONFIRMATION_EXPIRED`; marked `EXPIRED`; no audit | F |
+| PGT-218 | (a) A material change committed before the call; an expired quote; (b) a material change committed while issue or consume waits | `QUOTE_STALE_CATALOG`; `QUOTE_EXPIRED`; counter only | F, C |
+| PGT-221 | G2-41: six submissions against a canceled intent and again against a superseded one, the challenge still `ACTIVE` | Correct: `INTENT_NOT_AWAITING_CONFIRMATION`. Wrong nonce, wrong quote ID or digest: `CONFIRMATION_MISMATCH`, audited. Malformed: `REQUEST_INVALID`. After expiry: `CONFIRMATION_EXPIRED`, marked. Foreign or missing ID: `CONFIRMATION_NOT_FOUND`. Never a transition, a pointer or an accepted row | F |
+| PGT-222 | Eighteen overlaps of two conditions, a to r (§19.16) | The earlier row decides, in each | F |
+| PGT-204 | Cases A4 to A8 (§17.4, P4) | Each raises `42501` with the message of the denied insert into `audit_events`, inside the function under test; then `25P02`; nothing survives | F |
+| PGT-112(c), case S3 | (§17.4, P4) | `23514`, `checkout_intents_history_check`; nothing survives | F |
+| PGT-133 | Every isolation level but `read committed`, for both functions and the reader, authorized or not | `0A000`; nothing changes | F |
+| PGT-134 | Every outcome of both functions, from an owner without a request-window row and from one with a row | Exactly the changes of §19.10; snapshots of the seven tables, `audit_events` and `shopper_sessions` | F |
+| PGT-226 | The ledger row and pin of `0009`; the three functions; the web role's direct statements on `confirmation_challenges` | Applied; owned by `shopaccess_definer`; executable by the web role alone; every direct statement refused. The column grants are asserted in `tests/db/privileges.test.ts` | F |
+| PGT-227 | Static: migration `0009` | The three statements of §14 and nothing wider; exactly one exception handler, with its controls; the reviewed order of results; the audit rows; the strict 60-second comparison | S |
+| PGT-228 | The four frozen nonce vectors N1 to N4 | The TypeScript module reproduces message, HMAC, nonce and digest; the database's SHA-256 of each nonce is the frozen digest | U, F |
+| PGT-229 | A flow made with fixed sentinel values | None of them, and nothing that looks like a nonce or a digest, is in any audit detail. The same values are looked for in the retained output of a run, by the execution gate | F |
+| PGT-15 | Two submissions of one challenge, forced into an order | `CONFIRMED`, then `CONFIRMATION_ALREADY_USED` | C |
+| PGT-18 | Twenty submissions at once | One `CONFIRMED`, nineteen `CONFIRMATION_ALREADY_USED`, one transition, no error | C |
+| PGT-19 | Issue against consume, forced: consume first; issue first with a reusable challenge; issue first with a challenge under an older key | `CONFIRMED`, `INTENT_NOT_AWAITING_CONFIRMATION`; `REUSED`, `CONFIRMED`; `ISSUED`, `CONFIRMATION_SUPERSEDED`. Never two `ACTIVE`, never two `CONSUMED` | C |
+| PGT-54c | A confirmation that waits past its challenge's expiry | `CONFIRMATION_EXPIRED`; `ACTIVE` to `EXPIRED`; counter +1 | C |
+| PGT-54g | An issue that waits past its quote's expiry | `QUOTE_EXPIRED`; no new row; the existing `ACTIVE` challenge not marked; counter +1 | C |
+| PGT-143 (2.2) | Issue, and consume, waiting on the intent until the session has expired, from an absent and from a present window row | `NOT_AUTHORIZED`; not one row of any table changes | C |
+| PGT-230 | Confirm against cancel, both forced orders | Confirm first: `CONFIRMED`, `CANCELED`; `CANCELED_LOCAL` at version 4, pointer preserved, challenge `CONSUMED`. Cancel first: `CANCELED`, `INTENT_NOT_AWAITING_CONFIRMATION`; version 3, no pointer, challenge `ACTIVE` | C |
+| PGT-231 | Confirm against replace, both forced orders | Confirm first: `CONFIRMED`, `STARTED`; predecessor `SUPERSEDED` at version 4, pointer preserved. Replace first: `STARTED`, `INTENT_NOT_AWAITING_CONFIRMATION`; predecessor at version 3, challenge `ACTIVE` | C |
+| PGT-232 | A nonce-key revocation against consume: after the call (A), before it (B1), holding the key row (B2); and against issue, the same three | A: the call completes, then the revocation, which waited for the call alone. B1, B2 for consume: `CONFIRMATION_KEY_REVOKED`, audited. B1, B2 for issue: `NONCE_KEY_NOT_ACTIVE`. `VERIFY_ONLY` against `ACTIVE` is PGT-17, PGT-203c and PGT-212 | C |
+| PGT-233 | A session rotation or revocation holding the session row while issue or consume waits; and one sent after the call holds the row | `NOT_AUTHORIZED`, nothing written but the session change itself; the later change waits for the call alone, and the call completes | C |
+| PGT-234 | An issue that crosses the window boundary while it waits; forty calls at once, ten of each mutating function, for one owner | Counted in the window of its step 4 reading. Exactly 30 admitted and 10 `RATE_LIMITED`; final counters 30, 10, 10; one `OWNER_RATE_LIMITED` row; nothing else changes | C |
+
+- **Existing tests.** The 119 tests of Increment 1 and 2.1 stay. Those that count migrations, functions or the function owner's privilege on `confirmation_challenges`, and those that read a `read_checkout` row, are updated for migration `0009` (§19.18). PGT-137 and PGT-142 keep their direct-write fixtures and each gains a variant whose predecessor was confirmed through the two functions; that variant's quote is not expired, and full PGT-142 is not claimed.
+- **Deadline-crossing cases (PGT-143 for 2.2, PGT-54c, PGT-54g, the boundary case of PGT-234).** A one-second database deadline is used, and the function under test is submitted only when the server reports at least half a second remaining. Retries are permitted only while establishing the pre-call timing condition, before submitting the function under test, at most five times, and the test fails visibly if the condition cannot be established. Once the function is invoked, that invocation is never retried. Any subsequent barrier failure, lock timeout, unexpected result or function error fails the test and remains visible. The holder is released, every submitted request is settled, and the test clients are closed through the reviewed cleanup path.
+- **Not covered:** PGT-79 (confirm and authorize dispatch), deferred with dispatch.
+- **Limits of what these tests can show.** The exact 60-second and exact-expiry instants are static evidence, with runtime cases on either side. Future-dated fixtures test the timestamp floors; they do not prove behaviour under a real backward clock step. The database holds no nonce key, so it cannot check a derivation: only the SHA-256 step is checked on both sides. PGT-204 injects only the failure of the audit insert. Only the primary-key name of the three constraints of decision 8 can be produced at run time; the other two have static coverage only. Where the operator pool sends a statement that must wait, that waiter is identified by what the server reports (its login and what blocks it), not by a backend recorded beforehand.
+- **To be confirmed at first execution, and not assumed:** that `shopaccess_owner` may `SET ROLE shopaccess_definer` and that the function's owner may drop it; which constraint name an insert-time collision of a challenge ID reports; that a bare `RAISE` in the handler raises the original error again, with its constraint name; the constraint named in case S3; the message and context of the denied insert in cases A4 to A8.
+
+### 19.16 Increment 2.2 contract; Increment 2.3 — outside this contract; deferred gates
+
+**Status.** Increment 2.2 is the contract of this subsection, of the Increment 2.2 parts of §19.10, §19.11 and §19.13, and of the manifest at the end of §19.15. The owner approved decisions 1 to 17 (§19.17) and authorized its source implementation. That authorization is not an acceptance: what has been written and what has been executed is recorded in §19.18. Increment 2.3 is **not approved**. Sections 5.3 to 5.6 remain earlier proposed text; where they differ from this subsection, this subsection governs.
+
+**Entry points.** Both are in schema `shopaccess_api`, owned by `shopaccess_definer`, definer-rights, PL/pgSQL, with a fixed search path and no dynamic SQL. Their first statement is the isolation guard of §19.5. Their first two parameters are `(p_key_version smallint, p_token_digest text)`; the owner is derived from the live session only. No new helper is created: the helpers of §19.7a and `session_is_live` are used.
+
+| Function | Parameters after the credential | Returns, always exactly one row |
 | --- | --- | --- |
-| `issue_challenge` | Intent ID, challenge ID, nonce key version, nonce digest | `result`, `challenge_id`, `quote_digest`, `nonce_key_version`, `nonce_digest`, `summary`, `expires_at` |
-| `consume_challenge` | Challenge ID, nonce, quote ID, quote digest | `result`, `intent_id` |
+| `issue_challenge` | `p_intent_id text`, `p_challenge_id text`, `p_nonce_key_version smallint`, `p_nonce_digest text` | `result text`, `challenge_id text`, `quote_digest text`, `nonce_key_version smallint`, `nonce_digest text`, `summary jsonb`, `expires_at timestamptz`. The six after `result` are non-NULL for `ISSUED` and `REUSED`, and NULL for every other result |
+| `consume_challenge` | `p_challenge_id text`, `p_nonce text`, `p_quote_id text`, `p_quote_digest text` | `result text`, `intent_id text`. `intent_id` is non-NULL for `CONFIRMED` only |
 
-- **Malformed against stale.** A malformed argument is `REQUEST_INVALID`, returned before any lock and before throttle admission, with no side effects (G2-39). A well-formed submission against a stale, expired or already-resolved confirmation is a business refusal, decided by the 2.2 functions. The 2.2 argument formats and those refusals are PROPOSED.
-- **Audited refusals (G2-38).** Every `CONFIRMATION_MISMATCH`, `QUOTE_DIGEST_MISMATCH` and `CONFIRMATION_KEY_REVOKED` result writes one `CONFIRMATION_REJECTED` audit row. The conditions that produce those results are PROPOSED.
-- The owner throttle counter is shared by every mutating function (§19.7, G2-34).
-- No key-version row is locked after the session row (§19.6), and no catalog row is locked explicitly (§19.4).
+**`REQUEST_INVALID`** (before any lock and before admission; no side effects, also when the owner is over the limit; a caller without a session that appears live receives `NOT_AUTHORIZED` instead). Intent ID: `ci_` and 32 lowercase hex. Challenge ID: `cf_` and 32 lowercase hex. Quote ID: `qt_` and 32 lowercase hex. Nonce key version: present and positive. Nonce digest and quote digest: 64 lowercase hex. Nonce: 42 characters of the base64url alphabet followed by one of `A E I M Q U Y c g k o s w 0 4 8`.
 
-**Increment 2.2 decisions**
+**Nonce (decision 1).** The nonce is computed by the web process and never reaches the database except as the argument of `consume_challenge`:
 
-| ID | Subject | Status |
+```text
+nonce = base64url_unpadded(
+  HMAC-SHA-256(
+    key_for_version,
+    ASCII("shopaccess.confirmation.v1")
+    || 0x00 || ASCII(challenge_id)
+    || 0x00 || ASCII(owner_id)
+    || 0x00 || ASCII(quote_digest)))
+```
+
+- The message is 164 bytes: 26 for the label, 35 for the challenge ID, 36 for the owner ID, 64 for the quote digest, and three zero bytes. The output is 32 bytes; the nonce is its canonical base64url encoding without padding, 43 ASCII characters.
+- The three fields are validated before they are keyed, by the same formats as above (`own_` and 32 lowercase hex for the owner), so no field can hold a zero byte. The key is at least 32 bytes.
+- 32 bytes leave four significant bits in the last character, so only the sixteen characters listed above can stand last. A nonce is canonical when it decodes to 32 bytes and encodes back to the same text; the format check of `consume_challenge` is the same rule.
+- The database stores the lowercase hex SHA-256 of the 43 ASCII characters of the nonce, and the version of the key. The nonce is stored, returned and audited nowhere.
+- Issue uses the `ACTIVE` version of the nonce key. On `REUSED` the caller derives the nonce from the returned challenge ID, the returned quote digest and the returned key version, not from the values it sent.
+- `src/lib/pg/confirmation-nonce.ts` holds the derivation. It takes the key as bytes, reads no environment variable, loads no key material, holds no statement text and is imported by nothing in the application.
+- **Frozen vectors N1 to N4.** Owner `own_` and 32 × `2`. N1: key bytes `00` to `1f`, challenge `cf_` and 32 × `5`, quote digest the V1 digest of §15.2. N2: as N1 with key bytes `20` to `3f`. N3: as N1 with challenge `cf_` and 32 × `6`. N4: as N1 with the V3 digest of §15.2.
+
+  | Vector | HMAC-SHA-256 | Nonce | Nonce digest |
+  | --- | --- | --- | --- |
+  | N1 | `b3a603c80e7656243140e3eaf3dc2a84096a48b25e23ec4b92b90b90c5afe2e9` | `s6YDyA52ViQxQOPq89wqhAlqSLJeI-xLkrkLkMWv4uk` | `2fffb9607e72006eba685e7ddac819d13bec2c94a5c1182610e2db0d80577d6f` |
+  | N2 | `ec88ab5c88bb74e32b198c00bffdc8d2aaf95ef73d1146f4f9b0fcffc99460ce` | `7IirXIi7dOMrGYwAv_3I0qr5Xvc9EUb0-bD8_8mUYM4` | `143c49a989609bee83eeecc39619f5134a5005d01043aa8b3b366f21f87eb3c0` |
+  | N3 | `0a82c05ca0cccb9eb16ba9d34189b26f064a9c7b1369a1e0a00e4bf38de7038d` | `CoLAXKDMy56xa6nTQYmybwZKnHsTaaHgoA5L843nA40` | `ec6af46bc975178a0317ffcf6c7c3aa7fb9cd138a058f21c62dac5ea104fa412` |
+  | N4 | `805620934d8d699f9e6f66d520754b0b4e120db2e6f3a3fe5a4d20eb665ccdcb` | `gFYgk02NaZ-eb2bVIHVLC04SDbLm86P-Wk0g62Zczcs` | `f81b260f570657ef3ca1815da045acc92c47e05ab193ce7aa321dc727e953b0f` |
+
+  They were calculated with standard-library HMAC, SHA-256 and base64 functions, and calculated a second time independently; every message, HMAC, nonce and digest agreed before they were frozen. They verify the vectors. They are not evidence that the module or a PostgreSQL run works.
+- What a nonce does not prove: that a person made a gesture (§3.4, D-57). The database holds no nonce key, so it cannot check at issue that a submitted digest was derived correctly; a wrong one gives a challenge that cannot be consumed and takes one of the eight rows.
+
+**Sequence and locks (decision 3; ranks of §19.4).** Nonce key row, session row, owner row, request-window row, intent, challenge. No key row is locked after the session row, and no catalog row is locked.
+
+| Step | `issue_challenge` | `consume_challenge` |
 | --- | --- | --- |
-| G2-10 | Nonce derivation: HMAC-SHA-256 under the nonce key over label `shopaccess.confirmation.v1`, challenge ID, owner ID, quote digest; base64url output | PROPOSED |
-| G2-13 | Challenge lifetime 5 minutes, capped at quote expiry; reuse if more than 60 seconds remain; at most 8 per quote | PROPOSED |
-| G2-21 | Operator procedure to activate the nonce key | PROPOSED |
-| G2-24a | In `consume_challenge`, a terminal challenge status (`CONSUMED`, `SUPERSEDED`) is evaluated before the revoked-key check; neither terminal result is audited | APPROVED (design, Increment 2.2 only); not applied in this specification |
-| G2-24b | In `issue_challenge`, a missing or foreign intent follows the checkout-intent rule of §19.7 | APPROVED (design, Increment 2.2 only); not applied in this specification |
-| G2-24 (remainder) | Challenge lock sequence, ownership check, throttle ordering, key status rules and the rest of the condition order | PROPOSED |
-| G2-41 | A challenge may stay `ACTIVE` in storage after its intent is canceled, superseded or expired, and is then unusable | PROPOSED |
+| 0a to 0c | Credential format; unlocked session lookup; argument format | The same |
+| 0d | — | Unlocked lookup of the challenge by its ID and the caller's owner together |
+| 1 | The nonce key row the caller named, `FOR SHARE`, if it exists | The key row of the challenge found at 0d, `FOR SHARE`; no lock if 0d found nothing |
+| 2 | Session row `FOR SHARE`, found again by the exact credential | The same |
+| 3 | Owner row `FOR UPDATE` | The same |
+| 4 | Request-window row, if any, by a locking read; first clock reading; credential revalidation (§19.6) | The same |
+| 4-own | — | If 0d found nothing: `CONFIRMATION_NOT_FOUND`. Before the throttle decision; not counted; nothing written |
+| 4a, 4b | Throttle decision; `RATE_LIMITED` | The same |
+| 5 | The intent by its ID and the caller's owner, `FOR UPDATE`; then the challenge rows of its current quote, `FOR UPDATE`, in ID order | The challenge's intent, `FOR UPDATE`; then the submitted challenge, `FOR UPDATE` |
+| 6 | Second clock reading; final credential revalidation; the intent was found, otherwise `NOT_AUTHORIZED` | The same; the challenge was found |
+| 7 | Admission, in the window assigned at step 4 | The same |
+| 8 | Rules and writes | The same |
 
-**Increment 2.3 decisions — all PROPOSED**
+- What step 0d finds, or does not find, governs the rest of the call. A challenge that becomes visible after it is still `CONFIRMATION_NOT_FOUND`, and no key row is locked late (PGT-208).
+- The status of the nonce key is read from the row locked at step 1. Issue requires `ACTIVE`. Consume accepts `ACTIVE` and `VERIFY_ONLY`; anything else is `CONFIRMATION_KEY_REVOKED`.
+- Staleness is one call of `quote_material_change` in one statement after the last lock.
+- A missing and a foreign intent, in `issue_challenge`, both select nothing at step 5: `NOT_AUTHORIZED` under the limit, `RATE_LIMITED` over it (G2-24b). Another owner's intent is never locked.
+- The operator activates a nonce key version with the accepted `activate_key_version('confirmation_nonce', …)` (decision 13). No runtime role gains a privilege for it.
+
+**`issue_challenge`, step 8, first match (decisions 2, 7 and 8).**
+
+| # | Condition | Result | Beyond the admitted-call counter |
+| --- | --- | --- | --- |
+| 1 | The intent is not stored `QUOTED` | `INTENT_NOT_AWAITING_CONFIRMATION` | Nothing |
+| 2 | The step 6 reading is at or after the quote's expiry | `QUOTE_EXPIRED` | Nothing |
+| 3 | A material change of the catalog | `QUOTE_STALE_CATALOG` | Nothing |
+| 4 | The `SAQD-1` digest of the stored quote, computed again, is not the stored digest | `QUOTE_DIGEST_MISMATCH` | One `CONFIRMATION_REJECTED` row, `challengeId` null |
+| 5 | The key version the caller named does not exist or is not `ACTIVE` | `NONCE_KEY_NOT_ACTIVE` | Nothing |
+| 6 | The quote already has a `CONSUMED` challenge | `CONFIRMATION_ALREADY_USED` | Nothing |
+| 7 | The quote's `ACTIVE` challenge is bound to the stored digest, is under the key version the caller named, and has strictly more than 60 seconds left | `REUSED`, returning that challenge | Nothing |
+| 8 | The quote already has eight challenge rows, in whatever status | `CHALLENGE_LIMIT_REACHED` | Nothing: no challenge row is changed |
+| 9 | A challenge with the ID the caller sent already exists | `REFUSED` | Nothing |
+| 10 | Otherwise | `ISSUED` | The previous `ACTIVE` challenge, if any, becomes `EXPIRED` (the reading is at or after its expiry) or `SUPERSEDED`; one new `ACTIVE` challenge |
+
+- The new challenge has the caller's ID, nonce digest and key version; the stored quote digest; `issued_at` at the step 6 reading; `expires_at` the earlier of that reading plus 5 minutes and the quote's expiry.
+- Its `summary` is built by the database from the stored quote and its item, with exactly the six fields `merchantName`, `productTitle`, `variantLabel`, `quantity`, `currency` and `totalCents`. The caller cannot supply it.
+- **`REFUSED` means a collision of the caller-supplied challenge ID, and nothing else.** It keeps the admitted-call counter and creates and changes no challenge row and no audit row, on both of its paths: the lookup of rule 9, and the handler below.
+- **The one exception handler of migration `0009` (decision 8).** The admission of step 7 stands before it. One block holds exactly two statements: the update that ends the previous `ACTIVE` challenge, and the insert of the new one. Its handler catches `unique_violation` and nothing else. It reads the schema, the table and the constraint of the violation, and answers `REFUSED` only when they are `shopaccess`, `confirmation_challenges`, and one of `confirmation_challenges_pkey`, `confirmation_challenges_id_intent_key` and `confirmation_challenges_id_intent_status_key`. These are the three unique constraints of the table that contain `id`; a violation of any of them can only mean that a row with that ID already exists. Every other error, a collision of the nonce digest included, is raised again and undoes the whole call, admission included. The block's sub-transaction undoes both statements, so on this path too the previous challenge is exactly as it was. This amends the retained Gate A wording that the handler "wraps only that insert". `consume_challenge` and `read_checkout` have no handler; the rule of §19.5 for database-generated IDs is unchanged.
+- `issue_challenge` writes nothing that a deferred check watches, and forces none.
+
+**`consume_challenge`, first match (decision 4).** Row 1 is decided at step 4-own. Rows 2 to 12 are decided at step 8, after admission, and are counted.
+
+| # | Condition | Result | Audit | Other writes |
+| --- | --- | --- | --- | --- |
+| 1 | No such challenge for this owner | `CONFIRMATION_NOT_FOUND` | None | None; not counted |
+| 2 | The submitted challenge is `SUPERSEDED` | `CONFIRMATION_SUPERSEDED` | None | Counter |
+| 3 | The submitted challenge is `CONSUMED` | `CONFIRMATION_ALREADY_USED` | None | Counter |
+| 4 | The challenge's nonce key is neither `ACTIVE` nor `VERIFY_ONLY` | `CONFIRMATION_KEY_REVOKED` | One rejection | Counter |
+| 5 | Another challenge of the same quote is `CONSUMED` | `CONFIRMATION_ALREADY_USED` | None | Counter |
+| 6 | The SHA-256 of the nonce is not the stored nonce digest, or the submitted quote ID or quote digest is not the challenge's | `CONFIRMATION_MISMATCH` | One rejection | Counter |
+| 7 | The challenge is stored `EXPIRED`, or is `ACTIVE` and the step 6 reading is at or after its expiry | `CONFIRMATION_EXPIRED` | None | Counter; an `ACTIVE` challenge becomes `EXPIRED` |
+| 8 | The `SAQD-1` digest of the stored quote, computed again, is not the stored digest, or the stored digest is not the one the challenge is bound to | `QUOTE_DIGEST_MISMATCH` | One rejection | Counter |
+| 9 | The step 6 reading is at or after the quote's expiry | `QUOTE_EXPIRED` | None | Counter |
+| 10 | A material change of the catalog | `QUOTE_STALE_CATALOG` | None | Counter |
+| 11 | The intent is not stored `QUOTED` with this quote | `INTENT_NOT_AWAITING_CONFIRMATION` | None | Counter |
+| 12 | Otherwise | `CONFIRMED`, with the intent ID | One acceptance | Below |
+
+- Rows 2 and 3 before row 4, and unaudited, are G2-24a. The rest of the order is decision 4; row 5 after row 4 changes the Gate A order, in which it stood before the status rows.
+- A challenge issued by `issue_challenge` never expires after its quote, so row 9 is reached only by a fixture whose challenge outlives its quote; the schema permits such a fixture.
+- **Atomic success (row 12).** In this order, in the one transaction of the call: the challenge becomes `CONSUMED`; `checkout_transition` is asked for T2 with the stored state and pointers and the challenge ID, and its refusal is an error; the intent becomes `USER_CONFIRMED` with its confirmation pointer and status; one transition row is inserted; one `CONFIRMATION_ACCEPTED` row is inserted; the six deferred constraints of §19.3 are set immediate and then deferred, as the 2.1 functions do. The challenge comes before the intent because the pointer's foreign key is not deferrable. Any error undoes all of it. A replay meets row 3 and writes only the counter.
+- **Eighteen overlaps for PGT-222.** (a) `CONSUMED` with a wrong nonce: row 3. (b) `SUPERSEDED` with a wrong nonce: row 2. (c) `SUPERSEDED`, and another challenge consumed: row 2. (d) `ACTIVE` under an ended key with a wrong nonce: row 4. (e) Stored `EXPIRED` under an ended key: row 4, audited every time (decision 9). (f) The same with another challenge consumed: row 4. (g) Stored `EXPIRED`, another consumed, key valid: row 5. (h) `ACTIVE` beside a consumed one, a direct fixture the functions never produce: row 5. (i) A wrong nonce past expiry: row 6, the challenge not marked. (j) A wrong nonce and a wrong stored digest: row 6. (k) Past expiry and a wrong stored digest: row 7. (l) A wrong stored digest and a material change: row 8. (m) A material change and a canceled intent: row 10. (n) An expired quote under a challenge that outlives it: row 9. (o) A wrong nonce from a caller whose window holds 30 admitted calls and no throttled one: `RATE_LIMITED` at step 4b, with `window_throttled` and `total_throttled` raised by one, one `OWNER_RATE_LIMITED` row and no rejection. (p) Stored `EXPIRED`, another consumed, and a wrong nonce: row 5. (q) A wrong stored digest and an expired quote: row 8. (r) An expired quote and a material change: row 9. Not constructible: a challenge that is both `CONSUMED` and `SUPERSEDED`; two `CONSUMED` challenges of one quote; an intent that is `USER_CONFIRMED` without a consumed challenge.
+
+**Time (decision 6).** Expiry and reuse are decided on the step 6 reading as it is: the quote's expiry, the challenge's expiry and the 60-second reuse test. No floor is applied to a decision. `issued_at`, `superseded_at` and `expired_marked_at` are that reading. `consumed_at` is the later of that reading and the challenge's `issued_at`, and is written only after the expiry decision has passed. The step 4 reading decides the request window. The floors of §19.7 on the two `updated_at` columns are unchanged.
+
+**A challenge left `ACTIVE` (decision 5, G2-41).** A challenge may stay `ACTIVE` in storage after its intent is canceled or superseded, or after its quote has expired. It is then unusable: a correct submission meets row 7, row 9 or row 11, and `read_checkout` reports it not usable.
+
+**Replacing `read_checkout` (decision 12).** `CREATE OR REPLACE` cannot change a result type. Migration `0009` therefore begins with exactly these three statements, adjacent and in this order, and contains no other `DROP` and no other role command:
+
+```sql
+SET ROLE shopaccess_definer;
+DROP FUNCTION shopaccess_api.read_checkout(smallint, text, text);
+SET ROLE shopaccess_owner;
+```
+
+- The function belongs to `shopaccess_definer`, which `shopaccess_owner` may become through its existing membership; no membership is added. The migration role is named again explicitly; `RESET ROLE` is not used, because what it restores depends on how the session was opened.
+- There is no `CASCADE` and no `IF EXISTS`. If the function is missing, or if anything depends on it, the statement fails and the runner's transaction undoes the whole migration.
+- The file then creates the 41-column function of §19.11, revokes all on the three functions from PUBLIC, grants EXECUTE on them to `shopaccess_web`, grants the two table privileges of §19.13, and hands the three functions to `shopaccess_definer` with CREATE on the schema granted before the first change of owner and revoked after the last.
+
+**Mock mode is unchanged.** The in-memory confirmation of Milestone 001 (`src/lib/confirmation/confirmation.ts`) is not altered and adopts none of this. Nothing in the running application calls the functions above.
+
+**Increment 2.2 decisions.** The register is in §19.17.
+
+**Increment 2.3 decisions — proposed here; their status now is in §19.17 and §19.19**
 
 | ID | Proposal |
 | --- | --- |
@@ -3644,12 +4250,443 @@ Then the database clock is polled until it has passed the expiry, the blocker is
 | G2-30 | `READ COMMITTED` required | APPROVED (design) |
 | G2-39 | Malformed requests rejected before throttle admission, no side effects | APPROVED (design) |
 | — | Capacity counted by query; list limit 100 | APPROVED (design) |
-| G2-24a, G2-24b | Two Increment 2.2 design choices (§19.16) | APPROVED (design, Increment 2.2 only); not applied |
-| G2-10, 13, 21, 41; G2-24 remainder | Increment 2.2 | PROPOSED |
-| G2-16, 17, 18, 19, 20 | Increment 2.3 | PROPOSED |
+| Gate A | Closed by the owner as a design-only architecture review milestone; architecture baseline §19.1 to §19.15, subject to every recorded exclusion and unresolved decision | CLOSED (design only); authorizes no implementation, migration-writing or execution |
+| A-1 to A-13 | Increment 2.1 exact-schema contract (§19.2, §19.3, §19.7, §19.13, §19.15), with its final corrections: the initial and replacement insert rules; `current_quote_id` NOT NULL with the write sequence; the transition-to-intent key; the bypass-writer policy P1 to P7; SELECT only on `confirmation_challenges`; mandatory forcing with no duplicate validator; function-level responsibility for digest, audit, eligibility, capacity and throttling; `recorded_at` not before `occurred_at`; the named constraints and triggers; PGT-146 to PGT-158 | APPROVED (design), conditional on later PostgreSQL 17 execution evidence; not implemented |
+| Throttle clock | The step 4 reading is authoritative for the fixed-window classification and for any new `window_started_at`; the step 6 reading does not reassign the window (§19.7) | APPROVED (design); not implemented |
+| G2-24a, G2-24b | Two Increment 2.2 design choices (§19.16) | APPROVED (design); applied in §19.16; status of files and execution in §19.18 |
+| B-1 | Read signatures: 33 columns of `read_checkout`, 6 of `list_owner_checkouts`; `stored_state`, `effective_status`, `quote_stale`; `intent_` and `quote_` time prefixes; `QUOTE_EXPIRED` (§19.11) | APPROVED (design); status of files and execution in §19.18 |
+| B-2 | Business-result order: eligibility, then catalog, then capacity (§19.7) | APPROVED (design); §19.18 |
+| B-3 | Audit actors, columns and exact camelCase detail keys (§19.10) | APPROVED (design); §19.18 |
+| B-4 | Timestamp contract, including `GREATEST` on both `updated_at` columns for an existing row (§19.7) | APPROVED (design); §19.18 |
+| B-5 | Isolation guard: `0A000`; `read uncommitted` refused; LIMIT placement in the read functions; stop if execution disproves it (§19.5) | APPROVED (design); §19.18 |
+| B-6 | Step 2 `NOT_AUTHORIZED` exit; conversion failures are errors; no session touch (§19.7) | APPROVED (design); §19.18 |
+| B-7 | `SADT-1` (§19.2); D1 and D2 as proposed targets, not PostgreSQL-verified (§15.2) | APPROVED (design); targets unverified |
+| B-8 | Second exception of P4: the four revocation statements of the six PGT-128 cases, and nothing wider (§17.4, item 25) | APPROVED (design); §19.18 |
+| B-9 | Expansion of the `SAQD-1` vector inputs (§15.2) | APPROVED (design); digests unchanged |
+| B-10 | Six internal helpers with their signatures, volatility and `SECURITY INVOKER`; `checkout_transition` as the full predicate that preserves unchanged pointers (§19.7a) | APPROVED (design); §19.18 |
+| B-11 | Functions migration file name `0008_checkout_functions.sql`, one file (§14) | APPROVED (design); §19.18 |
+| 2.2-1 | Nonce protocol and the frozen vectors N1 to N4 (G2-10; §19.16) | APPROVED; implementation authorized; §19.18 |
+| 2.2-2 | Challenge lifetime 5 minutes capped at quote expiry; reuse only with strictly more than 60 seconds left; at most 8 rows per quote in any status (G2-13, D-6; §19.16) | APPROVED; implementation authorized; §19.18 |
+| 2.2-3 | Sequence: steps 0d and 4-own; `CONFIRMATION_NOT_FOUND` before the throttle decision and not counted; key status rules (G2-24 remainder; §19.16) | APPROVED; implementation authorized; §19.18 |
+| 2.2-4 | The order of the twelve rows of `consume_challenge`, with "another consumed challenge" after the key check (§19.16) | APPROVED; implementation authorized; §19.18 |
+| 2.2-5 | A challenge may stay `ACTIVE` after its intent is canceled or superseded, and is then unusable (G2-41; §19.16) | APPROVED; implementation authorized; §19.18 |
+| 2.2-6 | `consumed_at` floored at `issued_at`, applied only after eligibility is decided on the reading as it is (§19.16) | APPROVED; implementation authorized; §19.18 |
+| 2.2-7 | Result codes `REUSED`, `CHALLENGE_LIMIT_REACHED`, `NONCE_KEY_NOT_ACTIVE`, `REFUSED` (§19.16) | APPROVED; implementation authorized; §19.18 |
+| 2.2-8 | `REFUSED` is counter-only in every case: the lookup, and one handler filtered to the three ID-based constraints, with admission outside it. Amends the retained "handler wraps only that insert" wording (§19.16) | APPROVED; implementation authorized; §19.18 |
+| 2.2-9 | A stored `EXPIRED` challenge under an ended key returns `CONFIRMATION_KEY_REVOKED`, audited each time (§19.16) | APPROVED; implementation authorized; §19.18 |
+| 2.2-10 | `read_checkout` is replaced by a 41-column function; the names of columns 34 to 41; no separate reader (§19.11) | APPROVED; implementation authorized; §19.18 |
+| 2.2-11 | PGT-207R is a new requirement. The historical PGT-207 was not recovered and is not claimed (§19.15) | APPROVED; implementation authorized; §19.18 |
+| 2.2-12 | The one `DROP FUNCTION` and the two role commands of migration `0009`, with their static controls (§14, §19.16) | APPROVED; implementation authorized; §19.18 |
+| 2.2-13 | The existing `activate_key_version` is the operator procedure for the nonce key (G2-21) | APPROVED as documentation |
+| 2.2-14 | P4 extended to cases S3 and A4 to A8, with no new statement text (§17.4, item 25) | APPROVED; implementation authorized; §19.18 |
+| 2.2-15 | The exact 60-second threshold is static evidence, with wide runtime cases on either side and no time seam (§19.15) | APPROVED; implementation authorized; §19.18 |
+| 2.2-16 | Confirmation followed by cancellation returns `CANCELED`, with the confirmation pointer preserved, as migration `0008` already does (§19.15, PGT-230) | CONFIRMED |
+| 2.2-17 | The audit rows of the confirmation events, with both times at the step 6 reading (§19.10) | APPROVED; implementation authorized; §19.18 |
+| G2-16, 17, 18, 19 | Increment 2.3: configuration names; uncached catalog read; no challenge on a page load; in-process limits as a first line only | APPROVED as specified in §19.19; source implementation authorized; §19.18. G2-16 is approved as request-time fail-closed readiness (D8), not as a refusal to start the process |
+| G2-20 | Browser download for automated browser and keyboard tests | DEFERRED with the application and database environment (D14, §19.19) |
+| D1 to D14 (§19.19) | Increment 2.3 application-wiring decisions | D1 to D8 and D10 to D13 APPROVED; D9 resolved from the constraints of migration `0007`; D14 DEFERRED |
 | G2-22 | Git preservation | PROPOSED, independent |
 | G2-33 | Recovery design | DEFERRED |
 | G2-27, G2-32 | Refusal quota; lifetime intent cap | WITHDRAWN |
+
+### 19.18 Increment 2.1, 2.2 and 2.3 status record: approved design, files written, behaviour executed
+
+This subsection is the only place in §19 that says what exists and what has run. It keeps three things apart. **Approved design** is an owner decision about what is to be built. **Written** means a file exists in the repository; it says nothing about whether the file is correct. **Executed** means PostgreSQL 17 ran it in a disposable test cluster and the result was recorded. Nothing below is an acceptance of Increment 2.1 or of Increment 2.2. No owner acceptance of either, in whole or in part, is recorded in this document.
+
+**Schema stage (migration `0007`)**
+
+| Item | Approved design | Written | Executed |
+| --- | --- | --- | --- |
+| `db/migrations/0007_checkout_schema.sql` | A-1 to A-13 (§19.17) | Yes; pinned in the runner inventory, SHA-256 `a20f362b83b6f06805a42a04d8b33875e1420b7ea21bb042166921f9450a2668` | Applied to disposable test databases only, in the two runs below |
+| `tests/db/checkout-schema.test.ts` (schema part of §19.15) | §19.15 | Yes | Run A3-E1: 31 of 31 passed. Run A3-E2: 31 of 31 passed |
+| Static tests PGT-154, PGT-156, PGT-157 for the schema stage | §19.15 | Yes | Database-free; passed in the unit suite as it stood before migration `0008` was written |
+
+**The two database runs of the schema stage.** Both ran the complete database suite as it then was: eight test files, 72 tests, migrations `0001` to `0007`. The two later runs, which included migration `0008`, are recorded under the functions stage below.
+
+| Run | Date | Cluster | Result | What it is evidence for |
+| --- | --- | --- | --- | --- |
+| A3-E1 | 10 October 2026 | A newly initialized disposable PostgreSQL 17.11 cluster | **71 passed, 1 failed, 0 skipped.** The failure was PGT-50 in `tests/db/migrations.test.ts`: three multi-table TRUNCATE statements were refused by PostgreSQL's foreign-key rule (`0A000`) where the test expected the table trigger (`23001`), because migration `0007` added tables that reference `checkout_owners` and `server_key_versions`. No statement succeeded. The test's expectation was outdated; the schema was not at fault | A historical failed run. It is kept as it happened and is not rewritten |
+| A3-E2 | 11 October 2026 | A second, newly initialized disposable PostgreSQL 17.11 cluster | **72 passed, 0 failed, 0 skipped**, after the PGT-50 expectations were corrected in the test file only | The schema of migration `0007` and the Increment 1 regression, as tested by those eight files, and nothing more |
+
+- Recorded from A3-E2 for PGT-158: 44 TRUNCATE attempts, all refused at the statement; 28 by the table's reject-change trigger (`23001`) and 16 by PostgreSQL's foreign-key rule (`0A000`), the same for the table owner and for the test owner.
+- Established by those runs, among the unverified assumptions of §19.15: that `SET CONSTRAINTS` accepts the name of a constraint trigger (assumption 1), and which mechanism refuses each TRUNCATE (assumption 7). Assumption 2, forcing inside a function, was **not** established: no function existed.
+- **Limit of the A3-E2 evidence.** The checksum of the test runner's cache file before and after the run was recorded in the session report and not in the retained acceptance log; the cache path was confirmed by its directory name, not by tracing the runner's resolver; the cache content was not inspected. This does not affect what the 72 tests showed, and no further run was made to resolve it.
+- Neither run included migration `0008`, a function test, or any test written or changed after it.
+
+**Functions stage (migration `0008`, Group B)**
+
+| Item | Approved design | Written | Executed |
+| --- | --- | --- | --- |
+| The function contract: §19.5, §19.7, §19.7a, §19.10 to §19.13, §15.2 expansion, P4 second exception | B-1 to B-11 (§19.17), approved by the owner for design | Recorded in this document | Not applicable |
+| `db/migrations/0008_checkout_functions.sql`: six helpers, four entry points, the grants of §19.13 | B-1 to B-11 | Yes; pinned in the runner inventory, SHA-256 `4bbc00c378c664e452c3677b708bd9a8ac431b9469a4fb989b1ce90b2b4cf0b4`, unchanged since before run B-E1 | Applied to disposable test databases only, in runs B-E1 and B-E2 below |
+| `CHECKOUT_STATEMENTS` in `src/lib/pg/statements.ts`; `src/lib/pg/saqd.ts` (verification-only `SAQD-1` encoder) | §19.11; §5.1 | Yes. Neither is imported by the running application | Database-free. The unit suite passed with them, 18 files and 847 tests, before run B-E1. `CHECKOUT_STATEMENTS` has since been changed for Increment 2.2 (below) |
+| `tests/db/checkout-functions.test.ts`, `tests/db/checkout-concurrency.test.ts` | §19.15 | Yes | Run B-E1: 30 of 30, and 14 of 17. Run B-E2, after the concurrency file's observation method was corrected: 30 of 30, and 17 of 17. Both files have since been changed for Increment 2.2 (below) and have not been run since |
+| `tests/unit/pg-saqd.test.ts`; the additions to `tests/unit/pg-static.test.ts` (PGT-73e, PGT-135, the static parts of PGT-133 and PGT-139, the reducer side of PGT-138, PGT-156 and PGT-157 for the new files) | §19.15 | Yes | Database-free. Passed in the unit suite before run B-E1; `tests/unit/pg-static.test.ts` alone passed again, 40 of 40, on the sources of run B-E2 |
+| Changes to existing tests for the eighth migration: inventory counts, the function list, the function owner's privileges, the PGT-157 file list | — | Yes | Run in B-E1 and B-E2, where the eight regression files passed, 72 of 72, in both |
+| PGT-112(c): a deferred check failing inside a real function call (cases S1, S2, C1) | §19.15 and the first exception of P4 | Yes, in `tests/db/checkout-functions.test.ts`. The static test PGT-157 admits exactly its three fixture statements (one trigger function that returns NULL, and a `BEFORE INSERT` row trigger on `quote_items` or on `checkout_transitions`), only inside the one test function that begins a transaction on one client and always rolls it back | Executed and passed in B-E1 and B-E2 |
+| `SADT-1` targets D1 and D2 (§15.2) | B-7 | In the specification and the function test | Computed by PostgreSQL 17.11 in B-E1 and B-E2, and equal to the targets, for the recorded inputs. The three `SAQD-1` vectors likewise; some of their amount inputs are reconstructions (§15.2, B-9) |
+| Application mode: the running application | Increment 2.3 (§19.19) | See the application stage below | No |
+
+**The two database runs of the functions stage.** Both ran the complete database suite as it then was: ten test files, 119 tests, migrations `0001` to `0008`. Each used its own newly initialized disposable PostgreSQL 17.11 cluster, loopback only, with no Unix socket, and ran the suite exactly once.
+
+| Run | Date | Result | What it is evidence for |
+| --- | --- | --- | --- |
+| B-E1 | 11 October 2026 | **116 passed, 3 failed, 0 skipped**, and two unhandled rejections. The three failures were in `tests/db/checkout-concurrency.test.ts`: PGT-113, PGT-115, and the nine-groups case of PGT-81d. In the first two, the test observed lock waits through the holder's own connection inside its transaction, where the picture of `pg_stat_activity` taken first is kept, so a second waiter was never seen and one checkout call ran into its lock timeout. In the third, the test required every waiter to name the row's holder as its blocker; PostgreSQL named an earlier waiter. The tests' method was at fault; no defect of migration `0008` was shown, and none was ruled out for those three cases by this run. Retained: `run-be1-20261011-111925`, `acceptance.log` SHA-256 `1b82f1d22e5a11ee72ce444f558ff6d4b8981094876a39ca6f2cf1e5dcdf893d` | A historical failed run. It is kept as it happened and is not rewritten |
+| B-E2 | 11 October 2026 | **119 passed, 0 failed, 0 skipped**, with no unhandled rejection, after the concurrency test file alone was corrected: each waiting call on a web client of its own, an observer outside any transaction, and a checked lock queue. Two lock timeouts were logged, both expected controls: the lock probe of PGT-118 and the lock-timeout control of PGT-49. Retained: `run-be2-20261011-121410`, `acceptance.log` SHA-256 `dfd327ba35d09358de4a485e95951b9e66aa2593a1692c58807e8b7d5c227ed9`, `server.log` SHA-256 `a2580e54013c27f9698767c014318777308f357e89f5c76ce5a4f2ec1f125c97` | Migrations `0001` to `0008` and the ten test files as they were in that run, and nothing more. An execution result, independently reviewed. It is not an owner acceptance |
+
+- In both runs the catalogs recorded after the run equalled those recorded before it, and the server was stopped.
+- Both runs are of the sources as they were then. Migration `0009` and every file changed for it (below) are later than both.
+
+**Confirmation stage (migration `0009`, Increment 2.2)**
+
+| Item | Approved design | Written | Executed |
+| --- | --- | --- | --- |
+| The contract: §19.16, the Increment 2.2 parts of §19.10, §19.11 and §19.13, the manifest at the end of §19.15, P4 for cases S3 and A4 to A8 | Decisions 2.2-1 to 2.2-17 (§19.17), approved by the owner, who authorized the source implementation | Recorded in this document | Not applicable |
+| `db/migrations/0009_confirmation_functions.sql`: `issue_challenge`, `consume_challenge`, the 41-column `read_checkout` in the place of the 33-column one, two table grants and three EXECUTE grants | The same | Yes; pinned in the runner inventory, SHA-256 `931c9cc7b97000017ef900050b6e94f31c58d28db039b995b0247ce858a1241d`, unchanged since before run C-E1 | Applied to disposable test databases only, in runs C-E1 and C-E2 below |
+| `src/lib/pg/confirmation-nonce.ts` (the nonce derivation; unchanged, and since Increment 2.3 used by `src/lib/pg/checkout-service.ts`, with its form check used by the confirm handler); `issueChallenge`, `consumeChallenge` and the 41-column `readCheckout` in `src/lib/pg/statements.ts` | §19.16; §19.11 | Yes | Database-free. The unit suite passed with them, 19 files and 859 tests, before run C-E1 and again before run C-E2. The same three statement texts, which the static suite compares with the database tests' own copies, were sent to PostgreSQL by the database tests of C-E1 and C-E2 |
+| `tests/unit/pg-confirmation-nonce.test.ts`: the frozen vectors N1 to N4 | §19.16 | Yes | Database-free. Passed, 5 of 5, in the unit suite before run C-E1 and before run C-E2. The database side of the same vectors (PGT-228) passed in C-E1 and C-E2 |
+| `tests/db/confirmation-functions.test.ts`, `tests/db/confirmation-concurrency.test.ts` | §19.15 | Yes. The first was extended before run C-E1 so that the PGT-134 matrix covers every result of both functions, with `RATE_LIMITED` on a full window and its row-absent combination recorded as not applicable | Run C-E1: 27 of 27, and 15 of 15. Run C-E2: 27 of 27, and 15 of 15 |
+| Changes to existing tests for the ninth migration: inventory counts and the static checks of `0009` in `tests/unit/pg-static.test.ts` and `tests/unit/pg-migrate.test.ts`; the function list and ledger in `tests/db/migrations.test.ts`; the function owner's privileges on `confirmation_challenges` in `tests/db/privileges.test.ts`; the reader's 41 columns, the function list, the privilege and two accepted-confirmation variants in `tests/db/checkout-functions.test.ts`; the copy of the reader's statement in `tests/db/checkout-concurrency.test.ts` | — | Yes | Run in C-E1 and C-E2. In C-E1 two tests of `tests/db/migrations.test.ts` failed on a ledger count that still said eight; the two expectations were corrected to nine, in the test file only, and all twelve files passed in C-E2. `tests/unit/pg-static.test.ts` has since been changed for Increment 2.3; its unit runs are recorded under the application stage below |
+| Application mode: the running application | Increment 2.3 (§19.19) | See the application stage below | No |
+
+**The two database runs of the confirmation stage.** Both ran the complete database suite as it then was: twelve test files, 162 tests, migrations `0001` to `0009`. Each used its own newly initialized disposable PostgreSQL 17.11 cluster, loopback only, with no Unix socket, and ran the suite exactly once.
+
+| Run | Date | Result | What it is evidence for |
+| --- | --- | --- | --- |
+| C-E1 | 11 October 2026 | **160 passed, 2 failed, 0 skipped**, with no unhandled error. The two failures were PGT-51 and PGT-50 in `tests/db/migrations.test.ts`: each expected eight ledger rows where migration `0009` makes nine. The test expectations were stale; no defect of migration `0009` was shown. PGT-50 stopped before its refusal checks. Before the suite, two identity queries written by the operator failed through the operator's own errors and a third succeeded; both failures are in the retained logs. Retained: `run-ce1-20261011-181733`, `acceptance.log` SHA-256 `92b177e70228d5016e8707ebdeb24c59eaab212698ec97787b1275d53d8e3587`, `server.log` SHA-256 `12fd90aa7d64eefda502047a5ad13260d6a6c7217ea99c20bb3adfd78f54e790` | A historical failed run. It is kept as it happened and is not rewritten |
+| C-E2 | 11 October 2026 | **162 passed, 0 failed, 0 skipped**, with no unhandled error, after the two ledger expectations alone were corrected. PGT-51 passed its final ledger assertion and PGT-50 reached and passed its refusal and preservation checks. Two lock timeouts were logged, both expected controls: the lock probe of PGT-118 and the lock-timeout control of PGT-49. The fixed values of PGT-229 occur in neither retained log. Retained: `run-ce2-20261011-182654`, `acceptance.log` SHA-256 `a214369246af7fd512ab4c2a83f15442e926d91fd23e8497b539badf34daf741`, `server.log` SHA-256 `9ef9d527322c26ea3cc5685b143b7c3243417030a0d69bebf4b8dcc6eecaca9f` | Migrations `0001` to `0009` and the twelve test files as they were in that run, and nothing more. An execution result. The owner's instruction for Increment 2.3 states that an independent review of the retained evidence returned a pass; that review is not reproduced here. It is not an owner acceptance |
+
+- In both runs the catalogs recorded after the run equalled those recorded before it, and the server was stopped.
+- Sources of C-E2: `db/migrations/0009_confirmation_functions.sql` as pinned above; `tests/db/confirmation-functions.test.ts` SHA-256 `8fd2bdc3f2d54aeb34ce42b359dc7fc04433569e5e41e7e2fc7a3e1fc892a2cd`; `tests/db/confirmation-concurrency.test.ts` SHA-256 `9f30f782d5228bddc9e47d20132323a889dad707ebc950884952bb55a1cd5f8e`; `tests/db/migrations.test.ts` SHA-256 `3d47904790caf668b51dff0ac339678150f354cabbb98f6778d47dac582f3f3c`.
+- Both runs are of the sources as they were then. Every file written or changed for Increment 2.3 (below) is later than both. No database test file has been changed since C-E2.
+
+**Application stage (Increment 2.3, §19.19)**
+
+| Item | Approved design | Written | Executed |
+| --- | --- | --- | --- |
+| The contract: §19.19, and the amendment of §5.4 | D1 to D8 and D10 to D13 approved by the owner, who authorized the specification amendment and the source implementation; D9 resolved from source; D14 deferred | Recorded in this document | Not applicable |
+| `APPLICATION_STATEMENTS` in `src/lib/pg/statements.ts`: the joined catalog read and the readiness probe. The four earlier groups are unchanged | §19.19 | Yes | **No. Neither statement has been parsed or executed by PostgreSQL.** That the probe is valid SQL, and that it returns the expected row for the web role, is not established |
+| `src/lib/pg/checkout-service.ts`, `src/lib/pg/catalog.ts`, `src/lib/pg/readiness.ts`; `credentialOf` added to `src/lib/pg/session-service.ts` | §19.19 | Yes | Exercised by unit tests against fakes of the database only (the unit runs below). **Never run against PostgreSQL** |
+| `src/server/pg-runtime.ts`, `pg-request-guard.ts`, `pg-handlers.ts`, `pg-views.ts`; the mode choice in `src/server/config.ts`, `runtime.ts` and `respond.ts`; new messages in `src/server/views.ts` | §19.19 | Yes | The handlers, the guard, the view builders and the runtime are exercised by unit tests against fakes (the unit runs below). **The application has never been started in PostgreSQL mode, and no PostgreSQL-mode request has been served** |
+| Routes and pages: `src/app/session/{start,new,rotate}/route.ts`; `src/app/checkout/start/route.ts`; `src/app/checkout/[intentId]/{confirm,review,cancel,simulate}/route.ts`; `src/app/page.tsx`, `src/app/shop/page.tsx`, `src/app/checkout/[intentId]/page.tsx`, `src/app/checkouts/page.tsx`; `src/components/CheckoutActions.tsx`, `src/components/SessionNotice.tsx` | §19.19 | Yes | **Not built.** Type-checked as ordinary TypeScript in T-2 (the type checks below); the framework's own validation of the new routes and pages is pending, because the generated route types predate them. No page has been rendered. Three components (`CheckoutActions`, `SessionNotice`, `ConfirmationSummary`) are rendered to static markup by unit tests; that is not a rendering of a page and not browser or keyboard evidence. The start page, which was built ahead of time, is now rendered per request in both modes, so that a page built for one mode is never served in the other |
+| `tests/unit/pg-app-config.test.ts`, `pg-app-guard.test.ts`, `pg-app-flow.test.ts`, `pg-app-readiness.test.ts`: the unit level of the acceptance map of §19.19 | §19.19 | Yes | Run; see the unit runs below. They use fakes of the database; a fake returning a value is not evidence that PostgreSQL returns it |
+| Changes to `tests/unit/pg-static.test.ts`: eleven library modules; the import boundary of the four PostgreSQL server modules in place of "imported by nothing"; the fifth statement group, its arities and the three system-catalog sources the probe may name | §19.19 | Yes | Run; see the unit runs below. After the first run three of its assertions were corrected and its narrow rule on mutating checkout calls was added and then strengthened |
+| The integration and browser cases of §19.19 (levels I and B) | §19.19 | Not written as executable tests. They are recorded as pending | **No.** They need an application with a newly created disposable database, and browser tooling; both are a separate gate (D14). No retained test cluster is to be used as an application database |
+
+**The unit runs of the application stage.** Each ran the complete unit configuration (`tests/unit`), database-free, with the verbose reporter. None connects to PostgreSQL, starts the application or runs a browser. They are six separate records and are not merged.
+
+| Run | Date | Result | Capture |
+| --- | --- | --- | --- |
+| U-1 | 11 October 2026 | **Failed.** Three failures were observed, all in assertions about source text: one in `tests/unit/pg-harness.test.ts` (the static-test file had come to contain the text that scan looks for) and two in `tests/unit/pg-static.test.ts` (a remaining "nothing sends a checkout statement" rule, and placeholders compared as text where the readiness probe has thirteen). No failure was observed in the four new test files or in the mock's tests | **Incomplete.** The output was cut by the operator's own display limit and was not retained. The count of 947 tests in 23 files is reconstructed from the per-file lines that were shown. The exit status was not retained |
+| U-2 | 11 October 2026 | **Reported passed: 950 of 950 in 23 files, exit status 0 observed by the reviewer who ran it.** It followed a correction of `tests/unit/pg-static.test.ts` alone, made by the independent reviewer under an instruction the owner had intended for the implementer: the driver-import pattern, a rule on references to the checkout catalogue and on wrapping of mutating calls in place of the obsolete rule, and numeric comparison of placeholders. The implementer did not observe this run | **Incomplete.** The verbose output was truncated by the tool that ran it and no complete transcript exists. Whether a no-connection guard was in place, and whether it reported anything in the omitted output, is not known |
+| U-3 | 11 October 2026 | **Failed: 955 passed, 3 failed, of 958 in 23 files; exit status 1.** It followed changes to `src/lib/pg/checkout-service.ts` (refusal rows must carry nothing), `src/server/pg-handlers.ts` (the start quantity held to 1 to 10) and two test files. The three failures were the three new component-markup tests of `tests/unit/pg-app-flow.test.ts`: each expected a form's attributes in the order of the source, and the renderer writes them in another order. The tests were at fault; each stopped at its first assertion, so their later assertions did not run. No guard line and no unhandled error | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-unit-20261011-211221/unit-run.log`, SHA-256 `f50a25122fcd03b7bed3204b9e39180b1c82905a1dd22f93624d80bcf3f7ee57`: all of standard output and standard error, and the exit status |
+| U-4 | 11 October 2026 | **Passed: 959 of 959 in 23 files; exit status 0.** It followed a correction of the component-markup tests alone: a form is found by its action, and its method, fields and button are asserted on that same form, whatever the order of attributes; one control test of that reading was added, which is why the count is 959. All four markup tests ran to their end. No guard line and no unhandled error | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-unit-20261011-211755/unit-run.log`, SHA-256 `4ea3e05efec1c17874ec06c306c1c66723ea9ab84bf9f9cd4e45a06cde41c697`: all of standard output and standard error, and the exit status |
+| U-5 | 11 October 2026 | **Passed: 965 of 965 in 23 files; exit status 0.** It followed three corrections of how answers are read, with their controls: every refusal of `start_checkout` must have its three other columns NULL; the `ISSUED` and `REUSED` rows of `issue_challenge` are read completely and held against the checkout of the handler's own authorized read (stored quote digest, the key version the call named, the checkout's summary, and an expiry no later than the quote's, with no comparison against the process clock); and every refusal of `admit_session`, `authorize_session` and `rotate_session` must have its other columns NULL. One fixture of `tests/unit/pg-session-cookie.test.ts`, a refusal row that left out its two NULL columns, was completed. No guard line and no unhandled error | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-unit-20261011-213057/unit-run.log`, SHA-256 `443ba7dc553012eda80c3770248a144fd8bf51b1ab5f5444cc87918aabe500ba`: all of standard output and standard error, and the exit status |
+| U-6 | 11 October 2026 | **Passed: 967 of 967 in 23 files; exit status 0.** It followed one correction of how `read_checkout` is read, with its controls: the ACTIVE challenge reported beside a quote must be the challenge of that quote, with the same six summary values and an expiry no later than the quote's, by the same rule as for the `ISSUED` and `REUSED` rows and with no comparison against the process clock. A row in which they disagree is an unexpected row: the page shows "not available", the handlers that read first answer the generic 500, and nothing is sent after that read. No guard line and no unhandled error | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-unit-20261011-213754/unit-run.log`, SHA-256 `386e1ff7d3377b01d755ea248a762cc155b22110001cee9e4615066ac2a981c6`: all of standard output and standard error, and the exit status |
+
+- Sources of U-6: `src/lib/pg/checkout-service.ts` SHA-256 `d2a03e996c1c64716012c3d9f62070ef9b3e7c6767220caf2ade4a5107a37d78`; `tests/unit/pg-app-flow.test.ts` SHA-256 `fdb7dbbf74b2d482f719d55e3dfcad5192f32e7d3093acd19671a53fa3624701`; every other file as for U-5. The files as they were for U-6 were not parsed or checked outside the suite beforehand.
+- Sources of U-5: `src/lib/pg/checkout-service.ts` SHA-256 `dbdfe35b5f4c8dc8f3b664ea038e0a6ef5bba026c38f889cf8eaeb72ea0b4462`; `src/server/pg-handlers.ts` SHA-256 `2fa85eaaa008b2ee830e8324b6c4fec110ed48097d2f31a0b59a3d792db098be`; `src/lib/pg/session-service.ts` SHA-256 `5d2c600032a476af38e149d7b939bf69760a4619feab5036f7473d7c349dede7`; `tests/unit/pg-app-flow.test.ts` SHA-256 `6d501f7900927ebf4e929b4fb3269beea9c678ba8b2b8b33ad2162dbc1b9970d`; `tests/unit/pg-app-guard.test.ts` SHA-256 `8b47a9b2ed4a94258c5a84581cd6c9cf2ac1e1e7e7458e3631d7f6309bbf4c5a`; `tests/unit/pg-session-cookie.test.ts` SHA-256 `4430643e667615f950344d65eab0e480c992cbed3eeab3aa33612fc2bfd540f9`; `tests/unit/pg-static.test.ts` unchanged since U-4. The files as they were for U-5 were not parsed or checked outside the suite beforehand.
+- Sources of U-4: `src/lib/pg/checkout-service.ts` SHA-256 `b8efa4f197ce7d4753dbc5ae8a948b3efbde996e3eadeee8490aa942ff5f5014`; `src/server/pg-handlers.ts` SHA-256 `447a594784b363b730dc1611b63e3156e4caebeac73d158e61d4928b6727606d`; `tests/unit/pg-static.test.ts` SHA-256 `0ea19ebe41f9286ac7e20255dae67b6af8ca3260b7e9381b4bdf9adb0f89514e`; `tests/unit/pg-app-flow.test.ts` SHA-256 `13500d70f0463e94b8f0bd5798a9710945ef16f9e83ff0364c38ebb0154621c7`. Every other file of Increment 2.3 is as it was when first written.
+- The guard used in U-1, U-3, U-4, U-5 and U-6 reports attempts to open a TCP connection and nothing else. It does not cover Unix sockets, and a run without a guard line is not proof that no connection could have been made another way.
+- Before U-1, and again before U-3, the implementer parsed the new and changed files for syntax only, with no type information. That was not a type check. Before U-3 the implementer also rendered the framework's link component once in plain Node and evaluated the new static rule on the service file, both outside the suite; neither was repeated before U-4.
+- The three findings that were open after U-4 (refusal rows of `start_checkout`; the unchecked columns of `ISSUED` and `REUSED`; the refusal rows of the three session entry points) were corrected before U-5.
+- The question that was open after U-5 about the ACTIVE challenge of `read_checkout` (its summary and expiry against the quote's own columns) was corrected before U-6.
+- Open questions kept for independent assessment, not changed, and regarded as optional hardening: `authorize_session` treats a result that is neither `AUTHORIZED` nor `NOT_AUTHORIZED` as "not authorized" without checking the row, where the other two session calls refuse an unknown result; the row `revoke_session` returns is not read; the success rows of the session entry points are checked field by field but not for the relation between their two expiries, which this document does not require.
+- Not rendered by any test: the four pages as a whole, the "not available" notice that is written inside them, and the absence of the simulation panel on the PostgreSQL checkout page, which remains a check of the source text.
+
+**The type checks of the application stage.** Each ran the installed compiler, TypeScript 5.9.3, once over the whole project as `tsconfig.json` includes it (application sources, unit tests and database tests), with the command `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`. Neither wrote a file in the repository; `tsconfig.tsbuildinfo` was unchanged by both. They are two separate records.
+
+| Check | Date | Result | Capture |
+| --- | --- | --- | --- |
+| T-1 | 11 October 2026 | **Failed: exit status 2, one diagnostic.** `TS2345` at `tests/unit/pg-app-flow.test.ts(500,60)`: the array of malformed start fixtures, written as a literal, had an element type that is not assignable to the helper's `Record<string, string>` parameter. A typing error in a test of Increment 2.3; no production source was named | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-types-20261011-214051/typecheck.log`, SHA-256 `b467149cd5554c9ca1ec4552b965f50a2662b50ac59d85c61ffa918e5d9ad998`: the command, all of standard output and standard error, and the exit status |
+| T-2 | 11 October 2026 | **Passed: exit status 0, no diagnostics.** The only correction was to give that fixture array, unchanged in its values and order, the explicit type `Array<Record<string, string>>`. No production source changed | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-types-20261011-214927/typecheck.log`, SHA-256 `ef70150a01775c5cd58a4d778ef7095838c2fde3342586e3f8df52d6f2439fe2`: the command, all of standard output and standard error, and the exit status |
+
+- Source of T-2: `tests/unit/pg-app-flow.test.ts` SHA-256 `2d742514eece1cde0a01f8aaf2f2502161221c91143f2c0b524a20c3959ded39`; every other file as for U-6.
+- **U-6 ran against the earlier version of that test file** (SHA-256 `fdb7dbbf74b2d482f719d55e3dfcad5192f32e7d3093acd19671a53fa3624701`), before the annotation. The annotation changes a type and no value; the unit suite has not been run with it.
+- **The generated framework types predate the Increment 2.3 routes.** They were present, dated 11 October 2026 14:05, and were not regenerated. The new route and page files were checked as ordinary TypeScript and produced no diagnostic, but the framework's own validation of route and page modules did not cover `/session/new`, `/session/rotate`, `/checkout/[intentId]/review`, `/checkout/[intentId]/cancel` or `/checkouts`. That was the state at T-1 and T-2, and neither of them is changed by what follows; the gap was closed afterwards by R-1 below.
+- No baseline type check exists from before Increment 2.3, so T-2 says nothing about when any earlier state of the project type-checked.
+
+**Route-type generation and the type check that followed it (R-1).** A separate record, made after T-2 on 11 October 2026, with no source or test changed since T-2. Both commands ran once, with the database, application, payment and AI-provider variables removed, framework telemetry disabled, and the no-TCP preload loaded; it recorded no connection attempt in either.
+
+| Step | Command | Result | Capture |
+| --- | --- | --- | --- |
+| R-1a | `./node_modules/.bin/next typegen` (Next.js 16.4.0) | **Exit status 0.** "Types generated successfully". It wrote the ignored, untracked files under `.next/types/` and rewrote the ignored, untracked `next-env.d.ts`, which now imports `./.next/types/routes.d.ts`. `tsconfig.json`, `tsconfig.tsbuildinfo` and every tracked file were unchanged | `/Users/frankncube/shopaccess-backups/increment-2-3-routes-20261011-215929/typegen.log`, SHA-256 `e6706ab065c38a67e4ff159708458948bcd72a3b332489a67c6131b78286037d`, 733 bytes, 11 lines: the command, all output and the exit status |
+| R-1b | `./node_modules/.bin/tsc --noEmit --incremental false --pretty false` (TypeScript 5.9.3) | **Exit status 0, no diagnostics.** `tsconfig.tsbuildinfo` unchanged | `/Users/frankncube/shopaccess-backups/increment-2-3-routes-20261011-215929/typecheck.log`, SHA-256 `1af563a643b8f50bc1b07546bf77326fe3958734bb8fdcdc0a986f8742b1bd58`, 1,336 bytes, 15 lines: the command, all output and the exit status |
+
+- Generated validator: `.next/types/validator.ts`, SHA-256 `882222655a7ff643a7b81beb4de0c1318aabebb82239689bde2edac91ad975a5`; route declarations: `.next/types/routes.d.ts`, SHA-256 `b3c733f1d20153c07ce7c90c6652b68b7076590213aebfeedff1d54dadf4629d`. Both are generated, ignored files and are not part of the repository.
+- Coverage, checked before R-1b and recorded in `/Users/frankncube/shopaccess-backups/increment-2-3-routes-20261011-215929/coverage.txt` (SHA-256 `7af17bcaade42002679b2e190ed70861b86e2f42a9873ca4b57510def612cc98`): the validator references thirteen modules, which are exactly the thirteen layout, page and route files under `src/app/`. They include `/session/new`, `/session/rotate`, `/checkout/[intentId]/review`, `/checkout/[intentId]/cancel` and `/checkouts`, with the eight routes and pages that existed before.
+- Compiler inclusion: `tsconfig.json` includes `.next/types/**/*.ts`, which is where the validator was written, and `next-env.d.ts`, which imports the new route declarations. The directory generated and the directory compiled are the same. The older `.next/dev/types/` files of 14:05 are also still matched by `tsconfig.json`; they were not touched, cover only the earlier routes, and produced no diagnostic.
+- **Established by R-1:** current framework-specific type validation of the route and page modules of Increment 2.3, that is, that each module's exports have the shapes the framework's generated validator requires. **Not established by R-1:** a build, anything at run time, application integration, browser behaviour, or any acceptance. The unit suite was not run as part of R-1.
+
+**The HTTP and application-restart integration driver (written; never run; type-checked in T-4 to T-8 and T-10, after failing T-3 and T-9; helpers unit-tested in U-7 to U-12).** A separate record of 11 October 2026. No database, application, port or request was used in writing or checking it.
+
+| File | Responsibility | State |
+| --- | --- | --- |
+| `vitest.integration.config.mts` | Selects only `tests/integration/*.integration.test.ts`; apart from the unit and database configurations | Written |
+| `tests/integration/app-process.ts` | Helpers against injected dependencies: the input check, the child-environment allowlist, startup (60-second deadline, early exit, cancellation), requests (15-second deadline, abort, settlement of every request, nothing sent twice), shutdown of the process group (SIGTERM, then SIGKILL after five seconds, port and group checked), cleanup that continues after a failure, response reading. The real spawn, signal, socket and log dependencies are in the same file and are called by the driver only | Written |
+| `tests/integration/pg-app.integration.test.ts` | The driver: one fixture through the unchanged harness, three application processes in turn on 127.0.0.1:3170 with the origin `http://localhost:3170`, fixed observation statements, full-content table comparison | Written; failed T-3, type-checked in T-4 to T-8; changed for the two interfaces, which failed T-9 and type-check since T-10; **never run** |
+| `tests/unit/pg-app-process.test.ts` | 80 database-free controls of the process helpers, the diagnostics and the run evidence, with fakes and fake timers | 38 passed in U-7; 50 in U-8; 54 in U-9; 58 in U-10; 61 in U-11; all 73 passed in U-12; 78 of 79 in U-13, one failed; all 79 passed in U-14; all 80 passed in U-15 |
+| `tests/integration/safe-diagnostics.ts` | Pure comparison, scan and failure helpers that cannot print a sensitive value. No database, network, process or file access | Written; type-checked in T-5, T-6 and T-7; unit-tested in U-8, U-9 and U-10 |
+| `src/app/layout.tsx` | The two Google fonts are no longer loaded; the two font custom properties that `globals.css` reads are set on the same element to system-font stacks. No other file changed | Written; SHA-256 `413c0a0a124b6064448f67845f2ea3fedc00de87e89ff34d8900b91534fc8d8e` |
+
+- **Ownership.** The driver owns its disposable database fixture, its application child processes, its requests and its application logs. The execution gate's wrapper owns provisioning and verifying the cluster, the pristine catalog records before the driver and after the fixture is destroyed, the PostgreSQL shutdown and the retained cluster. The driver provisions nothing and removes nothing by hand.
+- **Inputs.** Without `SHOPACCESS_APP_TEST_AUTHORIZATION` every case is skipped and nothing is opened. With it, `SHOPACCESS_APP_TEST_AUTHORIZED_PORT`, `SHOPACCESS_APP_TEST_EVIDENCE_DIR`, `SHOPACCESS_APP_TEST_SERVER_LOG` and the harness's two variables are all required, and anything missing fails before anything is opened.
+- **Cases written (level I only; none has run):** refusal of a request without an Origin on every state-changing route; readiness with the rendered identifiers, titles and prices compared with the database's rows, the absence of the unavailable notice, and the web role's loopback connections; admission, unusable cookies and explicit replacement (A18 in part, A40, A41 in part); owner isolation; start, read and repeated page loads (A15, A16 in part); a matching challenge with a wrong quote id and with a wrong quote digest (A38); cross-checkout, unknown, unacknowledged and malformed submissions (A4, A37, A39 in part); confirmation and sequential replay (A7); replacement, cancellation and a new checkout with no predecessor (A21, A22 in part); the simulation refusal (A34 in part); two overlapping confirmations **not forced into an order**, with the allowed outcome set (A17 in part); restart persistence (A16); the wrong-role refusal with a superuser connection (A24, A25 in part); and the secret scan of response bodies and headers, application logs and the server log (A29 in part, A30).
+- **Deferred, and not implied by any future run of this driver:** a forced overlap of two confirmations (it needs request attribution and backend identities that are not available without a production hook); A8; A9; A13; A19; A28; A31 at this level; the migration-role variant of A25 (the unchanged harness offers no login for that role); **A42, schema USAGE, which stays unit evidence only and is not dropped**; `CHECKOUT_NOT_CONFIRMABLE` of A39; and everything at level B: A35, A36, A48, A49, A50, browser acceptance of the Secure `__Host-` cookie, and any announcement by assistive technology. The driver's client is synthetic and runs the application in development mode; it is evidence neither about a browser nor about a production build.
+- **Network.** Removing the font import removes that fetch only. The installed development server still contains a version check addressed to `registry.npmjs.org`, and it writes the agent-rules block of `AGENTS.md` when it detects a coding agent in its environment. No enforceable boundary for loopback-only traffic exists yet: the existing no-TCP preload refuses loopback PostgreSQL too, and nothing shows that a Node preload governs the bundler's native networking. This is open for the execution gate.
+
+| Check | Date | Result | Capture |
+| --- | --- | --- | --- |
+| T-3 | 11 October 2026 | **Failed: exit status 2, one diagnostic.** `TS2345` at `tests/integration/pg-app.integration.test.ts(646,85)`: the two wrong-field variants of the mismatch case, written as an array literal, have a union element type whose absent property is `undefined`, which is not assignable to the helper's `Record<string, string>` parameter. A typing error in the new driver; no production source was named, and no other file produced a diagnostic. Not repaired and not rerun | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-222701/typecheck.log`, SHA-256 `ee2c3f37e0daff8b1d0d1cc050bf1cbf844503988cbf416478e882e787a7dc81`: the command, all output and the exit status |
+| T-4 | 11 October 2026 | **Passed: exit status 0, no diagnostics.** `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`, once, after the only correction: in the mismatch case the two wrong-field fixtures, unchanged in value and order, are held in a local constant typed `Array<Record<string, string>>` and the loop iterates over it. No cast, no production change. `tsconfig.tsbuildinfo` unchanged; no connection attempt recorded | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-223053/typecheck.log`, SHA-256 `c9d68150153470e8b6801eb67514345d12a7fc1c263d5810233c537f11768de9`: the command, all output and the exit status |
+| U-7 | 11 October 2026 | **Passed: 1,005 of 1,005 tests in 24 files; exit status 0;** no failure, no skip, no unhandled error, no connection attempt recorded. `./node_modules/.bin/vitest run --config vitest.config.mts tests/unit --reporter=verbose`, once, after T-4, under the no-TCP preload with the integration, database, application, payment and AI-provider variables removed. The inventory is the 967 tests of U-6 and the 38 controls of `tests/unit/pg-app-process.test.ts`, all 38 of which passed | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-223053/unit-run.log`, SHA-256 `1afefc10f008f8bae7859192985428cda1128330418d9d430db8465c7e9516a0`: the command, all output and the exit status |
+| T-5 | 11 October 2026 | **Passed: exit status 0, no diagnostics.** `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`, once, after the disclosure correction described below. `tsconfig.tsbuildinfo` unchanged; no connection attempt recorded | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-230301/typecheck.log`, SHA-256 `1b7d3bbcc5e55b18683dc9e7da2d0aff84e51ff60534bed48bbe95a3258c1589`: the command, all output and the exit status |
+| U-8 | 11 October 2026 | **Passed: 1,017 of 1,017 tests in 24 files; exit status 0;** no failure, no skip, no unhandled error, no connection attempt recorded. `./node_modules/.bin/vitest run --config vitest.config.mts tests/unit --reporter=verbose`, once, after T-5, under the no-TCP preload with the integration, database, application, payment and AI-provider variables removed. The inventory is the 967 tests of U-6 and the 50 controls of `tests/unit/pg-app-process.test.ts` (38 of U-7 and 12 added), all 50 of which passed. No sentinel value of the disclosure controls occurs in the captured output | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-230301/unit-run.log`, SHA-256 `d701edc04d1c6285d8ec83376b7eed5af81404dc933d4587ddfb7f4e2336b598`: the command, all output and the exit status |
+| T-6 | 11 October 2026 | **Passed: exit status 0, no diagnostics.** `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`, once, after the unexpected-error correction described below. `tsconfig.tsbuildinfo` unchanged; no connection attempt recorded | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-231937/typecheck.log`, SHA-256 `b1f438a9051c1ea49357a7f0c12697d6c6c89a52cb1aed6189c7443da9d312fa`: the command, all output and the exit status |
+| U-9 | 11 October 2026 | **Passed: 1,021 of 1,021 tests in 24 files; exit status 0;** no failure, no skip, no unhandled error, no connection attempt recorded. `./node_modules/.bin/vitest run --config vitest.config.mts tests/unit --reporter=verbose`, once, after T-6, under the no-TCP preload with the integration, database, application, payment and AI-provider variables removed. The inventory is the 967 tests of U-6 and the 54 controls of `tests/unit/pg-app-process.test.ts`, all 54 of which passed. No sentinel value of the disclosure controls occurs in the captured output | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-231937/unit-run.log`, SHA-256 `39d083d5144d28a5a24c906b12b5a44ff5f9d2d4b5aea6d0f25d4087052f0c74`: the command, all output and the exit status |
+| T-7 | 11 October 2026 | **Passed: exit status 0, no diagnostics.** `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`, once, after the ownership, inspection and allowlist correction described below. `tsconfig.tsbuildinfo` unchanged; no connection attempt recorded | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-233604/typecheck.log`, SHA-256 `28af43495ba86e05d84264e9d2fef7bc602cfea3365d07f020440703165e6c8b`: the command, all output and the exit status |
+| U-10 | 11 October 2026 | **Passed: 1,025 of 1,025 tests in 24 files; exit status 0;** no failure, no skip, no unhandled error, no connection attempt recorded. `./node_modules/.bin/vitest run --config vitest.config.mts tests/unit --reporter=verbose`, once, after T-7, under the no-TCP preload with the integration, database, application, payment and AI-provider variables removed. The inventory is the 967 tests of U-6 and the 58 controls of `tests/unit/pg-app-process.test.ts`, all 58 of which passed. No sentinel value of the controls occurs in the captured output | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-233604/unit-run.log`, SHA-256 `7c906305bf74b42475da507208cb81ad42bec2c2ed8ddb499be487d503925137`: the command, all output and the exit status |
+| T-8 | 11 October 2026 | **Passed: exit status 0, no diagnostics.** `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`, once, after the ownership-fallback correction described below. `tsconfig.tsbuildinfo` unchanged; no connection attempt recorded | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-234446/typecheck.log`, SHA-256 `b8a19cfe0d84b4fbbcf31adaa698701036e5e4b463b09049178cfac67bf7999e`: the command, all output and the exit status |
+| U-11 | 11 October 2026 | **Passed: 1,028 of 1,028 tests in 24 files; exit status 0;** no failure, no skip, no unhandled error, no connection attempt recorded. `./node_modules/.bin/vitest run --config vitest.config.mts tests/unit --reporter=verbose`, once, after T-8, under the no-TCP preload with the integration, database, application, payment and AI-provider variables removed. The inventory is the 967 tests of U-6 and the 61 controls of `tests/unit/pg-app-process.test.ts`, all 61 of which passed. No sentinel value of the controls occurs in the captured output | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-234446/unit-run.log`, SHA-256 `ce4478c266641ec88f03fc418c3309296a9d7cf40182e3409aeb7423f0cc7e36`: the command, all output and the exit status |
+| T-9 | 12 October 2026 | **Failed: exit status 2, one diagnostic.** `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`, once, after the two driver interfaces described below were written. `TS2352` at `tests/integration/app-process.ts(1088,90)`: in the new `readProcessIdentity`, the environment object given to the process-table command is cast to `NodeJS.ProcessEnv`, which in this project requires `NODE_ENV`; the compiler refuses the direct cast. A typing error in new test-support code; no production source was named, and no other file produced a diagnostic. Not repaired and not rerun. `tsconfig.tsbuildinfo` unchanged; no connection attempt recorded | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-010330/typecheck.log`, SHA-256 `469b58677f59589588202c8b40c40502d38f5c0ee482e3cc25633b62bb01e203`: the command, all output and the exit status |
+| T-10 | 12 October 2026 | **Passed: exit status 0, no diagnostics.** `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`, once, after the only correction: in `readProcessIdentity` the environment of the process-table command is a local `Record<string, string>` holding the same two names, `PATH` and `LC_ALL`, handed over with the single cast the existing spawn code uses for its own environment. No `NODE_ENV` was added, and no double cast, `any` or suppression. `tsconfig.tsbuildinfo` unchanged; no connection attempt recorded | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-011656/typecheck.log`, SHA-256 `663e97c8b600f7c2911bdc8aced1d7ced46dfe90ec877490884d9baaea2bd0cc`: the command, all output and the exit status |
+| U-12 | 12 October 2026 | **Passed: 1,040 of 1,040 tests in 24 files; exit status 0;** no failure, no skip, no unhandled error, no connection attempt recorded. `./node_modules/.bin/vitest run --config vitest.config.mts tests/unit --reporter=verbose`, once, after T-10, under the no-TCP preload with the integration, database, application, payment and AI-provider variables removed. The inventory is the 967 tests of U-6 and the 73 controls of `tests/unit/pg-app-process.test.ts`, all 73 of which passed, the 12 for the two driver interfaces and the wrapper's qualification rules among them. No sentinel value of the controls occurs in the captured output | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-011656/unit-run.log`, SHA-256 `e4d317a5c9175e9e136dd57f19ddc0fc00f48cf1f5ce0876f2716855517c9efa`: the command, all output and the exit status |
+| T-11 | 12 October 2026 | **Passed: exit status 0, no diagnostics.** `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`, once, after the corrections to `tests/integration/run-evidence.ts` described below. `tsconfig.tsbuildinfo` unchanged; no connection attempt recorded | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-013644/typecheck.log`, SHA-256 `a3d4e51564c47df9e0ee6e9dac595e1ac77ac4e48476cda832e63cf2ddef7625`: the command, all output and the exit status |
+| U-13 | 12 October 2026 | **Failed: 1,045 passed, 1 failed, 0 skipped, of 1,046 in 24 files; exit status 1.** `./node_modules/.bin/vitest run --config vitest.config.mts tests/unit --reporter=verbose`, once, after T-11, under the no-TCP preload; no connection attempt recorded. The failure is in `tests/unit/pg-app-process.test.ts`, "the wrapper's own secrets are searched by the same scanner, in the same pass as the driver's sentinels": two expected lines of the new control were written without the status word (`integration-run.log:connection URLx1+passwordx1+session cookiex1`, `server.log:passwordx2`), where the scanner reported `integration-run.log:SCANNED:connection URLx1+passwordx1+session cookiex1` and `server.log:SCANNED:passwordx2`. The categories and counts the scanner found are the ones the control intended; the expectation is wrong, not the scanner. The diagnostic holds categories and counts only. Not repaired and not rerun. The other 78 controls of that file passed, the other new ones among them | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-013644/unit-run.log`, SHA-256 `b363faec5d8e8753132f66e609b137e56fef08156c7cf72081e809e58fd296a3`: the command, all output and the exit status |
+| T-12 | 12 October 2026 | **Passed: exit status 0, no diagnostics.** `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`, once, after the only correction: in the control that failed in U-13 the two expected lines were given the status word the summary helper emits (`integration-run.log:SCANNED:connection URLx1+passwordx1+session cookiex1`, `server.log:SCANNED:passwordx2`). No scanner code, fixture value, category, count or other assertion changed. `tsconfig.tsbuildinfo` unchanged; no connection attempt recorded | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-024312/typecheck.log`, SHA-256 `3fd07184e3a59a4fe6679575f816a7a04cf901ebfc524efb84c80178059018bc`: the command, all output and the exit status |
+| U-14 | 12 October 2026 | **Passed: 1,046 of 1,046 tests in 24 files; exit status 0;** no failure, no skip, no unhandled error, no connection attempt recorded. `./node_modules/.bin/vitest run --config vitest.config.mts tests/unit --reporter=verbose`, once, after T-12, under the no-TCP preload with the integration, database, application, payment and AI-provider variables removed. The inventory is the 967 tests of U-6 and the 79 controls of `tests/unit/pg-app-process.test.ts`, all 79 of which passed. No sentinel value of the controls occurs in the captured output | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-024312/unit-run.log`, SHA-256 `b2377687dfc3bc3206ab7a47910e76acb6ab65742cbd2b4cc8648b7aee43ef97`: the command, all output and the exit status |
+| T-13 | 12 October 2026 | **Passed: exit status 0, no diagnostics.** `./node_modules/.bin/tsc --noEmit --incremental false --pretty false`, once, after the scanner read-cap correction described below. `tsconfig.tsbuildinfo` unchanged; no connection attempt recorded | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-025236/typecheck.log`, SHA-256 `872c956e7987276fc0e851fc60ea60d5f86a670672ffff46e3dea3e306cabeca`: the command, all output and the exit status |
+| U-15 | 12 October 2026 | **Passed: 1,047 of 1,047 tests in 24 files; exit status 0;** no failure, no skip, no unhandled error, no connection attempt recorded. `./node_modules/.bin/vitest run --config vitest.config.mts tests/unit --reporter=verbose`, once, after T-13, under the no-TCP preload with the integration, database, application, payment and AI-provider variables removed. The inventory is the 967 tests of U-6 and the 80 controls of `tests/unit/pg-app-process.test.ts`, all 80 of which passed. No sentinel value of the controls occurs in the captured output | **Complete.** `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-025236/unit-run.log`, SHA-256 `1699aa9f385e0c0a1c9925e1c0148d6f56ff399c16141c765f1f5b8ab08a76c7`: the command, all output and the exit status |
+
+- **The unit run that was to follow T-3 was not performed**, because T-3 failed; T-3 stays a failed record. T-4 and U-7 are separate, later records.
+- Sources of T-4 and U-7: `tests/integration/pg-app.integration.test.ts` SHA-256 `ddae177f41d8a1fc408dd346174e15e82544a4295e5752b77f2533e3f2e25b88`; every other file as listed for T-3 below, with `src/app/layout.tsx` as above. U-7 is the first unit run with the type annotation of T-2 and with the changed layout; no unit test renders the layout.
+- **The disclosure correction between U-7 and T-5.** As first written, the driver handed sensitive values to the runner's matchers, which print the actual and expected values of a failed comparison: Set-Cookie values, the hidden fields of the confirmation form (CSRF token, nonce, quote digest), database rows that hold an owner identifier, and whole response texts. The driver now calls no matcher at all. It keeps those values in memory, compares them itself, and fails through the new pure module `tests/integration/safe-diagnostics.ts`, whose messages hold a fixed label, counts, booleans, the names of fields, tables, headers and categories, and a value only when it belongs to a small grammar of codes, names, cookie attributes and local paths. Full-content comparisons were kept as full-content comparisons; they report counts. Every case and the setup hook rethrow an unexpected failure without the original error (as first corrected, with the known secrets removed from its message; since T-6, with none of its text at all). Disclosure is prevented where the message is made; nothing relies on scanning or redacting the output afterwards. The cases, their expected outcomes, their permitted database effects and the deferred coverage are unchanged.
+- **A29, extended and still partial.** The response scan now covers every response body, every response header other than Set-Cookie, and Set-Cookie apart from them, where the session cookie being set is expected and no other category is. A finding reports the surface, the header's name, the category and the number of matches, never a value. Not covered, and not claimed: the reason phrase of the status line, trailers, and any response the driver did not itself request.
+- Sources of T-5 and U-8: `tests/integration/pg-app.integration.test.ts` SHA-256 `f8a0f4d19424a677135000ffa553cd29a50dde15248457c3bac5067b1094e24f`; `tests/integration/safe-diagnostics.ts` (new) `99a6a966f1719f8c2002db8bb3a323821afe698a649ac3c69110006b4744045a`; `tests/unit/pg-app-process.test.ts` `ae45fba972c90ace47ce193538c145a8f5ad630355a20a3775c8fbdaa6bf43f1`; `tests/integration/app-process.ts`, `vitest.integration.config.mts` and `src/app/layout.tsx` unchanged. State before the checks: `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-230301/state-before.txt`.
+- **What U-8 covers of the correction:** the diagnostics module, with synthetic sentinel values: a failing comparison still fails, keeps its context and prints neither value; matching values pass; a changed row among an unchanged number of rows is detected; a secret in a body, in an ordinary header or in a Set-Cookie header where it does not belong is found and reported without its value; and, read from the source, that the driver calls no matcher and wraps every case. It is not evidence that the driver's own failure paths were exercised: **the driver has still never run.** The correction awaits independent review.
+- **The unexpected-error correction between U-8 and T-6.** Two places still forwarded text that an error brings with it. `redactedFailure` appended the error's name, code and message after removing the secrets known at that moment; and `describeError`, used by `runCleanup` and written to `cleanup-result.json`, did the same for each failed cleanup step and for every error inside an aggregate. A secret that had not been registered when the failure happened would have passed through both, and a pattern for the shape of a code or a name is not a list. Both are replaced. An unexpected failure is now reported as a fixed operation label from the caller's source, one category of a closed list (`ASSERTION`, `REQUEST`, `STARTUP`, `CLEANUP`, `DATABASE_TARGET`, `NETWORK`, `FILESYSTEM`, `DATABASE`, `PROGRAMMING`, `AGGREGATE`, `UNKNOWN`), and a code only when the error's own `code` is exactly one of 47 listed strings (the driver's request, startup and cleanup codes, the harness's ten target refusals, five socket codes, nine file codes and ten SQLSTATE values); anything else is `UNKNOWN` with no code. No name, message, stack or cause is read or copied, nothing inside an aggregate is kept but their number, and the result does not depend on any secret having been registered; the known-secret redaction is gone because nothing arbitrary is forwarded. `describeError` no longer exists. `runCleanup` still attempts every step and records each failed step apart, as its fixed name, a success flag, a listed category and code, the number of errors of an aggregate, and numeric or boolean facts; `cleanup-result.json` is written field by field from that shape, and a writer that fails is reported by class in the hook's one visible line. The failure codes of log capture pass through the same list. In the driver, the operation labels are passed as fixed text, the cleanup result is written through the new serializer, and four `throw new Error` statements became coded failures so that their meaning survives the boundary; the cases, their assertions, snapshot semantics, deadlines, process ownership and cleanup order are unchanged.
+- Sources of T-6 and U-9: `tests/integration/safe-diagnostics.ts` SHA-256 `c3e8cacbd4b0a4746f2c9ad4e94f3542f2b496152bf7a039aad743d9afa35435`; `tests/integration/app-process.ts` `7193c3fe0a3246c869bd012555778006fc9f9ca3e9471c1d709c66a4afe3f900`; `tests/integration/pg-app.integration.test.ts` `938c0c852814c5f4f76910fde8fe331cc34f0d6f2b4b161fab92b3cc39f9a47e`; `tests/unit/pg-app-process.test.ts` `c1b6e77e7951bdbff22f5ef423e96fc09939b58fe5c56869dcacf762ed064caf`; `vitest.integration.config.mts` and `src/app/layout.tsx` unchanged. State before the checks: `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-231937/state-before.txt`.
+- **What U-9 covers of this correction:** with synthetic sentinels, an unregistered non-hex secret in a message, a spoofed name and code, a recognized code with a secret-bearing message, unlisted codes, an aggregate holding several secrets, a cause and custom properties, a label that could be a value, the cleanup result as an object and as JSON, cleanup continuing after such failures, and a failing writer of the cleanup result. It remains a test of the helpers: **the driver has still never run**, and this correction too awaits independent review. Integration execution, an enforceable network restriction, the cluster wrapper, detection of unexpected writes to tracked files, the deferred cases and every browser behaviour are as pending as before.
+- **The ownership, inspection and allowlist correction between U-9 and T-7**, for three findings of independent review.
+  - *Ownership of a process whose startup fails.* The driver used to record an application handle only after startup had succeeded, so a process spawned by a start that then failed, and that survived the one shutdown attempt made at that moment, belonged to nothing. `startApplication` now hands the handle to the caller through `onSpawned`, synchronously, immediately after the spawn and before any startup step is awaited; the driver puts it in the list that final cleanup stops (as of T-7; since T-8 the helper retains the handle itself first, see below). A startup failure keeps its listed startup code and is reported with the state of the shutdown that followed, as booleans; the error carries no handle. `stop()` no longer remembers an unclean result as its answer: a clean stop is final and repeatable without a signal, and after anything else the next call is another bounded attempt (SIGTERM, then SIGKILL after five seconds) on the same process group and on nothing else; a port that stays in use causes no signal. Every attempt is kept on the handle and counted in the cleanup facts. A process that remains after final cleanup is the cleanup failure `PROCESS_REMAINING`: the step fails, `cleanup-result.json` says `complete: false`, and the hook's line counts it. This is a further stop attempt only; nothing is started or sent again.
+  - *Inspection of what a cleanup step throws.* `runCleanup` no longer applies `instanceof` to, or reads facts from, a thrown value. A failure the driver raised on purpose is recognized by identity in a private registry, with the facts recorded when it was raised; anything else is classified inside a guard, and an examination that itself throws yields `UNKNOWN` and no facts. A prototype trap, a getter or a forged look-alike cannot throw out of the catch path or stop the later steps, and nothing of such an error is forwarded.
+  - *Exact lists for cleanup.* The pattern checks for step names and fact keys are replaced by lists. Step names: `abort and settle outstanding requests`; `stop application 1 and close its log`, likewise `2` and `3`; `destroy the disposable database fixture (harness cleanup)`; any other name is written as `unlisted step`. Boolean facts: `stopped`, `processRemaining`, `portFree`, `processRemainedAfterEarlierAttempt`. Count facts, whole numbers from 0 to 1,000,000: `aborted`, `outstanding`, `signalsSent`, `logFailures`, `problems`, `stopAttempts`, `failedStopAttempts`. A fact under any other key, or of the wrong type or range, is dropped and counted in `droppedFacts`. The serializer rebuilds the result from own, plain data properties only and calls no getter; a step it cannot examine becomes a fixed step with the code `CLEANUP_RESULT_UNREADABLE`, a result it cannot examine at all becomes one fixed text, and either makes `complete` false. The listed codes are now 49, with `PROCESS_REMAINING` and `CLEANUP_RESULT_UNREADABLE` added. The operation labels of the cases are still checked by a pattern guard and not by a list; they are fixed text in the driver's source.
+  - The integration cases, their outcome and snapshot assertions, the deadlines and the cleanup order are unchanged.
+- Sources of T-7 and U-10: `tests/integration/safe-diagnostics.ts` SHA-256 `9e0ad68b2da06b7db11428abcb82dc527a6ee2de1a8c37d974fd4f7b7c6ac85f`; `tests/integration/app-process.ts` `94d3b9035f2712e735527dab581fa72a77cf9775b5487fceeeb57cd05b77d9ed`; `tests/integration/pg-app.integration.test.ts` `9712c44e59b268df06b13d387bb512d14f2e6829a24cefbbb3b98b47925b4597`; `tests/unit/pg-app-process.test.ts` `e2976cf0414684afbb41f8a022cf76ec1e209bba95ef7330ccc99b6dce7eb3af`; `vitest.integration.config.mts` and `src/app/layout.tsx` unchanged. State before the checks: `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-233604/state-before.txt`.
+- **What U-10 covers of this correction:** with fakes and synthetic sentinels only, a start that fails with a process that survives its first shutdown, registered before the first readiness attempt; a final cleanup that stops it, and one that does not and is recorded as `PROCESS_REMAINING`, both attempts counted; a thrown proxy whose traps throw and a forged look-alike with a throwing getter, with the later steps still run; and forged or unreadable cleanup results. **The driver has still never run**, no real process was started, and this correction awaits independent review before any integration execution. An enforceable network restriction, the cluster wrapper, detection of unexpected writes to tracked files, the deferred cases and every browser behaviour remain open.
+- **The ownership-fallback correction between U-10 and T-8.** After T-7 a spawned application was owned only if the caller's `onSpawned` callback kept its handle: with no callback, or with a callback that threw before keeping it, a process that survived the shutdown attempt of a failed start belonged to nothing, although the startup message said it stayed owned. Retention is now done by `startApplication` itself, in an `ApplicationOwner`: a list that only the helper module can reach, to which the handle is added immediately after the spawn, before the callback is called and before any startup step is awaited. Adding to it runs no code of the caller. An owner is made with `createApplicationOwner`; a start that is given no owner, or something that is not one, retains its handle in a process-wide owner, so a spawned application is always retrievable. The callback remains as bookkeeping for the caller; if it throws, the handle is already retained, the start is abandoned with the listed code `STARTUP_CANCELLED`, one bounded shutdown is attempted, and nothing of what was thrown is kept. The driver creates one owner, and its final cleanup stops every handle of the owner together with its own list, each handle once by identity, through the same bounded stop path as before; a process that remains is still the failure `PROCESS_REMAINING`, with `complete: false`. Handles appear in no error and in no serialized evidence. `tests/integration/safe-diagnostics.ts` is unchanged, so no code was added for a failed callback. The integration cases, their assertions and the deferred coverage are unchanged.
+- Sources of T-8 and U-11: `tests/integration/app-process.ts` SHA-256 `8a9f076980f7bae801432dbdcbac3089799c9a1e877457d978d92b191a22d45b`; `tests/integration/pg-app.integration.test.ts` `b8c7cb6b5a16629f45cae35d18f6dbbcc4a8ba6ba1e65af7fd194ce60a449470`; `tests/unit/pg-app-process.test.ts` `71425811d9642890006a34e62b6c1617ffe20993a9d69f98e9962b06563b5981`; `tests/integration/safe-diagnostics.ts` `9e0ad68b2da06b7db11428abcb82dc527a6ee2de1a8c37d974fd4f7b7c6ac85f`, as for T-7. State before the checks: `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-234446/state-before.txt`.
+- **What U-11 covers of this correction:** with fakes only, a callback that throws before keeping the handle, with a process that survives the first shutdown; cleanup that takes the handle from the owner and stops it, and cleanup in which it survives and is recorded as `PROCESS_REMAINING`; a start with no callback, with no options and with a forged owner, each leaving the handle retrievable; one handle held by the owner and by the caller's list, stopped once; and the absence of the callback's error text from the startup line, the error and the cleanup JSON. **The driver has still never run**, and the next independent review is of this fallback and its controls. An enforceable network restriction, the cluster wrapper, detection of unexpected writes to tracked files, the deferred cases and every browser behaviour remain open.
+- **The two driver interfaces written after U-11 (ownership registration and sentinel evidence).** As first written they did not type-check (T-9), and the unit run that was to follow T-9 was not performed; after one typing correction they type-check (T-10) and their 12 controls pass with the rest (U-12).
+  - *Ownership registration.* `startApplication` takes a `register` function, called synchronously after the handle has been retained internally and before `onSpawned` and any awaited startup step. The driver's implementation reads the process group and the start time of the new process from the process table (`readProcessIdentity`) and appends one line to the private file `application-ownership.jsonl` in its evidence directory: format `shopaccess-ie1-ownership/1`, the run's ownership identity, an index from 1, the pid, the process-group id and the start identity. If the identity cannot be read or the line cannot be written, the start is abandoned as `REGISTRATION_FAILED`, the process, which is already retained, is stopped by the bounded path, and nothing of the error is kept. The run's ownership identity is a new required input, `SHOPACCESS_APP_TEST_OWNERSHIP_ID` (32 lower-case hex digits, made by the wrapper), which the driver also places in the environment of every application it starts.
+  - *Sentinel evidence.* `tests/integration/run-evidence.ts` (new, pure, no local imports) defines `sentinel-evidence.json`, format `shopaccess-ie1-sentinels/1`, encoding `utf-8`: a per-run salt and base, a completeness flag, and for each sensitive value its category (the ten categories of the driver, exactly), its length in UTF-8 bytes, a keyed rolling hash and the SHA-256 of the salt followed by the value's bytes. No value is written. The file is replaced atomically (temporary file, then rename) each time a new value is registered; the driver registers a value before using it: fixture credentials and keys when they are made, the session cookie, CSRF token, confirmation nonce and quote digest of every response as the response is taken in and before any case reads it, and owner ids and digests as they are read from the database. A completeness marker is written before the fixture is destroyed. A reader refuses a record that is missing, unreadable, malformed, of another run or not complete. Scanning finds exact occurrences of the registered byte strings only, within limits on file size, total size and time; an input that cannot be read, is too large or was not reached makes the scan incomplete, never clean. It does not find a transformed form of a value (URL-encoded, escaped, re-encoded, split or truncated) or a value that was never registered.
+  - The same file holds the rules the execution wrapper applies, so that they are covered by unit controls rather than only by the wrapper: exclusive creation of the run directory, logging that cannot break cleanup, bounded cleanup steps, the verdict (which requires the result file and the evidence manifest to have been written), and the comparison of worktree listings that includes ignored paths. These have not been run either.
+  - Files at T-9: `tests/integration/run-evidence.ts` (new) SHA-256 `ea32a1e5402e3b7ef5606b6785e99aab6e2befbac8fb53151d671b1a30eac656`; `tests/integration/app-process.ts` `524b35fbe1994aaa053633b8caa38dc32f583a18c24c0de0036421e08267361b`; `tests/integration/pg-app.integration.test.ts` `1e1ba980cb253d838286946a7cd773e5e188f16cbfde34c29d30044021e696cf`; `tests/unit/pg-app-process.test.ts` `26c2a34f3aaed22b74c8bc374de3e5725334ae090f33f5e2dc76cf8c1fb4b614`; `tests/integration/safe-diagnostics.ts` unchanged. State before the check: `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-010330/state-before.txt`.
+  - The integration cases and their assertions are unchanged. **The driver has still never run.** Nothing here establishes that the network boundary is enforced or that the wrapper behaves as written: the wrapper, its profile and its probes exist as unexecuted preparation outside the repository. Network enforcement, the cluster wrapper, the deferred cases and every browser behaviour remain open.
+- Sources of T-10 and U-12: `tests/integration/app-process.ts` SHA-256 `9b3cb1b6927fe3ce5513559dbfb8e402209bbce04a5cfa8ae11ce38033d73129`; `tests/integration/run-evidence.ts`, `tests/integration/pg-app.integration.test.ts`, `tests/unit/pg-app-process.test.ts` and `tests/integration/safe-diagnostics.ts` as at T-9. State before the checks: `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-011656/state-before.txt`. T-9 stays a failed record.
+- **What U-12 covers, and what it does not.** With fakes and in-memory files only, it exercises the registration hook, the ownership and sentinel formats and their strict readers, atomic replacement, the bounded exact-byte scan, exclusive creation of the run directory, logging that cannot break cleanup, bounded steps, the verdict, and the comparison of listings. It started no process, opened no listener and read no real process table. It is not evidence that the network boundary is enforced, that Node loads the evidence helper by removing its types, that a process's identity can be read on this system, or that the wrapper behaves as written; and it does not close the interval between an identity check and a signal, in which a pid can be reused. Independent review of the ownership interface, of sentinel registration, completeness and the scanner, and of the limits of write detection is still outstanding. **The driver has still never run.**
+- **Corrections to the shared evidence helper after U-12, for four findings of a package review (T-11 passed; U-13 failed by one wrong expectation in a new control).** Only `tests/integration/run-evidence.ts` and the unit test file changed; the driver, the process helper and every integration case are as at U-12.
+  - *Ownership fails closed.* New shared rules: a signal is decided from a process table that was read, a pid that is still the recorded process, and an environment that was read and carries the run's identity; unreadable evidence refuses the signal and is counted, and an exited process is told apart from an unreadable one. A registered process found in another process group than was registered is not adopted. Registration indices must be 1, 2, 3 in order. Ownership evidence qualifies only with process identity verified at the boundary, a readable identity sweep, no unreadable check before a signal, no failed snapshot or record write, a valid registration sequence of the expected length, and no process-group mismatch. A run that started fewer applications is described as that and is not required to have registrations it never made. **The interval between the last check and the signal remains: a pid can be reused in it. These rules do not close it.**
+  - *One bounded scanner.* `scanStreams` reads each input a piece at a time and searches as it reads, for the driver's sentinels and the wrapper's own secrets alike (the latter are added under the same salt). Limits on one input and on all inputs are counted in bytes actually read; there is one deadline and a cancellation; a value lying across two pieces is found once; every opened reader is closed. An input that could not be opened or read, passed a limit, changed size while it was read, would not close, or was not reached makes the scan incomplete, and incomplete is never clean. The whole-file scan (`scanInputs`) is removed. The scan still finds exact registered UTF-8 byte strings only.
+  - *A created directory with a wrong mode.* `createRunDirectory` returns the path whenever this call created the directory. A wrong mode is corrected once on the new, empty directory; if it still is not 700 the directory is returned as created and not usable. A collision returns no path and is not touched.
+  - *Final logging.* `concludeRun` fixes the order: final outcome lines, then the log is flushed and closed and the count of lines not written is final, then the scan, then the evidence outcome, then the result file, then the manifest. A final line that could not be written, or a log that could not be closed, cannot leave a pass. Nothing is logged after the close.
+  - Files at T-11 and U-13: `tests/integration/run-evidence.ts` SHA-256 `cefbd3708cff97ef731a3e8a7e123ac4818aaf1980087e11ef2741523d41a85a`; `tests/unit/pg-app-process.test.ts` `519f202f49f22196941d28cfda9440f1e77b430aace69acfdcfa9a72466e74c5` (79 controls); `tests/integration/app-process.ts`, `tests/integration/pg-app.integration.test.ts` and `tests/integration/safe-diagnostics.ts` as at U-12. State before the checks: `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-013644/state-before.txt`.
+  - At U-13 the unit suite did not pass; after one correction to that control's expectation it passes (U-14). Nothing here is evidence about the execution wrapper, the sandbox profile or the probes, which exist as unexecuted preparation outside the repository; **the driver has still never run.**
+- Sources of T-12 and U-14: `tests/unit/pg-app-process.test.ts` SHA-256 `310100c8c63584f3d809758a2c6c6e4789f213466c46a07b42a8ebd008c98e98`; `tests/integration/run-evidence.ts` `cefbd3708cff97ef731a3e8a7e123ac4818aaf1980087e11ef2741523d41a85a`, as at T-11; every other file as at U-12. State before the checks: `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-024312/state-before.txt`. U-13 stays a failed record.
+- **What U-14 covers, and what it does not.** It exercises the shared rules of the four package corrections with fakes and in-memory inputs only: the signal decision, the registration sequence and ownership qualification; the streaming scan at every piece boundary, its limits, failures, deadline, cancellation and reader closure; the wrapper's secrets through the same scanner; a newly created directory with a wrong mode against a collision; and the final logging order. It ran no wrapper, no probe and no real process. It does not close the interval between an identity check and a signal, in which a pid can be reused; it does not show that the sandbox, the process table or the kernel log behave on this system as the package assumes, or that Node loads the helper by removing its types; and write detection keeps its stated limits. The four corrections in the package itself await independent review. **The driver has still never run.**
+- **The scanner read-cap correction between U-14 and T-13.** As corrected for U-13 the scanner counted its limits in bytes read, but it noticed a limit only after the read that passed it: up to one whole piece beyond the limit could be taken from an input. Now the cap of each read is settled before the read is made: the smallest of what is left of the input's limit, what is left of the limit on all inputs, and the piece size (`chunkBytes`, 1 MiB when not given). `ChunkReader.read` takes that maximum and must not take more from the input; a reader that returns more is reported as `READER_OVERRAN_REQUEST`, and what it returned is not searched. When nothing is left, no read is made. Whether an input ended exactly at a limit is not found by reading on: it is complete only if its size before and after both equal the bytes read, and otherwise it is over the limit (larger, grown, or of unknown size), which is an incomplete result. The deadline, cancellation, reader closure, matching across pieces, UTF-8 byte handling and category-and-count output are unchanged, as are the ownership, directory and final-logging rules.
+- Sources of T-13 and U-15: `tests/integration/run-evidence.ts` SHA-256 `8978138d6ba4ea6a2a089266f8418e1f6c0e5303cbb56ab4b1692561737afc24`; `tests/unit/pg-app-process.test.ts` `787a503ce9023c51dfe7a606f6edb2244049bd9ca623aabc9bb27b7667584c94` (80 controls: one added, and the earlier overshoot control now requires that exactly the limit is read); every other file as at U-12. State before the checks: `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261012-025236/state-before.txt`.
+- **What U-15 covers, and what it does not.** With in-memory readers only: that no read is asked for more than is left of either limit or of the piece size; that a file of exactly the limit completes in as many reads as it needs and no more; that larger, growing and size-lying files are read to the limit and not beyond; that at zero budget no read is made; and that matching across pieces and reader closure still hold. It does not run the package's real file reader, which exists as unexecuted preparation outside the repository. The interval between an identity check and a signal, the behaviour of the sandbox, the process table and the kernel log on this system, Node's loading of the helper, and the limits of write detection are as unresolved as before. **The driver has still never run.**
+- **What U-7 covers of the driver:** the helpers, against fakes and fake timers. It started no process, opened no port, sent no request and opened no database. **The integration driver itself has never been run**, and U-7 says nothing about any case in it. Still pending: the driver's execution; an enforceable restriction of external network traffic, including the bundler's native networking; every browser behaviour; and owner acceptance.
+- Files at T-3: `vitest.integration.config.mts` `58d6c42ba7959004bd8041b82e3a1af94bad5ad6f0e616b341089691a5c69e2c`; `tests/integration/app-process.ts` `1747136e259884bc280735593aa6bb89c6e43e09420b3671f93708c59811ba07`; `tests/integration/pg-app.integration.test.ts` `66b4d5dcbb9ca3270725e564f56e0ab496ec30cd9e1993eeded775dde478968b`; `tests/unit/pg-app-process.test.ts` `4757fb7b6f986ac027f5d92c224ee43c57551f5237c6af88a2b2fec536af6255`. State before the check: `/Users/frankncube/shopaccess-backups/increment-2-3-driver-20261011-222701/state-before.txt`.
+- R-1 covered the project as it was before these files. The route and page modules are unchanged apart from `src/app/layout.tsx`, whose only diagnostic-free evidence is T-3 itself.
+
+**What is not established by anything above.** For Increment 2.3: that it builds; that the integration driver runs, or that any of its cases holds; that the network boundary is enforced; that the execution wrapper behaves as written; anything about its routes and pages beyond the type-level validation of R-1; that the readiness probe or the catalog statement is valid SQL; that the application starts, serves a request or survives a restart in PostgreSQL mode; anything a browser or a keyboard would show; and every case of §19.19 at level I or B. A unit test against a fake establishes what the application does with the fake's answers, and nothing about PostgreSQL. Mock mode's unit tests passed in U-4, U-5 and U-6; Mock mode has not been run in a browser with these changes. For Increment 2.2: full PGT-142, whose accepted-confirmation variant has an unexpired quote; the historical PGT-207; PGT-79; and any payment behaviour. For Increments 2.1 and 2.2, B-E2 and C-E2 are execution evidence and an owner decision is still outstanding: **no owner acceptance of Group B, of Increment 2.2 or of Increment 2.3 is recorded in this document.** A failed run is kept as a failed run and is never merged into a later one.
+
+### 19.19 Increment 2.3 contract: opt-in application mode
+
+**Status.** The owner approved the decisions below and authorized this amendment and the source implementation. That authorization covers writing source and database-free tests only. Nothing in this subsection has been run: §19.18 is the only place that says what exists and what has run. Migrations `0001` to `0009`, the bootstrap file, the test harness and `src/lib/pg/client.ts` are not changed by Increment 2.3.
+
+**Scope.** Increment 2.3 connects the existing interface to the entry points of Increments 1, 2.1 and 2.2. It ends at `USER_CONFIRMED`. It adds no dispatch, worker, provider call, capture, refund or payment recovery, and it adds no database object.
+
+**Decision register**
+
+| # | Decision | Status |
+| --- | --- | --- |
+| D1 | A page load never issues a challenge. Issuance happens only in guarded POSTs: `POST /checkout/start` and "Review again". §5.4 is amended accordingly | APPROVED |
+| D2 | `credentialOf` is added to the session service; the token digest still originates only there | APPROVED |
+| D3 | When the submitted challenge is the ACTIVE challenge of the checkout in the URL, `consume_challenge` receives the submitted, well-formed quote id and quote digest unchanged, so that the database decides every mismatch and writes its rejection audit row (G2-38 is preserved) | APPROVED |
+| D4 | Stale forms and replays that do not name the URL checkout's ACTIVE challenge get an outcome of the application's own, with no consume call: they are neither counted nor audited by the database | APPROVED |
+| D5 | No checkout call is re-run by the application, for any reason. This is stricter than the approved maximum of three database-only re-runs (D-8), which the session calls keep | APPROVED |
+| D6 | Replacement follows the database's eligibility: only a stored `QUOTED` or `USER_CONFIRMED` checkout is named as a predecessor. A canceled checkout offers a new checkout with no predecessor | APPROVED |
+| D7 | The owner's checkouts are listed on a separate page, `/checkouts`, as best-effort recovery | APPROVED |
+| D8 | Readiness is request-time and fail-closed, with one runtime and one pool per process and terminal disposal. It is not a refusal to start the process, and there is no end-to-end deadline for connection establishment or pool acquisition | APPROVED |
+| D9 | Amount bounds when reading `read_checkout` | RESOLVED from the table constraints of migration `0007`; not an owner choice |
+| D10 | A session is admitted without the shopper asking only when the request carries no session cookie at all. Any presented cookie that cannot be used needs the explicit `POST /session/new` | APPROVED |
+| D11 | A session is rotated only by `POST /session/rotate`. §18.7 item 6 ("may be rotated") is thereby made explicit and shopper-initiated | APPROVED |
+| D12 | The simulated payment lifecycle is hidden and refused in PostgreSQL mode | APPROVED |
+| D13 | The catalog is one joined, uncached statement (G2-17); the in-process limits are a first line only and the database's throttle decides (G2-19) | APPROVED |
+| D14 | Browser tooling (G2-20) and the set-up of an application database | DEFERRED to a later gate |
+
+**Mode and configuration (G2-16, D8)**
+
+- `SHOPACCESS_PERSISTENCE_MODE` not set at all: the in-memory mock, built by the same code as before, with the same settings and the same token-only cookie. Exactly `postgres`: PostgreSQL mode. Any other value, an empty one included: nothing is served.
+- PostgreSQL mode requires, with no default: `SHOPACCESS_DATABASE_URL` (a `postgres:` or `postgresql:` URL with a host and a user), `SHOPACCESS_SESSION_KEYS`, `SHOPACCESS_NONCE_KEYS`, `SHOPACCESS_TRUSTED_ORIGINS`, and `PAYMENT_PROVIDER_MODE=mock`. The mock's single-key setting is not read.
+- `src/server/runtime.ts` remains the only reader of the process environment.
+- PostgreSQL mode never falls back to the mock: not when configuration is missing, not when the database is unreachable, not for a single page. The mode is read when a request is served, never when a page is built.
+
+**Readiness and the pool (D8)**
+
+- One runtime and one pool for the process. Configuration is parsed on first use; an error is permanent for the process and no pool is created. Concurrent first requests share one construction. The pool is created at most once and is never replaced; creating it opens no connection.
+- Before anything is served, one fixed statement of the catalogue is sent and its one row must be exactly: session user and current user both `shopaccess_web`; that role is not a superuser and has none of create-role, create-database, replication and bypass-RLS; it is a member of no role; it may execute each of the ten entry points by exact signature; the two operator functions and the seven internal helpers exist and it may execute none; it may read the three catalog tables and `server_key_versions` and write none of the four; the other twelve tables exist and it holds no privilege on any of them or on a column of them; it has USAGE on both schemas and CREATE on neither; and it has neither CREATE nor TEMPORARY on the database. The probe's text names no object: the lists are bound values.
+- Then the key-version rows of both purposes must agree with the configured rings (§18.5): an ACTIVE version exists and is configured, and every configured version the database accepts has the configured key's check value.
+- One attempt at a time, shared by the requests that arrive together. A success is trusted for 60 seconds. After a failure no new attempt starts for 5 seconds, and requests in that interval are answered without a statement being sent.
+- While not ready: route handlers answer the generic 503, and every page, the start page included, shows a fixed "not available" notice and nothing else. No business data is shown and the fixture catalog is never shown in its place.
+- Disposal is terminal. The runtime is marked disposed before anything is awaited; a construction or a probe that completes afterwards publishes nothing; the pool is ended exactly once, through one shared close, however disposal and the cleanup of a failed construction overlap; afterwards every request is "not available".
+- **Limitation.** The approved `statement_timeout` bounds server-side SQL execution after the statement starts. The current pool configuration does not establish an end-to-end deadline for connection establishment or pool acquisition. No such deadline is added in Increment 2.3, and no call is raced against a timer and abandoned. Later validation must record this and must not report an end-to-end deadline.
+- **Limitation.** The web role cannot read the migration ledger. The application cannot verify the checksums of the applied migrations and does not claim to. It applies no migration, runs no bootstrap file and calls no operator function.
+
+**Request authorization**
+
+- PostgreSQL mode has its own guard. It never reads the mock's cookie format and never calls the mock's session service.
+- Order for a state-changing request: the form body and its size limit; trusted origin and Fetch Metadata; the cookie, which must be exactly `version.token` (§18.7); one `authorize_session` call under that version only; the CSRF token bound to that session; the in-process limit. Every authorization failure is the same generic 403. There is no second attempt under another version, another cookie format or the mock.
+- The authorized request carries a server-only context: the session, the presented cookie, and the credential (key version and token digest) that the checkout entry points take as their first two values. The credential is obtained from the session service (`credentialOf`) and is never serialised, logged, returned or handed to a component.
+
+**Sessions (D10, D11)**
+
+| Request | Presented cookie | Behaviour |
+| --- | --- | --- |
+| `GET /session/start` | None | A session is admitted and the `version.token` cookie is set. This is the only admission without an explicit request |
+| `GET /session/start` | Present, and malformed, duplicated, in the mock's format, or refused by the database | No admission and no `Set-Cookie`. Redirect to `/?session=ended`, which explains, says that earlier checkouts will not transfer, and offers one button |
+| `GET /session/start` | Authorized, under an ACTIVE or a VERIFY_ONLY key | Unchanged. Nothing is rotated on a GET |
+| `POST /session/new` | Unusable | Guarded by trusted origin and Fetch Metadata only: there is no session, so there is no CSRF token. A session is admitted, and only then is one `Set-Cookie` sent, which replaces the presented value. On a refusal no cookie is sent. The earlier session is not revoked |
+| `POST /session/new` | Authorized | No admission; a valid owner is never replaced |
+| `POST /session/rotate` | Authorized | Full guard. Under the ACTIVE key: no database call. Under a VERIFY_ONLY key: `rotate_session`; the session and its owner are unchanged, the cookie and the CSRF token are new, and a form rendered earlier is refused until it is loaded again |
+
+- Whether a cookie is present is decided by counting the cookie pairs of that exact name, apart from parsing: the parser's "no usable credential" is never read as "absent".
+- `authorize_session` may record the session's activity on a GET, as Increment 1 defines. That is the only write a GET can cause. No GET creates, changes or ends a checkout, a quote, a challenge or a session credential.
+
+**Routes of PostgreSQL mode**
+
+| Route | Fields read | Success | Notes |
+| --- | --- | --- | --- |
+| `GET /session/start` | query `use`, `budget` | 303 to `/shop?…&started=1` or `/` | Above |
+| `POST /session/new` | none | 303 to `/` | Above |
+| `POST /session/rotate` | `csrfToken` | 303 to `/` | Above |
+| `POST /checkout/start` | `csrfToken`, `productId`, `variantId`, `quantity`, optional `replaces`, `use`, `budget` | 303 to `/checkout/{id}` | Below. Any price in the form is ignored |
+| `GET /checkout/[intentId]` | query `error`, `notice` | The page | `authorize_session` and `read_checkout` only. Another owner's checkout is "not found" |
+| `POST /checkout/[intentId]/review` | `csrfToken` | 303 to the page | One request for a challenge |
+| `POST /checkout/[intentId]/confirm` | `csrfToken`, `acknowledged`, `confirmationId`, `nonce`, `quoteId`, `quoteDigest` | 303 to the page with `notice=CONFIRMED` | Below |
+| `POST /checkout/[intentId]/cancel` | `csrfToken` | 303 to the page with `notice=CANCELED` | One `cancel_checkout` call |
+| `GET /checkouts` | query `error`, `notice` | The owner's checkouts, at most 100 | `list_owner_checkouts`. "Not found" in the mock |
+| `POST /checkout/[intentId]/simulate` | — | — | Always the generic 404 after the guard (D12) |
+| `GET /`, `GET /shop` | as before; `session=ended` on `/` | The database's catalog | One joined statement per render |
+
+Every refusal body is the existing generic public error: a code, a fixed message and a request id. No response, redirect, header or log line carries a digest, an owner id, a key version, a connection detail or a database message; the log names an unexpected row by its field and a database error by its five-character code. Results that are not listed for an entry point are an unexpected row, never passed on.
+
+**Starting a checkout and its first challenge (D1, D5)**
+
+- `start_checkout`, `read_checkout` and `issue_challenge` are three separate calls, each committed by itself. Each is sent once.
+- **Known success, then a failure.** Once `start_checkout` has answered `STARTED`, the checkout exists and its id is known. Whatever fails afterwards leads to `/checkout/{id}?error=REVIEW_NOT_READY`, where the page offers "Review again". `start_checkout` is never repeated to recover a challenge.
+- **Uncertain start.** If the start call fails without a usable row (a lost connection, a timeout, a lost answer, an unexpected row), whether the checkout was committed is not known. Nothing is sent again. The shopper is sent to `/checkouts` with a notice that says so. The list is best-effort: a checkout found there can be opened; an empty list is not presented as proof that the start failed.
+- **Inputs of a request for a challenge:** a challenge id generated by the server; the owner id and the stored quote digest of an authorized `read_checkout` row; the nonce key version the database calls ACTIVE, which is always a configured version; that version's key, lent by the ring and cleared after use. The nonce is derived as §19.16 fixes it, and only its digest is sent.
+- `ISSUED`: the returned id, quote digest, key version and nonce digest must be those sent.
+- `REUSED`: the nonce is derived again from the returned challenge id and quote digest and the read's owner id, under the returned key version if it is configured, and its digest must equal the returned digest. Otherwise the existing challenge cannot be shown by this process (`REVIEW_NOT_READY`).
+- `NONCE_KEY_NOT_ACTIVE`: the key versions are read once more. Only if that reading names a different, configured ACTIVE version is one more call made, with a new id. A reading cannot supply key bytes that are not configured. Never more than two calls; each call the database admits is counted there.
+- `REFUSED`, and any failure without a result: no further call.
+
+**Confirmation is bound to the checkout in the URL (D3, D4)**
+
+Malformed fields are refused before any checkout call. The checkout in the URL is then read; a checkout of another owner is "not found". The acknowledgement is required. Then:
+
+- **The submitted challenge id is the ACTIVE challenge the read showed for this checkout:** `consume_challenge` is called with that id and the submitted nonce, quote id and quote digest as they were sent. The database's result is final. `CONFIRMED` must name the checkout in the URL; if it names another, the answer is the generic 500 and nothing is redirected. `CONFIRMATION_SUPERSEDED`, `CONFIRMATION_ALREADY_USED` and `CONFIRMATION_NOT_FOUND` can then follow only from a change between the read and the call, and are shown as the database reported them.
+- **Otherwise no consume call is made**, and the answer is one of three outcomes of the application's own, none of which is a result of `consume_challenge`:
+
+| Read shows | Outcome | Text |
+| --- | --- | --- |
+| Another ACTIVE challenge, or none while stored `QUOTED` | `FORM_OUT_OF_DATE` | "This form could not be processed. Reload to see the current checkout status." |
+| No ACTIVE challenge, stored `USER_CONFIRMED` | `ALREADY_CONFIRMED` | "This checkout was shown as confirmed when this form arrived. Reload to see the current checkout status." |
+| No ACTIVE challenge, any other stored state | `CHECKOUT_NOT_CONFIRMABLE` | "This checkout was not awaiting confirmation when this form arrived. Reload to see the current checkout status." |
+
+These texts describe what the read showed at that moment. They make no claim about what has or has not happened since, because the read may be stale. `read_checkout` exposes no confirmation pointer, so the application cannot tell whether a replayed form's challenge was the one consumed, and does not say.
+
+**Replacement and starting another (D6)**
+
+| Stored state | Offered |
+| --- | --- |
+| `QUOTED`, challenge shown | The confirmation form; cancel |
+| `QUOTED`, quote live and unchanged, no challenge shown | Review again; cancel |
+| `QUOTED`, quote expired or stale | A new quote that replaces this checkout; cancel |
+| `USER_CONFIRMED` | Cancel; a new quote that replaces this checkout |
+| `CANCELED_LOCAL`, `EXPIRED` | A new checkout for the same item, with no predecessor. The record stays as it is |
+| `SUPERSEDED` | A link to the checkout that replaced it |
+
+A canceled or superseded checkout is never sent as a predecessor: the page does not offer it, and the handler refuses it after its own read. The database decides again under its locks; `REPLACEMENT_NOT_ALLOWED` leads back to the predecessor's page.
+
+**Amounts (D9)**
+
+The six amount columns of `read_checkout` are `bigint` and arrive as text. Only text is accepted. `unit_amount_cents`: `^[1-9][0-9]{0,6}$`, 1 to 2,000,000. `subtotal_cents` and `total_cents`: `^[1-9][0-9]{0,7}$`, 1 to 20,000,000. `discount_cents`, `tax_cents`, `shipping_cents`: exactly the text `0`. `quantity`: an integer from 1 to 10. Then: subtotal equals unit times quantity, and total equals subtotal. Order: type and text form, then range, then arithmetic. A row that fails is refused whole: nothing of it is rendered, a page shows "not available", a handler answers the generic 500, no mutating call follows from it, and the log names the field and never the value. Catalog amounts are `integer` columns and are held to 1 to 2,000,000 by the catalog schema.
+
+**Shared modules and the mock.** `src/server/config.ts` gains the mode parser and leaves the mock's parser as it was. `src/server/runtime.ts` chooses the runtime and leaves `createRuntime` as it was. The routes that both modes share call the mock's handler exactly as before. `src/server/views.ts` gains message entries that the mock never produces. The mock's handlers, stores, services, guard and cookie are not edited. One rendering change reaches the mock: the start page is rendered per request, with the same content, so that the mode is read when a request is served.
+
+**Acceptance map.** Level U is a unit test with a fake of the database; I needs the application with a newly created disposable database; B needs a browser. Every U case is written and **not run**. Every I and B case is **pending a separately authorized environment** (D14) and is not established by a unit test. A10 and A27 are withdrawn: A45 and A46 replace A10, and A47 replaces A27.
+
+| ID | Assertion | Level | Unit test file |
+| --- | --- | --- | --- |
+| A1 | A cookie that is not exactly `version.token`, or names an unusable version, is no session; never another version or format | U | `pg-app-guard` |
+| A2 | Guard order; every authorization failure is the same refusal | U | `pg-app-guard` |
+| A3 | The request context carries the service's own binding; a look-alike session object has no credential | U | `pg-app-guard` |
+| A4 | A submitted challenge that is not the URL checkout's ACTIVE challenge sends no consume call and gets a local outcome | U, I | `pg-app-flow` |
+| A5 | A matching challenge reaches `consume_challenge` with the submitted nonce, quote id and digest unchanged | U | `pg-app-flow` |
+| A6 | `CONFIRMED` naming another checkout is a 500 and no redirect | U | `pg-app-flow` |
+| A7 | A replay after confirmation: `ALREADY_CONFIRMED`; this request sends no consume call | U, I, B | `pg-app-flow` |
+| A8 | A change after the read is decided by the database; every `consume_challenge` result has its outcome | U, I | `pg-app-flow` |
+| A9 | `STARTED`, then issue fails: that checkout with `REVIEW_NOT_READY`; one start call; Review again recovers | U, I, B | `pg-app-flow` |
+| A11 | What start and issue send; the nonce is never a value of a call | U | `pg-app-flow` |
+| A12 | `REUSED` is shown only when the derived digest matches | U | `pg-app-flow` |
+| A13 | `NONCE_KEY_NOT_ACTIVE`: one new reading, at most one more call, only for a different configured version | U, I | `pg-app-flow` |
+| A14 | A refused id, a timeout and a lost connection: exactly one call each; no re-run helper in the checkout path | U | `pg-app-flow`, `pg-app-config` |
+| A15 | A page load sends `authorize_session` and `read_checkout` only | U, I | `pg-app-flow`, `pg-app-config` |
+| A16 | After a restart with the same keys, and in a second tab, the same challenge and nonce from the read alone | U, I, B | `pg-app-flow` |
+| A17 | Two tabs: the first submission confirms; the second gets the already-confirmed outcome | I, B | — |
+| A18 | `GET /session/start`: the rows of the sessions table above | U, I | `pg-app-guard` |
+| A19 | `POST /session/rotate`: nothing under ACTIVE; under VERIFY_ONLY the same session and owner with a new cookie | U, I | `pg-app-guard` |
+| A20 | No GET rotates, admits for a presented cookie, or mutates a checkout | U | `pg-app-guard`, `pg-app-config` |
+| A21 | A canceled checkout: "Start another" with no predecessor; the canceled record unchanged | U, I | `pg-app-flow` |
+| A22 | Replacement from `QUOTED` (expired and stale included) and `USER_CONFIRMED`; `REPLACEMENT_NOT_ALLOWED` | U, I | `pg-app-flow` |
+| A23 | Mode and configuration: unset is the mock; `postgres` with anything missing serves nothing; no mock store in PostgreSQL mode | U | `pg-app-config` |
+| A24 | Every failing probe value, and key disagreement, is "not available" | U, I | `pg-app-readiness`, `pg-app-config` |
+| A25 | The probe passes for the real web role and fails for the migration role and for a superuser | I | — |
+| A26 | The catalog: one statement per render; equals the seeded fixture; an incoherent row set is refused | U, I | `pg-app-readiness`, `pg-app-flow` |
+| A28 | Database `RATE_LIMITED` is 429; capacity results have their messages; the in-process limit applies first | U, I | `pg-app-flow` |
+| A29 | No response or log line holds a digest, an owner id, a key, a connection detail or a database message | U, I | `pg-app-flow` |
+| A30 | Server logs of an integration run hold none of the test secrets | I | — |
+| A31 | The application's connection cannot read a checkout table, write the catalog or call an operator function | I | — |
+| A32 | Import, statement, environment and reachability boundaries | U | `pg-static`, `pg-app-config` |
+| A33 | Mock regression: the existing unit suite passes, apart from the two "not wired in" assertions that A32 replaces | U | The existing suite |
+| A34 | The simulation route is 404 and the panel is absent | U, B | `pg-app-flow`, `pg-app-config` |
+| A35 | The whole flow is operable by keyboard alone, with alerts and status announced | B | — |
+| A36 | Mock mode in a browser behaves as before | B | — |
+| A37 | Two checkouts of one owner: B's form posted to A's URL consumes nothing and changes neither | U, I | `pg-app-flow` |
+| A38 | A matching challenge with wrong well-formed quote fields: the database's `CONFIRMATION_MISMATCH`, one counted call, one `CONFIRMATION_REJECTED` row | I (U asserts the values sent) | `pg-app-flow` |
+| A39 | Each local outcome: no consume call; checkout, window and audit rows unchanged apart from the session's activity | U (no call), I (snapshot) | `pg-app-flow` |
+| A40 | `GET /session/start` with no cookie admits once; with a malformed, duplicated or mock-format cookie it admits nothing | U, I | `pg-app-guard` |
+| A41 | `POST /session/new`: replaces only on admission; never a valid session; the old form is refused afterwards; the earlier owner's checkouts do not transfer | U, I | `pg-app-guard` |
+| A42 | USAGE missing on either schema is "not ready" | U, I | `pg-app-readiness` |
+| A43 | Twenty concurrent first requests: one pool, one probe, one result | U | `pg-app-readiness` |
+| A44 | After a failed probe: no statement for 5 seconds, then one attempt; the pool is never replaced | U | `pg-app-readiness` |
+| A45 | A start whose answer is lost after the commit: one call; the committed checkout is in the list | U | `pg-app-flow` |
+| A46 | A start whose outcome is unknown and whose checkout does not exist: the notice and an empty list; the text does not say it failed | U | `pg-app-flow` |
+| A47 | Amount decoding by field: valid boundaries, each range failure, each zero-only field, malformed text and driver types, quantity, arithmetic; a refused row leads nowhere | U | `pg-app-flow` |
+| A48 | A tab left open across a rotation is refused until reloaded; the owner's checkouts are retained | B | — |
+| A49 | B's form submitted to A's URL shows the out-of-date text; this request consumes nothing and changes neither checkout | B (no-call part: A37) | — |
+| A50 | The session-ended notice, its warning, and the explicit new session by keyboard; an old page's form is refused afterwards | B | — |
+| A51 | Disposal while construction is pending: at most one pool, ended once, never ready | U | `pg-app-readiness` |
+| A52 | Disposal while a probe is pending: no readiness published; the pool ended once | U | `pg-app-readiness` |
+| A53 | Cleanup of a failed construction overlapping two disposals: one end in all | U | `pg-app-readiness` |
+
+- No integration fault injector exists and none is proposed: the commit-then-fail and fail-without-commit cases (A45, A46) are unit cases only.
+- The integration cases need a way to apply the bootstrap file and the migrations to an application database. No command provides one today; it belongs to the later gate (D14).
 
 ---
 
@@ -3789,4 +4826,4 @@ Milestone 001 findings AUD-001 to AUD-003, AUD-011 and AUD-012 concern the in-me
 
 ---
 
-*End of PostgreSQL Specification v2.0 — DRAFT, NOT APPROVED.*
+*End of PostgreSQL Specification v2.0 — DRAFT. Increment 1 formally accepted by the project owner. Increment 2 Gate A closed as a design-only milestone. Increment 2.1 exact-schema DESIGN contract conditionally approved (§19), subject to later PostgreSQL 17 execution evidence. NOT APPROVED: migration SQL, implementation, PostgreSQL execution for Increment 2, and every later increment.*

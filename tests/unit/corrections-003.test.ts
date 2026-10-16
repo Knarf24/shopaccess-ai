@@ -196,7 +196,7 @@ async function shopper(runtime: Runtime) {
   return { session: established.value.session, token: established.value.issuedToken! };
 }
 
-const VALID_REQUEST = { productId: "dmp_codebook15", variantId: "dmv_codebook15a", quantity: 1 };
+const VALID_REQUEST = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 };
 
 /** Drives one checkout through quote, confirmation, order, approval and capture, leaving records of every kind. */
 async function fullCheckout(runtime: Runtime, sessionId: string, capture: "complete" | "pending" | "lost" = "complete") {
@@ -496,8 +496,8 @@ describe("checkout start validates the quote request before creating an intent",
     ["external product ID", { ...VALID_REQUEST, productId: "ext_mock-aurora-13" }, "REQUEST_INVALID"],
     ["external variant ID", { ...VALID_REQUEST, variantId: "ext_mock-aurora-13" }, "REQUEST_INVALID"],
     ["unknown product", { ...VALID_REQUEST, productId: "dmp_doesnotexist" }, "PRODUCT_NOT_IN_MERCHANT_CATALOG"],
-    ["variant of another product", { productId: "dmp_studybook14", variantId: "dmv_codebook15a", quantity: 1 }, "PRODUCT_NOT_IN_MERCHANT_CATALOG"],
-    ["out-of-stock variant", { productId: "dmp_campusbook16", variantId: "dmv_campusbook16a", quantity: 1 }, "VARIANT_UNAVAILABLE"],
+    ["variant of another product", { productId: "dmp_aspirego15", variantId: "dmv_aspire14ai", quantity: 1 }, "PRODUCT_NOT_IN_MERCHANT_CATALOG"],
+    ["out-of-stock variant", { productId: "dmp_vivobook16", variantId: "dmv_vivobook16", quantity: 1 }, "VARIANT_UNAVAILABLE"],
     ["zero quantity", { ...VALID_REQUEST, quantity: 0 }, "REQUEST_INVALID"],
     ["negative quantity", { ...VALID_REQUEST, quantity: -1 }, "REQUEST_INVALID"],
     ["fractional quantity", { ...VALID_REQUEST, quantity: 1.5 }, "REQUEST_INVALID"],
@@ -505,17 +505,18 @@ describe("checkout start validates the quote request before creating an intent",
     ["quantity above the variant limit", { ...VALID_REQUEST, quantity: 3 }, "QUANTITY_EXCEEDS_LIMIT"],
     ["quantity as text", { ...VALID_REQUEST, quantity: "2" }, "REQUEST_INVALID"],
     ["NaN quantity", { ...VALID_REQUEST, quantity: Number.NaN }, "REQUEST_INVALID"],
-    ["missing variant", { productId: "dmp_codebook15", quantity: 1 }, "REQUEST_INVALID"],
+    ["missing variant", { productId: "dmp_aspire14ai", quantity: 1 }, "REQUEST_INVALID"],
     ["client price override", { ...VALID_REQUEST, unitAmountCents: 1 }, "REQUEST_INVALID"],
     ["client total override", { ...VALID_REQUEST, totalCents: 1 }, "REQUEST_INVALID"],
     ["null", null, "REQUEST_INVALID"],
     ["array", [VALID_REQUEST], "REQUEST_INVALID"],
-    ["string", "dmp_codebook15", "REQUEST_INVALID"],
+    ["string", "dmp_aspire14ai", "REQUEST_INVALID"],
   ];
 
   it.each(INVALID)("service: %s allocates nothing", async (_name, request, reason) => {
     const { runtime } = runtimeWorld();
     const alice = await shopper(runtime);
+    if (reason === "VARIANT_UNAVAILABLE") runtime.catalog.products[2].variants[0].availability = "OUT_OF_STOCK";
     expect(await startCheckoutWithQuote(runtime.checkout, alice.session.id, request)).toEqual({ ok: false, error: reason });
     expect(totals(runtime)).toEqual(EMPTY);
   });
@@ -531,8 +532,8 @@ describe("checkout start validates the quote request before creating an intent",
     expect(started.value.quote).toMatchObject({
       sessionId: alice.session.id,
       checkoutIntentId: started.value.intent.id,
-      unitAmountCents: 79900,
-      totalCents: 159800,
+      unitAmountCents: 87999,
+      totalCents: 175998,
       currency: "USD",
     });
     expect(await runtime.store.findIntentForSession(alice.session.id, started.value.intent.id)).toMatchObject({ snapshot: { state: "QUOTED" } });
@@ -556,13 +557,14 @@ describe("checkout start validates the quote request before creating an intent",
   it("route: invalid and external-product requests create no checkout state, however many are sent", async () => {
     const { runtime } = runtimeWorld();
     const alice = await shopper(runtime);
+    runtime.catalog.products[2].variants[0].availability = "OUT_OF_STOCK";
     const cookie = `${SESSION_COOKIE_NAME}=${alice.token}`;
-    const base = { productId: "dmp_codebook15", variantId: "dmv_codebook15a", quantity: "1", csrfToken: alice.session.csrfToken };
+    const base = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: "1", csrfToken: alice.session.csrfToken };
     const invalid: [Record<string, string>, string][] = [
       [{ ...base, productId: "ext_mock-aurora-13" }, "REQUEST_INVALID"],
       [{ ...base, productId: "ext_mock-aurora-13", variantId: "ext_mock-aurora-13" }, "REQUEST_INVALID"],
       [{ ...base, productId: "dmp_doesnotexist" }, "PRODUCT_NOT_IN_MERCHANT_CATALOG"],
-      [{ ...base, productId: "dmp_campusbook16", variantId: "dmv_campusbook16a" }, "VARIANT_UNAVAILABLE"],
+      [{ ...base, productId: "dmp_vivobook16", variantId: "dmv_vivobook16" }, "VARIANT_UNAVAILABLE"],
       [{ ...base, quantity: "0" }, "REQUEST_INVALID"],
       [{ ...base, quantity: "99" }, "REQUEST_INVALID"],
       [{ ...base, quantity: "3" }, "QUANTITY_EXCEEDS_LIMIT"],
@@ -583,7 +585,7 @@ describe("checkout start validates the quote request before creating an intent",
     const { runtime } = runtimeWorld();
     const alice = await shopper(runtime);
     const cookie = `${SESSION_COOKIE_NAME}=${alice.token}`;
-    const good = { productId: "dmp_codebook15", variantId: "dmv_codebook15a", quantity: "1", csrfToken: alice.session.csrfToken };
+    const good = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: "1", csrfToken: alice.session.csrfToken };
 
     const refused = [
       post(good, cookie, { origin: "https://evil.example", "sec-fetch-site": "cross-site" }),
@@ -600,6 +602,6 @@ describe("checkout start validates the quote request before creating an intent",
     expect(response.headers.get("location")).toMatch(/^\/checkout\/ci_[0-9a-f]{32}$/);
     expect(totals(runtime)).toEqual({ ...EMPTY, intents: 1, quotes: 1, transitions: 1 });
     const quoteId = (await runtime.store.findIntent(intentId))!.snapshot.context.quoteId!;
-    expect(await runtime.store.findQuoteForSession(alice.session.id, quoteId)).toMatchObject({ unitAmountCents: 79900, totalCents: 79900, currency: "USD" });
+    expect(await runtime.store.findQuoteForSession(alice.session.id, quoteId)).toMatchObject({ unitAmountCents: 87999, totalCents: 87999, currency: "USD" });
   });
 });

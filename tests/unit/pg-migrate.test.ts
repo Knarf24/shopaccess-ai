@@ -116,7 +116,7 @@ const approvedLedger = (count: number): AppliedMigration[] =>
   APPROVED_MIGRATIONS.slice(0, count).map((entry) => ({ version: entry.version, checksum: entry.sha256 }));
 
 describe("migration runner: every statement of a run travels on one pinned connection", () => {
-  it("applies the six approved migrations on a single connection and releases it once", async () => {
+  it("applies the nine approved migrations on a single connection and releases it once", async () => {
     const db = fakeDatabase();
     const result = await applyMigrations(db.source, MIGRATIONS_DIR);
     expect(result).toEqual({ ok: true, value: VERSIONS });
@@ -124,7 +124,7 @@ describe("migration runner: every statement of a run travels on one pinned conne
     expect(db.connects).toBe(1);
     expect(new Set(db.sent.map((statement) => statement.connection))).toEqual(new Set([1]));
     expect(db.releases).toEqual([{ connection: 1, destroy: false }]);
-    expect(db.ledger).toEqual(approvedLedger(6));
+    expect(db.ledger).toEqual(approvedLedger(9));
 
     // Per migration, in order and with nothing in between: BEGIN, lock, ledger check, (ledger read), file, ledger row, COMMIT.
     const texts = db.sent.map((statement) => statement.text);
@@ -143,7 +143,7 @@ describe("migration runner: every statement of a run travels on one pinned conne
   });
 
   it("is a no-op on an up-to-date database, and resumes after the last applied migration", async () => {
-    const current = fakeDatabase({ ledger: approvedLedger(6) });
+    const current = fakeDatabase({ ledger: approvedLedger(9) });
     expect(await applyMigrations(current.source, MIGRATIONS_DIR)).toEqual({ ok: true, value: [] });
     expect(current.sent.map((statement) => statement.text)).toEqual([S.begin, S.lockMigrations, S.ledgerExists, S.readLedger, S.commit]);
     expect(current.releases).toEqual([{ connection: 1, destroy: false }]);
@@ -382,7 +382,7 @@ describe("migration discovery is restricted to the approved inventory in a canon
     expect(discoverMigrations(withArchive.dir, withArchive.inventory).ok).toBe(true);
   });
 
-  it("the real directory lists the six approved files, and an unchanged copy of it is equivalent", () => {
+  it("the real directory lists the nine approved files, and an unchanged copy of it is equivalent", () => {
     const real = listMigrations(MIGRATIONS_DIR);
     const copy = listMigrations(copyOfRealMigrations());
     if (!real.ok || !copy.ok) throw new Error("expected both to list");

@@ -22,7 +22,7 @@ import { createRuntime, type Runtime } from "@/server/runtime";
 import { createTestClock, MINUTE, TEST_SESSION_KEY } from "./helpers";
 
 const ORIGIN = "https://shop.example.test";
-const VALID_REQUEST = { productId: "dmp_codebook15", variantId: "dmv_codebook15a", quantity: 1 };
+const VALID_REQUEST = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 };
 
 function deferred<T = void>() {
   let resolve!: (value: T) => void;
@@ -75,7 +75,7 @@ function checkoutPost(cookie: string, csrfToken: string, fields: Record<string, 
   return new Request(`${ORIGIN}/checkout/start`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN, "sec-fetch-site": "same-origin", cookie },
-    body: new URLSearchParams({ productId: "dmp_codebook15", variantId: "dmv_codebook15a", quantity: "1", csrfToken, ...fields }).toString(),
+    body: new URLSearchParams({ productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: "1", csrfToken, ...fields }).toString(),
   });
 }
 
@@ -371,13 +371,14 @@ describe("previously verified behaviour is unchanged by the commit boundary", ()
     const { runtime } = runtimeWorld();
     const alice = await shopper(runtime);
     const held = holdCheckoutCommits(runtime, 1);
+    held.runtime.catalog.products[2].variants[0].availability = "OUT_OF_STOCK";
     let commitReached = false;
     void held.barriers[0].reached.then(() => (commitReached = true));
 
     for (const [fields, reason] of [
       [{ productId: "ext_mock-aurora-13" }, "REQUEST_INVALID"],
       [{ productId: "dmp_doesnotexist" }, "PRODUCT_NOT_IN_MERCHANT_CATALOG"],
-      [{ productId: "dmp_campusbook16", variantId: "dmv_campusbook16a" }, "VARIANT_UNAVAILABLE"],
+      [{ productId: "dmp_vivobook16", variantId: "dmv_vivobook16" }, "VARIANT_UNAVAILABLE"],
       [{ quantity: "0" }, "REQUEST_INVALID"],
       [{ quantity: "3" }, "QUANTITY_EXCEEDS_LIMIT"],
     ] as [Record<string, string>, string][]) {

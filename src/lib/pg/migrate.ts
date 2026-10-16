@@ -37,8 +37,11 @@ export interface ApprovedMigration {
 }
 
 /**
- * The approved Increment 1 inventory. Six files, in order. Update a checksum
- * only together with the reviewed change to the file it names.
+ * The approved inventory. Nine files, in order: the six of Increment 1, then
+ * the Increment 2.1 checkout schema, the Increment 2.1 checkout functions and
+ * the Increment 2.2 confirmation functions.
+ * Update a checksum only together with the reviewed change to the file it
+ * names.
  */
 export const APPROVED_MIGRATIONS: readonly ApprovedMigration[] = Object.freeze([
   Object.freeze({ version: "0001_migration_ledger", sha256: "f5e90a75aa48c2b4bde4d64149a0fbcc2ff8f53884c77ca6dd27539c0589c671" }),
@@ -47,6 +50,9 @@ export const APPROVED_MIGRATIONS: readonly ApprovedMigration[] = Object.freeze([
   Object.freeze({ version: "0004_merchant_catalog_seed", sha256: "4fe7e277e1633d956c50fdefe212723c8be0e2ff4b5bcf4227dceb9e7b84c015" }),
   Object.freeze({ version: "0005_audit_events", sha256: "4cb9f7c16c9b4858279a2592286b7cc90167a747b50d584efe4f2140862e7d1f" }),
   Object.freeze({ version: "0006_session_and_key_functions", sha256: "5ec51928563fc6dc611e0a9c8156639bdadfb6f3863f70b545671f19d52ae99f" }),
+  Object.freeze({ version: "0007_checkout_schema", sha256: "a20f362b83b6f06805a42a04d8b33875e1420b7ea21bb042166921f9450a2668" }),
+  Object.freeze({ version: "0008_checkout_functions", sha256: "4bbc00c378c664e452c3677b708bd9a8ac431b9469a4fb989b1ce90b2b4cf0b4" }),
+  Object.freeze({ version: "0009_confirmation_functions", sha256: "931c9cc7b97000017ef900050b6e94f31c58d28db039b995b0247ce858a1241d" }),
 ]);
 
 export interface MigrationFile {

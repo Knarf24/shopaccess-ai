@@ -11,6 +11,8 @@ import {
   type Queryable,
 } from "@/lib/db/queries";
 import { parsePaymentAdapterConfig, requireMockOnly, SANDBOX_API_BASE_URL } from "@/lib/payment/adapter-config";
+import { parseRuntimeConfig } from "@/server/config";
+import { parsePgRuntimeConfig } from "@/server/pg-runtime";
 import { InMemoryAuditLog, REDACTED, sanitizeAuditEvent } from "@/lib/security/audit";
 import { PUBLIC_ERROR_CODES, publicErrorFromUnknown, toPublicError } from "@/lib/security/errors";
 import { createFixedWindowRateLimiter, InMemoryRateLimitStore, PROPOSED_RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit";
@@ -38,12 +40,13 @@ describe("ENV-01: live or mixed payment configuration is rejected (future adapte
     PAYPAL_CLIENT_ID: "placeholder-client-id",
     PAYPAL_CLIENT_SECRET: "placeholder-client-secret",
     PAYPAL_API_BASE_URL: SANDBOX_API_BASE_URL,
+    PAYPAL_SANDBOX_MERCHANT_ID: "2ABCDEFGHJKLM",
   };
 
   it("accepts mock mode only when no provider settings are present", () => {
     expect(parsePaymentAdapterConfig({ PAYMENT_PROVIDER_MODE: "mock" })).toEqual({ ok: true, value: { mode: "mock" } });
     expect(parsePaymentAdapterConfig({})).toEqual({ ok: false, error: "MODE_MISSING" });
-    for (const key of ["PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET", "PAYPAL_API_BASE_URL", "PAYPAL_WEBHOOK_ID"]) {
+    for (const key of ["PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET", "PAYPAL_API_BASE_URL", "PAYPAL_WEBHOOK_ID", "PAYPAL_SANDBOX_MERCHANT_ID"]) {
       expect(parsePaymentAdapterConfig({ PAYMENT_PROVIDER_MODE: "mock", [key]: "anything" }), key).toEqual({
         ok: false,
         error: "MOCK_MODE_WITH_PROVIDER_SETTINGS",
@@ -71,14 +74,49 @@ describe("ENV-01: live or mixed payment configuration is rejected (future adapte
     expect(parsePaymentAdapterConfig({ ...sandbox, PAYPAL_CLIENT_SECRET: undefined })).toEqual({ ok: false, error: "SANDBOX_CREDENTIALS_INCOMPLETE" });
   });
 
-  it("even a valid sandbox configuration cannot be activated in this milestone", () => {
+  it("attaches a complete sandbox configuration on the in-memory runtime and still refuses it for PostgreSQL", () => {
     const parsed = parsePaymentAdapterConfig(sandbox);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    // The parsed config never carries credentials onward.
+    expect(parsed.value).toEqual({ mode: "sandbox", apiBaseUrl: SANDBOX_API_BASE_URL, merchantId: "2ABCDEFGHJKLM" });
+    // The adapter parse result never carries credentials onward.
     expect(JSON.stringify(parsed.value)).not.toContain("placeholder");
     expect(requireMockOnly(parsed.value)).toEqual({ ok: false, error: "PROVIDER_NOT_AUTHORIZED_FOR_MILESTONE" });
     expect(requireMockOnly({ mode: "mock" })).toEqual({ ok: true, value: { mode: "mock" } });
+    expect(parsePaymentAdapterConfig({ ...sandbox, PAYPAL_SANDBOX_MERCHANT_ID: undefined })).toEqual({ ok: false, error: "SANDBOX_MERCHANT_ID_INVALID" });
+    expect(parsePaymentAdapterConfig({ ...sandbox, PAYPAL_SANDBOX_MERCHANT_ID: "not-a-merchant" })).toEqual({ ok: false, error: "SANDBOX_MERCHANT_ID_INVALID" });
+
+    const runtime = parseRuntimeConfig({
+      SHOPACCESS_SESSION_KEY: Buffer.alloc(32, 9).toString("base64"),
+      SHOPACCESS_TRUSTED_ORIGINS: "https://shop.example.test",
+      NODE_ENV: "production",
+      ...sandbox,
+    });
+    expect(runtime.ok).toBe(true);
+    if (!runtime.ok || runtime.value.payment?.mode !== "sandbox") throw new Error("sandbox runtime config was not accepted");
+    expect(runtime.value.payment.apiBaseUrl).toBe(SANDBOX_API_BASE_URL);
+    expect(runtime.value.payment.merchantId).toBe("2ABCDEFGHJKLM");
+    expect(runtime.value.payment.clientId).toBe(sandbox.PAYPAL_CLIENT_ID);
+    expect(runtime.value.payment.clientSecret).toBe(sandbox.PAYPAL_CLIENT_SECRET);
+    expect(Object.keys(runtime.value).sort()).toEqual(["advisory", "payment", "sessionKey", "trustedOrigins"]);
+    expect(JSON.stringify({ ok: false, error: ["PAYMENT_MODE_NOT_MOCK"] })).not.toContain("placeholder");
+    const mockRuntime = parseRuntimeConfig({
+      SHOPACCESS_SESSION_KEY: Buffer.alloc(32, 9).toString("base64"),
+      SHOPACCESS_TRUSTED_ORIGINS: "https://shop.example.test",
+      NODE_ENV: "production",
+      PAYMENT_PROVIDER_MODE: "mock",
+    });
+    expect(mockRuntime.ok && Object.keys(mockRuntime.value).sort()).toEqual(["advisory", "sessionKey", "trustedOrigins"]);
+
+    const postgres = parsePgRuntimeConfig({
+      SHOPACCESS_SESSION_KEY: Buffer.alloc(32, 9).toString("base64"),
+      SHOPACCESS_TRUSTED_ORIGINS: "https://shop.example.test",
+      NODE_ENV: "production",
+      ...sandbox,
+    });
+    expect(postgres.ok).toBe(false);
+    if (!postgres.ok) expect(postgres.error).toContain("PAYMENT_MODE_NOT_MOCK");
+    expect(JSON.stringify(postgres)).not.toContain("placeholder");
   });
 });
 
@@ -343,11 +381,17 @@ describe("SEC-01: no sensitive credentials in client output or logs", () => {
   });
 
   it("UI code reads no environment variables and imports no server-only modules", () => {
+    const listingSearchForm = join(ROOT, "src", "components", "mock-journey", "ListingSearchForm.tsx");
     for (const file of [...filesUnder(join(ROOT, "src", "components"), /\.tsx$/), ...filesUnder(join(ROOT, "src", "app"), /\.tsx$/)]) {
       const text = readFileSync(file, "utf8");
       expect(text, file).not.toMatch(/process\.env/);
       expect(text, file).not.toMatch(/@\/lib\/(?:session|db|payment|security|providers\/payment)/);
-      expect(text, file).not.toMatch(/["']use client["']/);
+      if (file === listingSearchForm) {
+        expect(text).toContain('"use client"');
+        expect(text).not.toMatch(/\bfetch\s*\(|@\/lib\/(?:session|db|payment|security|providers)|@\/server\//);
+      } else {
+        expect(text, file).not.toMatch(/["']use client["']/);
+      }
     }
     // Environment access happens in exactly one place; everything else receives configuration as an argument.
     const readers = filesUnder(join(ROOT, "src"), /\.(ts|tsx)$/).filter((file) => /process\.env/.test(readFileSync(file, "utf8")));
@@ -418,37 +462,5 @@ describe("migration files (static checks only - these do not execute SQL)", () =
     expect(migrationSql).toMatch(/provider_capture_id\s+text UNIQUE/);
     expect(migrationSql).toMatch(/UNIQUE \(checkout_intent_id, operation_type, sequence\)/);
     expect(migrationSql).toMatch(/audit_events_append_only BEFORE UPDATE OR DELETE/);
-  });
-});
-
-// MIG-01 needs a real PostgreSQL server. It runs only when SHOPACCESS_TEST_DATABASE_URL points at a
-// disposable local database; otherwise it is reported as skipped (NOT RUN), never as passed.
-const TEST_DATABASE_URL = process.env.SHOPACCESS_TEST_DATABASE_URL;
-
-describe.skipIf(!TEST_DATABASE_URL)("MIG-01: schema and migration constraints (requires a local test database)", () => {
-  it("applies all migrations in order and enforces key constraints", async () => {
-    const url = new URL(TEST_DATABASE_URL!);
-    if (!["localhost", "127.0.0.1", "::1"].includes(url.hostname)) throw new Error("MIG-01 refuses to run against a non-local database");
-    const { Client } = await import("pg");
-    const client = new Client({ connectionString: TEST_DATABASE_URL });
-    await client.connect();
-    const schema = `shopaccess_mig01_${Date.now()}`;
-    try {
-      await client.query(`CREATE SCHEMA ${schema}`);
-      await client.query(`SET search_path TO ${schema}`);
-      for (const name of migrationFiles) await client.query(readFileSync(join(MIGRATIONS_DIR, name), "utf8"));
-
-      const now = "2026-10-08T12:00:00Z";
-      const session = ["ses_" + "a".repeat(32), "a".repeat(64), now, now, "2026-10-09T12:00:00Z", 500];
-      await client.query(SQL.insertSessionWithinCapacity, session);
-      await expect(client.query(SQL.insertSessionWithinCapacity, ["ses_" + "b".repeat(32), "a".repeat(64), now, now, "2026-10-09T12:00:00Z", 500])).rejects.toThrow();
-      await expect(client.query(SQL.insertSessionWithinCapacity, ["ses_" + "c".repeat(32), "c".repeat(64), now, now, "2026-10-12T12:00:00Z", 500])).rejects.toThrow();
-      await client.query(SQL.appendAuditEvent, ["ev_1", "TEST_EVENT", now, "server", null, null, null, "{}"]);
-      await expect(client.query("UPDATE audit_events SET actor = $1", ["x"])).rejects.toThrow();
-      await expect(client.query("DELETE FROM audit_events WHERE event_id = $1", ["ev_1"])).rejects.toThrow();
-    } finally {
-      await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`).catch(() => undefined);
-      await client.end();
-    }
   });
 });

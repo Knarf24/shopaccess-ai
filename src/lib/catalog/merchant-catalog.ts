@@ -1,12 +1,22 @@
 import { MerchantCatalogSchema, type MerchantCatalog, type MerchantProduct, type MerchantVariant } from "./schemas";
 
 /**
- * Manually curated demonstration catalog. Products, prices and the merchant
- * are fictional and exist only for the simulated Sandbox shopping experience.
+ * Manually curated demonstration catalog. Revision 2 replaces the fictional
+ * placeholders with three researched configurations. Amounts are the October 15,
+ * 2026 reference prices, stored as fixed demo prices. The Aspire Go amount is
+ * that day's sale price. The regular price from the same research is recorded
+ * in the catalog note. These are not a guaranteed current offer, and the units
+ * were not inspected. Inventory is simulated. Acer, ASUS, Newegg, and their
+ * sellers are not ShopAccess partners. Product text keeps the model and part
+ * number. Prices, partnership, and fulfillment are rendered from the shop
+ * notices and the structured amounts.
  * Bump `revision` whenever any record changes.
+ *
+ * The Increment 1 SQL seed remains the checksum-pinned revision 1 placeholder
+ * catalog. This fixture is what the in-memory shop sells.
  */
 const DEMO_CATALOG_SOURCE = {
-  revision: 1,
+  revision: 2,
   merchant: {
     merchantId: "dmm_shopaccessdemo",
     displayName: "ShopAccess Demo Store (simulated)",
@@ -14,22 +24,47 @@ const DEMO_CATALOG_SOURCE = {
   },
   products: [
     {
-      productId: "dmp_studybook14",
-      title: "StudyBook 14",
-      description: "A light 14-inch laptop for notes, documents, browsing and video calls.",
-      imagePath: "/catalog/studybook-14.svg",
+      productId: "dmp_aspirego15",
+      title: "Acer Aspire Go 15",
+      description: "Model AG15-21PT-R9TL, part NX.JJJAA.008. 1920 × 1080 IPS touchscreen.",
+      imagePath: "/catalog/aspire-go-15.svg",
       variants: [
         {
-          variantId: "dmv_studybook14a",
-          label: "8 GB memory, 256 GB SSD",
-          unitAmountCents: 44900,
+          variantId: "dmv_aspirego15",
+          label: "8 GB LPDDR5, 256 GB PCIe NVMe SSD",
+          unitAmountCents: 57999,
           currency: "USD",
           maxQuantityPerOrder: 2,
           availability: "IN_STOCK",
           specs: {
-            cpu: "4-core mobile processor",
+            cpu: "AMD Ryzen 3 30, 4 cores",
             ramGb: 8,
             storageGb: 256,
+            storageType: "SSD",
+            screenInches: 15.6,
+            weightKg: 1.73,
+            operatingSystem: "Windows 11 Home",
+          },
+        },
+      ],
+    },
+    {
+      productId: "dmp_aspire14ai",
+      title: "Acer Aspire 14 AI",
+      description: "Model A14-52M-51S1, part NX.J8LAA.002. 1920 × 1200 IPS display.",
+      imagePath: "/catalog/aspire-14-ai.svg",
+      variants: [
+        {
+          variantId: "dmv_aspire14ai",
+          label: "16 GB LPDDR5X, 512 GB PCIe NVMe SSD",
+          unitAmountCents: 87999,
+          currency: "USD",
+          maxQuantityPerOrder: 2,
+          availability: "IN_STOCK",
+          specs: {
+            cpu: "Intel Core Ultra 5 226V, 8 cores",
+            ramGb: 16,
+            storageGb: 512,
             storageType: "SSD",
             screenInches: 14,
             weightKg: 1.4,
@@ -39,92 +74,25 @@ const DEMO_CATALOG_SOURCE = {
       ],
     },
     {
-      productId: "dmp_codebook15",
-      title: "CodeBook 15",
-      description: "A 15-inch laptop with extra memory and storage for programming coursework.",
-      imagePath: "/catalog/codebook-15.svg",
+      productId: "dmp_vivobook16",
+      title: "ASUS Vivobook 16",
+      description: "Model F1605VA-DS74, part 90NB10N3-M004M0. 1920 × 1200 non-touch display.",
+      imagePath: "/catalog/vivobook-16.svg",
       variants: [
         {
-          variantId: "dmv_codebook15a",
-          label: "16 GB memory, 512 GB SSD",
-          unitAmountCents: 79900,
+          variantId: "dmv_vivobook16",
+          label: "16 GB DDR4, 1 TB PCIe NVMe SSD",
+          unitAmountCents: 99900,
           currency: "USD",
           maxQuantityPerOrder: 2,
           availability: "IN_STOCK",
           specs: {
-            cpu: "8-core mobile processor",
+            cpu: "Intel Core i7-13700H, 14 cores",
             ramGb: 16,
-            storageGb: 512,
-            storageType: "SSD",
-            screenInches: 15.6,
-            weightKg: 1.8,
-            operatingSystem: "Windows 11 Home",
-          },
-        },
-        {
-          variantId: "dmv_codebook15b",
-          label: "32 GB memory, 1 TB SSD",
-          unitAmountCents: 109900,
-          currency: "USD",
-          maxQuantityPerOrder: 1,
-          availability: "IN_STOCK",
-          specs: {
-            cpu: "8-core mobile processor",
-            ramGb: 32,
             storageGb: 1024,
             storageType: "SSD",
-            screenInches: 15.6,
-            weightKg: 1.8,
-            operatingSystem: "Windows 11 Home",
-          },
-        },
-      ],
-    },
-    {
-      productId: "dmp_valuebook11",
-      title: "ValueBook 11",
-      description: "A compact, low-cost laptop for web browsing and light document work.",
-      imagePath: "/catalog/valuebook-11.svg",
-      variants: [
-        {
-          variantId: "dmv_valuebook11a",
-          label: "4 GB memory, 64 GB eMMC",
-          unitAmountCents: 22900,
-          currency: "USD",
-          maxQuantityPerOrder: 2,
-          availability: "IN_STOCK",
-          specs: {
-            cpu: "2-core entry processor",
-            ramGb: 4,
-            storageGb: 64,
-            storageType: "EMMC",
-            screenInches: 11.6,
-            weightKg: 1.1,
-            operatingSystem: "ChromeOS",
-          },
-        },
-      ],
-    },
-    {
-      productId: "dmp_campusbook16",
-      title: "CampusBook 16",
-      description: "A large-screen laptop for schoolwork and multitasking at a desk.",
-      imagePath: "/catalog/campusbook-16.svg",
-      variants: [
-        {
-          variantId: "dmv_campusbook16a",
-          label: "16 GB memory, 512 GB SSD",
-          unitAmountCents: 64900,
-          currency: "USD",
-          maxQuantityPerOrder: 2,
-          availability: "OUT_OF_STOCK",
-          specs: {
-            cpu: "6-core mobile processor",
-            ramGb: 16,
-            storageGb: 512,
-            storageType: "SSD",
             screenInches: 16,
-            weightKg: 2.2,
+            weightKg: 1.88,
             operatingSystem: "Windows 11 Home",
           },
         },

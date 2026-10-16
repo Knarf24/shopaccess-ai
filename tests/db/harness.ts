@@ -45,6 +45,16 @@ import { applyMigrations } from "@/lib/pg/migrate";
  *  7. never assumes the outcome of a statement whose connection failed. Such a
  *     statement may or may not have taken effect. The harness then attempts no
  *     cleanup at all and reports the cluster as contaminated.
+ * Before any of that, and before any client or pool is even constructed, the
+ * connection target itself is validated (see "Connection target" below): the
+ * admin URL must have one strict form, name a loopback address literally and
+ * repeat the separately authorized port; the driver is then given discrete
+ * fields, never a URL, and its own effective configuration is compared with
+ * those fields before `connect()` is called. This keeps the harness from
+ * reaching the wrong address by mistake. It does NOT authenticate whatever is
+ * listening on the authorized port: any local process can bind it, and rules 1
+ * to 7 rest on answers given by that same listener.
+ *
  * A run that is killed can leave resources behind. So can a run whose CREATE
  * DATABASE succeeded on the server while its acknowledgment was lost: that
  * database is never recorded as created, so it is never dropped; the harness
@@ -57,6 +67,8 @@ import { applyMigrations } from "@/lib/pg/migrate";
  */
 
 export const ADMIN_URL_VARIABLE = "SHOPACCESS_PG_TEST_ADMIN_URL";
+/** The one port the owner authorized for this run. The admin URL must repeat it; it is never taken from the URL alone. */
+export const AUTHORIZED_PORT_VARIABLE = "SHOPACCESS_PG_TEST_AUTHORIZED_PORT";
 
 /** The server must have been started with exactly this `cluster_name`. */
 export const DISPOSABLE_CLUSTER_NAME = "shopaccess-disposable-test";
@@ -68,6 +80,390 @@ export const TEST_LOGIN_ROLE_PREFIX = "shopaccess_t_";
 export const ROOT = process.cwd();
 export const MIGRATIONS_DIR = join(ROOT, "db", "migrations");
 export const BOOTSTRAP_FILE = join(ROOT, "db", "bootstrap", "0000_roles_and_schemas.sql");
+
+// ---------------------------------------------------------------------------
+// Connection target (pure; unit-tested without a database)
+// ---------------------------------------------------------------------------
+
+/** Fixed refusal codes. A refusal never carries the URL, a credential or any other input. */
+export type AdminTargetRefusal =
+  | "ADMIN_URL_NOT_SET"
+  | "ADMIN_URL_EMPTY"
+  | "ADMIN_URL_MALFORMED"
+  | "ADMIN_URL_PARSER_DISAGREES"
+  | "AUTHORIZED_PORT_MISSING"
+  | "AUTHORIZED_PORT_INVALID"
+  | "AUTHORIZED_PORT_MISMATCH"
+  | "ENVIRONMENT_VARIABLE_REFUSED"
+  | "CONNECTION_FIELD_REFUSED"
+  | "DRIVER_TARGET_MISMATCH";
+
+/** Thrown when the connection target is refused. Its message is the fixed code and nothing else. */
+export class AdminTargetRefusedError extends Error {
+  readonly code: AdminTargetRefusal;
+  constructor(code: AdminTargetRefusal) {
+    super(`Refusing the PostgreSQL test connection target: ${code}`);
+    this.name = "AdminTargetRefusedError";
+    this.code = code;
+  }
+}
+
+export type Environment = Readonly<Record<string, string | undefined>>;
+
+/** The validated admin target. `host` is in the driver's form: no brackets around the IPv6 loopback. */
+export interface AdminTarget {
+  readonly host: "127.0.0.1" | "::1";
+  readonly port: number;
+  readonly user: string;
+  readonly password: string;
+  readonly database: "postgres";
+}
+
+export type AdminTargetResult = { readonly ok: true; readonly target: AdminTarget } | { readonly ok: false; readonly code: AdminTargetRefusal };
+
+/**
+ * PostgreSQL variables that may stay set. Every other `PG…` name is refused,
+ * because the driver computes names (`'PG' + key`) and a fixed list of refused
+ * names could not keep up with it.
+ *  - PGAPPNAME: a label in `pg_stat_activity`; nothing reads it.
+ *  - PGCONNECT_TIMEOUT: stored by the driver but used only by the native
+ *    binding, which is refused (NODE_PG_FORCE_NATIVE).
+ * USER and USERNAME (the driver's default user name) need no refusal: every
+ * configuration names its user.
+ */
+export const PERMITTED_PG_VARIABLES: readonly string[] = ["PGAPPNAME", "PGCONNECT_TIMEOUT"];
+const PG_VARIABLE_NAME = /^PG[A-Z0-9_]*$/;
+
+/** True for a variable that must not be set while the harness runs. */
+export function isRefusedEnvironmentVariable(name: string): boolean {
+  return name === "NODE_PG_FORCE_NATIVE" || (PG_VARIABLE_NAME.test(name) && !PERMITTED_PG_VARIABLES.includes(name));
+}
+
+const DEFAULT_POSTGRESQL_PORT = 5432;
+/** Four or five digits, no sign, no leading zero, no whitespace. */
+const PORT_TEXT = /^[1-9][0-9]{3,4}$/;
+/**
+ * The only accepted admin URL. Literal loopback address, explicit port, the
+ * `postgres` database, URL-safe credentials. There is no query string, no
+ * fragment, no percent-encoding and no empty component, so no driver parameter
+ * and no environment fallback can redirect or reconfigure the connection.
+ */
+const ADMIN_URL_GRAMMAR =
+  /^(postgres|postgresql):\/\/([a-z_][a-z0-9_]{0,62}):([A-Za-z0-9._~-]{1,128})@(127\.0\.0\.1|\[::1\]):([1-9][0-9]{3,4})\/postgres$/;
+const ROLE_OR_DATABASE_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
+const URL_SAFE_PASSWORD = /^[A-Za-z0-9._~-]{1,128}$/;
+const STARTUP_OPTIONS = /^-c [a-z_]+=[a-z0-9_]+(?: -c [a-z_]+=[a-z0-9_]+)*$/;
+
+/**
+ * True when every character is printable ASCII, 0x21 to 0x7E: no space, no tab,
+ * no line terminator of any kind (LF, CR, CRLF, U+0085, U+2028, U+2029), no
+ * other control character and nothing outside ASCII. Checked on the raw admin
+ * URL and the raw authorized port before either pattern is consulted, so that
+ * rejecting a trailing terminator does not rest on how `$` behaves.
+ */
+function isPrintableAscii(text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code < 0x21 || code > 0x7e) return false;
+  }
+  return true;
+}
+
+/** The pattern's match, but only if it spans the WHOLE input: every character from the first to the last. */
+function matchWhole(pattern: RegExp, text: string): RegExpExecArray | null {
+  const match = pattern.exec(text);
+  return match !== null && match.index === 0 && match[0].length === text.length ? match : null;
+}
+
+function isAuthorizablePort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== DEFAULT_POSTGRESQL_PORT;
+}
+
+/** `[::1]` as a URL writes it becomes `::1` as the driver reports it. Exactly one enclosing bracket pair is removed. */
+function canonicalHost(host: string): string {
+  return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+}
+
+/**
+ * Validates the admin target from the environment, without constructing or
+ * connecting anything. Every condition must hold:
+ *
+ *  1. the admin URL is set and not blank;
+ *  2. no refused PostgreSQL variable is set (see PERMITTED_PG_VARIABLES);
+ *  3. the authorized port is set, decimal, from 1024 to 65535 and not 5432,
+ *     and consists of printable ASCII only;
+ *  4. the URL consists of printable ASCII only and matches ADMIN_URL_GRAMMAR
+ *     over its whole length, character for character;
+ *  5. the URL's port equals the authorized port;
+ *  6. the platform URL parser reads the same scheme, user, password, host,
+ *     port and path from it, with no query and no fragment.
+ *
+ * A matching port is not proof of what is listening on it.
+ */
+export function parseAdminTarget(env: Environment): AdminTargetResult {
+  const refuse = (code: AdminTargetRefusal): AdminTargetResult => ({ ok: false, code });
+  const raw = env[ADMIN_URL_VARIABLE];
+  if (raw === undefined) return refuse("ADMIN_URL_NOT_SET");
+  if (raw.trim() === "") return refuse("ADMIN_URL_EMPTY");
+
+  for (const name of Object.keys(env)) {
+    if (env[name] !== undefined && isRefusedEnvironmentVariable(name)) return refuse("ENVIRONMENT_VARIABLE_REFUSED");
+  }
+
+  const portText = env[AUTHORIZED_PORT_VARIABLE];
+  if (portText === undefined) return refuse("AUTHORIZED_PORT_MISSING");
+  if (!isPrintableAscii(portText) || !matchWhole(PORT_TEXT, portText) || !isAuthorizablePort(Number(portText))) return refuse("AUTHORIZED_PORT_INVALID");
+  const port = Number(portText);
+
+  const match = isPrintableAscii(raw) ? matchWhole(ADMIN_URL_GRAMMAR, raw) : null;
+  if (!match) return refuse("ADMIN_URL_MALFORMED");
+  const [, scheme, user, password, urlHost, urlPort] = match;
+  if (urlPort !== portText) return refuse("AUTHORIZED_PORT_MISMATCH");
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    // The parser's own error carries its input. It is dropped, not rethrown or attached.
+    return refuse("ADMIN_URL_PARSER_DISAGREES");
+  }
+  const agrees =
+    url.protocol === `${scheme}:` &&
+    url.username === user &&
+    url.password === password &&
+    url.hostname === urlHost &&
+    url.port === urlPort &&
+    url.pathname === "/postgres" &&
+    url.search === "" &&
+    url.hash === "";
+  if (!agrees) return refuse("ADMIN_URL_PARSER_DISAGREES");
+
+  const host = canonicalHost(urlHost);
+  if (host !== "127.0.0.1" && host !== "::1") return refuse("ADMIN_URL_MALFORMED");
+  return { ok: true, target: Object.freeze({ host, port, user, password, database: "postgres" as const }) };
+}
+
+/**
+ * What a client or pool is given: discrete fields only. The driver never
+ * parses a connection URL, so there is nothing for it to reinterpret. TLS is
+ * off: every connection is to a loopback address.
+ */
+export interface DriverConfig {
+  readonly host: "127.0.0.1" | "::1";
+  readonly port: number;
+  readonly user: string;
+  readonly password: string;
+  readonly database: string;
+  readonly ssl: false;
+  readonly options?: string;
+}
+
+export interface ConnectionIdentity {
+  readonly database: string;
+  readonly user: string;
+  readonly password: string;
+  /** Startup options, as `-c name=value` pairs. */
+  readonly options?: string;
+}
+
+/** Builds one driver configuration from the validated target. Every field is checked again against a fixed pattern. */
+export function connectionConfig(target: AdminTarget, identity: ConnectionIdentity): DriverConfig {
+  const acceptable =
+    (target.host === "127.0.0.1" || target.host === "::1") &&
+    isAuthorizablePort(target.port) &&
+    ROLE_OR_DATABASE_NAME.test(identity.database) &&
+    ROLE_OR_DATABASE_NAME.test(identity.user) &&
+    URL_SAFE_PASSWORD.test(identity.password) &&
+    (identity.options === undefined || STARTUP_OPTIONS.test(identity.options));
+  if (!acceptable) throw new AdminTargetRefusedError("CONNECTION_FIELD_REFUSED");
+  return Object.freeze({
+    host: target.host,
+    port: target.port,
+    user: identity.user,
+    password: identity.password,
+    database: identity.database,
+    ssl: false as const,
+    ...(identity.options === undefined ? {} : { options: identity.options }),
+  });
+}
+
+/**
+ * Compares what the driver will actually use with what the harness asked for.
+ * `client` is a constructed, UNCONNECTED client. Anything that differs or is
+ * missing is a refusal: the client is then never connected. This is what
+ * notices a driver that reads a field, an environment variable or a default in
+ * a way this file did not expect.
+ */
+export function verifyEffectiveConfig(client: unknown, expected: DriverConfig): void {
+  const refused = new AdminTargetRefusedError("DRIVER_TARGET_MISMATCH");
+  if (typeof client !== "object" || client === null) throw refused;
+  const seen = client as Record<string, unknown>;
+  const parameters = seen.connectionParameters;
+  if (typeof parameters !== "object" || parameters === null) throw refused;
+  const effective = parameters as Record<string, unknown>;
+  const agrees =
+    seen.host === expected.host &&
+    seen.port === expected.port &&
+    seen.user === expected.user &&
+    seen.database === expected.database &&
+    seen.ssl === false &&
+    effective.host === expected.host &&
+    effective.port === expected.port &&
+    effective.user === expected.user &&
+    effective.password === expected.password &&
+    effective.database === expected.database &&
+    effective.options === expected.options &&
+    effective.ssl === false &&
+    effective.isDomainSocket === false &&
+    !effective.replication &&
+    !effective.binary;
+  if (!agrees) throw refused;
+}
+
+/** A client whose effective configuration was verified. It has not been connected. */
+function verifiedClient(config: DriverConfig): Client {
+  const client = new Client(config);
+  verifyEffectiveConfig(client, config);
+  return client;
+}
+
+/**
+ * A pool whose configuration was verified first, on an unconnected client
+ * built from the very options object the pool is then given. That probe is
+ * never connected. On a mismatch no pool is constructed.
+ */
+function verifiedPool(config: DriverConfig, max: number): Pool {
+  const options = Object.freeze({ ...config, max });
+  verifyEffectiveConfig(new Client(options), config);
+  return new Pool(options);
+}
+
+/** The keys of the PGT-04 child's environment. Exactly these: nothing is inherited. */
+export const ADMISSION_CHILD_ENVIRONMENT_KEYS: readonly string[] = [
+  "NODE_ENV",
+  "PATH",
+  "ADMISSION_HOST",
+  "ADMISSION_PORT",
+  "ADMISSION_USER",
+  "ADMISSION_PASSWORD",
+  "ADMISSION_DATABASE",
+  "ADMISSION_OPTIONS",
+  "ADMISSION_STATEMENT",
+  "ADMISSION_COUNT",
+];
+
+/**
+ * The complete environment of a PGT-04 child process. It is built from a
+ * verified driver configuration and carries discrete fields, never a URL. The
+ * credential travels here, never in the child's arguments. Never log it.
+ */
+export function admissionChildEnvironment(connection: DriverConfig, statement: string, count: number, path: string): NodeJS.ProcessEnv {
+  const acceptable =
+    (connection.host === "127.0.0.1" || connection.host === "::1") &&
+    isAuthorizablePort(connection.port) &&
+    ROLE_OR_DATABASE_NAME.test(connection.database) &&
+    ROLE_OR_DATABASE_NAME.test(connection.user) &&
+    URL_SAFE_PASSWORD.test(connection.password) &&
+    connection.options !== undefined &&
+    STARTUP_OPTIONS.test(connection.options) &&
+    Number.isInteger(count) &&
+    count >= 1 &&
+    count <= 100;
+  if (!acceptable || connection.options === undefined) throw new AdminTargetRefusedError("CONNECTION_FIELD_REFUSED");
+  return {
+    NODE_ENV: "test",
+    PATH: path,
+    ADMISSION_HOST: connection.host,
+    ADMISSION_PORT: String(connection.port),
+    ADMISSION_USER: connection.user,
+    ADMISSION_PASSWORD: connection.password,
+    ADMISSION_DATABASE: connection.database,
+    ADMISSION_OPTIONS: connection.options,
+    ADMISSION_STATEMENT: statement,
+    ADMISSION_COUNT: String(count),
+  };
+}
+
+/**
+ * The program of a PGT-04 child process, passed to `node -e`. One expression,
+ * so that a unit test can run it against a stub driver and wait for it.
+ *
+ * The child validates its own connection. It refuses a PostgreSQL variable in
+ * its environment, a host that is not a loopback literal and a port that could
+ * not have been authorized; it gives the driver discrete fields; and it
+ * compares every client's effective configuration with those fields BEFORE
+ * any client connects. On a refusal it prints a fixed code, connects nothing
+ * and ends with a non-zero exit code.
+ *
+ * It prints only "ready", its report, and error or refusal codes: never a
+ * message that could carry the credential.
+ */
+export const ADMISSION_CHILD_PROGRAM = `
+(async () => {
+  const { Client } = require("pg");
+  const { randomBytes } = require("node:crypto");
+  const env = process.env;
+  const refuse = (code) => {
+    process.stderr.write("child refused: " + code + "\\n");
+    process.exitCode = 2;
+  };
+  for (const name of Object.keys(env)) {
+    if (name === "NODE_PG_FORCE_NATIVE" || /^PG[A-Z0-9_]*$/.test(name)) return refuse("ENVIRONMENT_VARIABLE_REFUSED");
+  }
+  const host = env.ADMISSION_HOST;
+  const port = Number(env.ADMISSION_PORT);
+  const user = env.ADMISSION_USER;
+  const password = env.ADMISSION_PASSWORD;
+  const database = env.ADMISSION_DATABASE;
+  const options = env.ADMISSION_OPTIONS;
+  const count = Number(env.ADMISSION_COUNT);
+  const text = (value, pattern) => typeof value === "string" && pattern.test(value);
+  const acceptable =
+    (host === "127.0.0.1" || host === "::1") &&
+    text(env.ADMISSION_PORT, /^[1-9][0-9]{3,4}$/) && port >= 1024 && port <= 65535 && port !== 5432 &&
+    text(user, /^[a-z_][a-z0-9_]{0,62}$/) &&
+    text(database, /^[a-z_][a-z0-9_]{0,62}$/) &&
+    text(password, /^[A-Za-z0-9._~-]{1,128}$/) &&
+    text(options, /^-c [a-z_]+=[a-z0-9_]+(?: -c [a-z_]+=[a-z0-9_]+)*$/) &&
+    text(env.ADMISSION_STATEMENT, /^SELECT /) &&
+    text(env.ADMISSION_COUNT, /^[1-9][0-9]{0,2}$/) && count <= 100;
+  if (!acceptable) return refuse("CONNECTION_FIELD_REFUSED");
+  const clients = [];
+  for (let i = 0; i < count; i += 1) {
+    const client = new Client({ host, port, user, password, database, options, ssl: false });
+    const effective = client.connectionParameters;
+    const agrees =
+      client.host === host && client.port === port && client.user === user && client.database === database && client.ssl === false &&
+      effective && effective.host === host && effective.port === port && effective.user === user && effective.password === password &&
+      effective.database === database && effective.options === options && effective.ssl === false && effective.isDomainSocket === false &&
+      !effective.replication && !effective.binary;
+    if (!agrees) return refuse("DRIVER_TARGET_MISMATCH");
+    clients.push(client);
+  }
+  // Every client was verified above; only now does anything connect.
+  for (const client of clients) await client.connect();
+  process.stdout.write("ready\\n");
+  await new Promise((resolve) => process.stdin.once("data", resolve));
+  // Nothing more is read. An open stdin would keep this process alive after its work is done.
+  process.stdin.destroy();
+  const results = await Promise.all(clients.map(async (client) => {
+    try {
+      const values = ["ses_" + randomBytes(16).toString("hex"), 1, randomBytes(32).toString("hex")];
+      return (await client.query(env.ADMISSION_STATEMENT, values)).rows[0].result;
+    } catch (error) {
+      return "ERROR:" + (error && error.code ? error.code : "UNKNOWN");
+    }
+  }));
+  await Promise.all(clients.map((client) => client.end()));
+  // The exit code is set and the process ends by itself once the report has been flushed.
+  process.exitCode = 0;
+  process.stdout.write(JSON.stringify({ pid: process.pid, results }) + "\\n");
+})().catch((error) => {
+  // An error code only: never a message that could carry the credential.
+  process.stderr.write("child failed: " + (error && error.code ? error.code : "UNKNOWN") + "\\n");
+  process.exit(1);
+})
+`;
 
 // ---------------------------------------------------------------------------
 // Facts and assessments (pure; unit-tested without a database)
@@ -501,9 +897,19 @@ export async function provisionDisposableDatabase(driver: ProvisionDriver, plan:
 // The real driver and the public entry point
 // ---------------------------------------------------------------------------
 
-/** The admin URL, or undefined. Test files skip (and say so) when it is absent. */
+/**
+ * The admin URL, or undefined when the variable is NOT SET AT ALL. Only then
+ * may a test file skip (and say so). A variable that is set, even to an empty
+ * or blank string, is a request to run: it is validated here, and an empty,
+ * malformed or otherwise refused configuration throws, so the file fails
+ * instead of being reported as skipped.
+ */
 export function adminUrl(): string | undefined {
-  return process.env[ADMIN_URL_VARIABLE] || undefined;
+  const raw = process.env[ADMIN_URL_VARIABLE];
+  if (raw === undefined) return undefined;
+  const parsed = parseAdminTarget(process.env);
+  if (!parsed.ok) throw new AdminTargetRefusedError(parsed.code);
+  return raw;
 }
 
 function randomIdentifierSuffix(): string {
@@ -519,14 +925,6 @@ function identifier(name: string): string {
 function hexSecret(value: string): string {
   if (!/^[0-9a-f]{48}$/.test(value)) throw new Error("Refusing an unexpected generated credential");
   return value;
-}
-
-function urlFor(base: URL, database: string, user?: string, password?: string): string {
-  const url = new URL(base.toString());
-  url.pathname = `/${database}`;
-  if (user !== undefined) url.username = user;
-  if (password !== undefined) url.password = password;
-  return url.toString();
 }
 
 /**
@@ -663,7 +1061,7 @@ export class ControlSession {
   }
 }
 
-async function readClusterFacts(session: ControlSession, base: URL): Promise<ClusterFacts> {
+async function readClusterFacts(session: ControlSession, target: AdminTarget): Promise<ClusterFacts> {
   const one = async <T>(text: string): Promise<T> => (await session.read(text))[0] as T;
   const name = await one<{ cluster_name: string }>("SHOW cluster_name");
   const version = await one<{ server_version_num: string }>("SHOW server_version_num");
@@ -702,8 +1100,8 @@ async function readClusterFacts(session: ControlSession, base: URL): Promise<Clu
     }),
   );
   return {
-    host: base.hostname,
-    adminDatabase: decodeURIComponent(base.pathname.replace(/^\//, "")),
+    host: target.host,
+    adminDatabase: target.database,
     clusterName: name.cluster_name,
     serverVersionNum: Number(version.server_version_num),
     sessionUser: who.session_user,
@@ -717,10 +1115,20 @@ export interface DisposableDatabase {
   readonly name: string;
   /** Superuser connection inside the disposable database. This is the "test owner". It does not exist at runtime. */
   readonly admin: Client;
+  /**
+   * A second connection of the same test owner to the same disposable database: same verified target, same
+   * credentials, no startup options. It exists so that a test can hold a transaction open on `admin` and act as the
+   * test owner on an independent connection at the same time. It is opened once, after provisioning, and is closed
+   * with every other connection of this database: any transaction left open on it is rolled back first.
+   */
+  readonly secondAdmin: Client;
   /** Pool logged in as `shopaccess_web`, with the approved timeouts. */
   readonly web: Pool;
-  /** Connection string of `shopaccess_web`, for tests that start separate processes. Never log it. */
-  readonly webConnectionString: string;
+  /**
+   * Verified connection fields of `shopaccess_web`, for tests that start separate processes
+   * (see `admissionChildEnvironment`). Discrete fields, never a URL. Never log it.
+   */
+  readonly webConnection: DriverConfig;
   /** Pool logged in as a named operator login that is a member of `shopaccess_operator`. */
   readonly operator: Pool;
   readonly operatorLogin: string;
@@ -741,9 +1149,13 @@ export interface DisposableDatabase {
  * test logins. Throws, having removed whatever it created, if any step fails.
  */
 export async function openDisposableDatabase(options: { applyMigrations?: boolean } = {}): Promise<DisposableDatabase> {
-  const raw = adminUrl();
-  if (!raw) throw new Error(`${ADMIN_URL_VARIABLE} is not set`);
-  const base = new URL(raw);
+  // Before anything is constructed: the target is validated from the environment, and a refusal ends here.
+  const parsed = parseAdminTarget(process.env);
+  if (!parsed.ok) {
+    if (parsed.code === "ADMIN_URL_NOT_SET") throw new Error(`${ADMIN_URL_VARIABLE} is not set`);
+    throw new AdminTargetRefusedError(parsed.code);
+  }
+  const target = parsed.target;
 
   // Hex only: safe to place in statements that cannot take parameters.
   const webPassword = randomBytes(24).toString("hex");
@@ -756,6 +1168,8 @@ export async function openDisposableDatabase(options: { applyMigrations?: boolea
 
   // The administrator connection INSIDE the test database: bootstrap file and test fixtures only.
   let admin: Client | null = null;
+  // The second test-owner connection inside the test database. Opened after provisioning; closed with the others.
+  let secondAdmin: Client | null = null;
   const pools: Pool[] = [];
   // The session that holds the control lock. Every cluster-level statement goes through it.
   let control: ControlSession | null = null;
@@ -771,7 +1185,10 @@ export async function openDisposableDatabase(options: { applyMigrations?: boolea
   };
   /** Runs the approved migrations on a one-connection pool whose connections act as the migration role. */
   const migrate = async (directory: string) => {
-    const pool = new Pool({ connectionString: urlFor(base, plan.database), max: 1, options: "-c role=shopaccess_owner" });
+    const pool = verifiedPool(
+      connectionConfig(target, { database: plan.database, user: target.user, password: target.password, options: "-c role=shopaccess_owner" }),
+      1,
+    );
     try {
       return await applyMigrations(connectionSourceFromPool(pool), directory);
     } finally {
@@ -782,7 +1199,8 @@ export async function openDisposableDatabase(options: { applyMigrations?: boolea
   const driver: ProvisionDriver = {
     async acquireExclusiveControl() {
       // The only connection this harness ever opens to the maintenance database.
-      const client = new Client({ connectionString: raw });
+      // Its effective configuration is verified on this very object before it connects.
+      const client = verifiedClient(connectionConfig(target, { database: CONTROL_DATABASE, user: target.user, password: target.password }));
       const session = new ControlSession(client);
       // A dropped connection has dropped the lock with it. Record that instead of crashing on an unhandled event.
       client.on("error", () => session.markBroken());
@@ -805,7 +1223,7 @@ export async function openDisposableDatabase(options: { applyMigrations?: boolea
       control = null;
       if (session) await session.end();
     },
-    readClusterFacts: () => readClusterFacts(lockSession(), base),
+    readClusterFacts: () => readClusterFacts(lockSession(), target),
 
     // Cluster-level statements: all on the lock-owning session, one at a time, never in a transaction.
     createDatabase: (name) => lockSession().run(`CREATE DATABASE ${identifier(name)}`),
@@ -826,7 +1244,7 @@ export async function openDisposableDatabase(options: { applyMigrations?: boolea
 
     // Database-specific work: these must run inside the test database, so they cannot use the lock-owning session.
     async runBootstrap(database) {
-      const client = new Client({ connectionString: urlFor(base, database) });
+      const client = verifiedClient(connectionConfig(target, { database, user: target.user, password: target.password }));
       await client.connect();
       admin = client;
       // One message. The file is a single explicit transaction.
@@ -839,8 +1257,20 @@ export async function openDisposableDatabase(options: { applyMigrations?: boolea
     async closeConnections() {
       const closing: Array<Promise<unknown>> = pools.map((pool) => pool.end());
       if (admin) closing.push(admin.end());
+      if (secondAdmin) {
+        // A test may have failed with a transaction open on it. Roll that back, whatever state it is in, and then
+        // end the connection; a connection that can no longer answer is ended all the same.
+        const second = secondAdmin;
+        closing.push(
+          second
+            .query("ROLLBACK")
+            .catch(() => undefined)
+            .then(() => second.end()),
+        );
+      }
       pools.length = 0;
       admin = null;
+      secondAdmin = null;
       const failed = (await Promise.allSettled(closing)).find((result) => result.status === "rejected");
       if (failed && failed.status === "rejected") throw failed.reason;
     },
@@ -848,24 +1278,54 @@ export async function openDisposableDatabase(options: { applyMigrations?: boolea
 
   const provisioned = await provisionDisposableDatabase(driver, plan);
 
-  const webConnectionString = urlFor(base, plan.database, "shopaccess_web", webPassword);
-  const web = new Pool({ connectionString: webConnectionString, max: 12, options: connectionStartupOptions() });
-  const operator = new Pool({
-    connectionString: urlFor(base, plan.database, plan.operatorLogin, operatorPassword),
-    max: 2,
-    options: connectionStartupOptions(),
-  });
-  pools.push(web, operator);
+  let webConnection: DriverConfig;
+  let web: Pool;
+  let operator: Pool;
+  let second: Client;
+  try {
+    webConnection = connectionConfig(target, {
+      database: plan.database,
+      user: "shopaccess_web",
+      password: webPassword,
+      options: connectionStartupOptions(),
+    });
+    web = verifiedPool(webConnection, 12);
+    pools.push(web);
+    operator = verifiedPool(
+      connectionConfig(target, { database: plan.database, user: plan.operatorLogin, password: operatorPassword, options: connectionStartupOptions() }),
+      2,
+    );
+    pools.push(operator);
+    // The second test-owner connection: the validated target and the administrator's credentials again, in the test
+    // database, verified on the client object before it connects. Registered for cleanup only once it is connected;
+    // if connecting fails, it is ended here and the failure takes the path below, which removes everything.
+    second = verifiedClient(connectionConfig(target, { database: plan.database, user: target.user, password: target.password }));
+    try {
+      await second.connect();
+    } catch (connectError) {
+      await second.end().catch(() => undefined);
+      throw connectError;
+    }
+    secondAdmin = second;
+  } catch (error) {
+    // The database and roles exist by now. A refused configuration must not leave them behind.
+    const failures = await provisioned.cleanup();
+    if (failures.length > 0 && typeof error === "object" && error !== null) {
+      Object.defineProperty(error, CLEANUP_FAILURES, { value: failures, enumerable: false });
+    }
+    throw error;
+  }
 
   return {
     name: plan.database,
     admin: requireAdmin(),
+    secondAdmin: second,
     web,
-    webConnectionString,
+    webConnection,
     operator,
     operatorLogin: plan.operatorLogin,
     async connectWeb() {
-      const client = new Client({ connectionString: webConnectionString, options: connectionStartupOptions() });
+      const client = verifiedClient(webConnection);
       await client.connect();
       return client;
     },
