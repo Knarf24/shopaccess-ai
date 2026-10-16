@@ -50,3 +50,6 @@ Partial total: 136–239 h, plus 8–11 h of M1 experiments. Unestimated work is
 Record implementation state, evidence type, exact source commit, dated test/run reference, remaining gap, dependency and next action. Use unknown when evidence is missing. Distinguish source inspection, automated tests, browser observation, screen-reader acceptance and live-provider verification. Never upgrade a historical result to acceptance of a newer source tree.
 
 No feature is accepted solely because code exists, tests pass, or a concept video illustrates it. Shopper approval and provider verification remain authoritative for purchases. An external listing cannot be charged through the demo merchant checkout.
+
+## October 16 feasibility research supplement
+See [full investigation](full-feasibility-investigation-20261016.md) and [external-store matrix](external-store-feasibility-20261016.md). These refine F02–F10 prerequisites; no F-row is accepted by them. Amazon Business ordering is a distinct candidate with onboarding dependencies, not proof of ordinary personal Amazon support. Shopify's test gateway does not establish PayPal Sandbox. Bounded E1–E4 proposals are documented and not run. Model, storage and store choices remain proposals. E5 official rules were read; judge setup and final compliance remain open.
