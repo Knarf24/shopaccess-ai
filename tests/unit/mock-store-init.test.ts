@@ -116,7 +116,7 @@ describe("mock store initializer", () => {
 });
 
 function emptyBody() {
-  return { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [] };
+  return { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [] };
 }
 
 function identityFor(key: Buffer): string {

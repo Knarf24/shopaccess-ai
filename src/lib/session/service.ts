@@ -60,6 +60,11 @@ export interface SessionServiceDeps {
   readonly ids: IdGenerator;
   readonly allocation?: SessionAllocationPolicy;
   /**
+   * Spends one allocation from the window. Snapshot mode makes the spend durable before a session is minted.
+   * Absent: the in-memory window below, as before.
+   */
+  readonly spendAllocation?: (nowMs: number, policy: { readonly limit: number; readonly windowMs: number }) => Promise<{ readonly allowed: true } | { readonly allowed: false; readonly retryAfterMs: number }>;
+  /**
    * Called with the IDs of sessions that were just reclaimed, so data owned by
    * them can be removed too. Local mock only: real payment records need their
    * own durable retention policy and must never be deleted this way.
@@ -104,15 +109,20 @@ export function createSessionService(deps: SessionServiceDeps): SessionService {
    */
   async function admitNewSession(): Promise<SessionAllocationRefusal | null> {
     const now = clock().getTime();
-    if (now - windowStart >= allocation.windowMs) {
-      windowStart = now;
-      allocatedInWindow = 0;
+    if (deps.spendAllocation) {
+      const spent = await deps.spendAllocation(now, { limit: allocation.maxNewSessionsPerWindow, windowMs: allocation.windowMs });
+      if (!spent.allowed) return { reason: "ALLOCATION_RATE_EXCEEDED", retryAfterMs: spent.retryAfterMs };
+    } else {
+      if (now - windowStart >= allocation.windowMs) {
+        windowStart = now;
+        allocatedInWindow = 0;
+      }
+      if (allocatedInWindow >= allocation.maxNewSessionsPerWindow) {
+        return { reason: "ALLOCATION_RATE_EXCEEDED", retryAfterMs: windowStart + allocation.windowMs - now };
+      }
+      // Every admitted attempt spends budget, including ones that then hit the capacity limit.
+      allocatedInWindow += 1;
     }
-    if (allocatedInWindow >= allocation.maxNewSessionsPerWindow) {
-      return { reason: "ALLOCATION_RATE_EXCEEDED", retryAfterMs: windowStart + allocation.windowMs - now };
-    }
-    // Every admitted attempt spends budget, including ones that then hit the capacity limit.
-    allocatedInWindow += 1;
     await purgeExpired();
     if ((await store.count()) >= allocation.maxActiveSessions) {
       return { reason: "SESSION_CAPACITY_REACHED", retryAfterMs: allocation.windowMs };

@@ -11,7 +11,8 @@ import { DEMO_MERCHANT_CATALOG } from "@/lib/catalog/merchant-catalog";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
 import type { MerchantCatalog } from "@/lib/catalog/schemas";
 import { loadPgCatalog } from "@/server/pg-views";
-import { getApplication } from "@/server/runtime";
+import { guardPage, openApplication } from "@/server/runtime-access";
+import { StoreUnavailable } from "@/components/StoreUnavailable";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -65,10 +66,12 @@ function NotAvailable() {
   );
 }
 
-async function HomeContent({ searchParams }: { searchParams: SearchParams }) {
+async function HomeContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
   // Which mode this process serves is decided when it runs, never when the page is built.
   await connection();
-  const application = getApplication();
+  const opened = await openApplication();
+  if (opened === "unavailable") return <StoreUnavailable />;
+  const application = opened;
   if (application.mode === "mock") {
     return (
       <main className="guided-presentation">
@@ -134,4 +137,9 @@ export default function Home({ searchParams }: { searchParams: SearchParams }) {
       <HomeContent searchParams={searchParams} />
     </Suspense>
   );
+}
+
+/** A save refused while rendering shows the unavailable notice, never a partial or success view. */
+async function HomeContent(props: Parameters<typeof HomeContentUnguarded>[0]) {
+  return guardPage(() => HomeContentUnguarded(props), () => <StoreUnavailable />);
 }

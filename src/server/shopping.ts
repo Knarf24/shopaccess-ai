@@ -528,34 +528,48 @@ export async function loadNeedsJourney(
   };
   const existing = needsDraftsFor(runtime.store).get(session.id) ?? null;
   if (existing && now >= existing.expiresAtMs) {
-    needsDraftsFor(runtime.store).delete(session.id);
+    // Durable deletion of exactly the observed, still-expired draft. A replacement published meanwhile stays.
+    await runtime.durable.change((host) => {
+      const published = needsDraftsFor(host).get(session.id);
+      if (published && published.draftId === existing.draftId && published.version === existing.version && now >= published.expiresAtMs) {
+        needsDraftsFor(host).delete(session.id);
+      }
+    });
     return { draft: null, lines: [], expiredDraft: true, suggestionSource: null, listings: null, conversation: null };
   }
   if (!existing || !existing.confirmedUse || !existing.confirmedBudgetDollars) {
     return { draft: existing, lines: [], expiredDraft: false, suggestionSource: null, listings: null, conversation: conversationFor(existing?.draftId ?? null) };
   }
-  const claimed = claimRecommendation(runtime.store, session.id, existing.draftId, existing.version, now);
-  if (claimed === "claimed") {
-    const preferences = parsePreferences(existing.confirmedUse, existing.confirmedBudgetDollars);
+  // The claim is durable before the provider starts, and the provider input is taken from the saved claim.
+  const claim = await runtime.durable.change((host) => {
+    const result = claimRecommendation(host, session.id, existing.draftId, existing.version, now);
+    return result === "claimed" ? { claimed: true as const, draft: needsDraftsFor(host).get(session.id) ?? null } : { claimed: false as const, draft: null };
+  });
+  if (claim.claimed && claim.draft) {
+    const claimedDraft = claim.draft;
+    const preferences = parsePreferences(claimedDraft.confirmedUse, claimedDraft.confirmedBudgetDollars);
     const outcome = preferences ? await recommendConfirmedNeeds(runtime, preferences) : "failed";
     const after = runtime.clock().getTime();
     if (runtime.checkout.sessionIsLive(session.id)) {
-      finishRecommendation(
-        runtime.store,
-        session.id,
-        existing.draftId,
-        existing.version,
-        outcome === "failed" ? "failed" : "completed",
-        outcome === "failed" ? null : outcome,
-        after,
-      );
-      const written = needsDraftsFor(runtime.store).get(session.id);
+      // Rechecked against the claimed draft id and version, and durable before it is shown.
+      const written = await runtime.durable.change((host) => {
+        finishRecommendation(
+          host,
+          session.id,
+          claimedDraft.draftId,
+          claimedDraft.version,
+          outcome === "failed" ? "failed" : "completed",
+          outcome === "failed" ? null : outcome,
+          after,
+        );
+        return needsDraftsFor(host).get(session.id);
+      });
       if (
         outcome !== "failed" &&
         outcome.assistantMessage !== NO_CATALOG_MATCH &&
         written?.recommendationClaim === "completed" &&
-        written.draftId === existing.draftId &&
-        written.version === existing.version
+        written.draftId === claimedDraft.draftId &&
+        written.version === claimedDraft.version
       ) {
         rememberSuggestionSource(
           runtime.store,

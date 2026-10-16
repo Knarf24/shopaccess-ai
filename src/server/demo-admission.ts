@@ -199,7 +199,8 @@ export async function handleDemoAdmissionSubmit(request: Request, runtime: Runti
   const passphrase = form.value.get("passphrase");
   if (passphrase === null) return seeOther(back);
 
-  const allowed = countLoginAttempt(admission.attempts, now);
+  // Durable before the passphrase is compared (snapshot mode); in memory as before otherwise.
+  const allowed = (await runtime.durable.spendAdmissionAttempt(now, { limit: LOGIN_ATTEMPT_LIMIT, windowMs: LOGIN_WINDOW_MS })).allowed;
   const matches = constantTimeEqual(passphrase, admission.passphrase);
   if (!allowed) return seeOther(`${back}&notice=retry`);
   if (!matches) return seeOther(`${back}&notice=rejected`);

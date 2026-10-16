@@ -45,6 +45,10 @@ export type RuntimeConfigError =
   | "ADVISORY_API_KEY_MISSING"
   | "ADVISORY_API_KEY_INVALID"
   | "DEMO_ADMISSION_UNSUPPORTED"
+  /** Snapshot persistence is configured, so the runtime must be opened through openRuntime (src/server/runtime-access.ts). */
+  | "MOCK_STORE_REQUIRES_OPEN_RUNTIME"
+  /** Snapshot persistence together with PostgreSQL mode is unsupported. */
+  | "MOCK_STORE_UNSUPPORTED"
   | AdvisoryBudgetError;
 
 export type PersistenceMode = "mock" | "postgres";

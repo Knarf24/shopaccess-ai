@@ -16,7 +16,9 @@ import "../../guided-presentation.css";
 import type { PgRuntime } from "@/server/pg-runtime";
 import { buildPgCheckoutView, PG_STATUS_LABELS, pgCookieHeader, resolvePgPageSession } from "@/server/pg-views";
 import { protectedAdmissionLocation } from "@/server/demo-admission";
-import { getApplication, getRuntime } from "@/server/runtime";
+import { runtimeOf } from "@/server/runtime";
+import { guardPage, openApplication } from "@/server/runtime-access";
+import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { buildCheckoutView, messageFor, resolvePageSession } from "@/server/views";
 
 interface PageProps {
@@ -107,11 +109,13 @@ async function PgCheckoutContent({ intentId, query, runtime }: { intentId: strin
   );
 }
 
-async function CheckoutContent({ params, searchParams }: PageProps) {
+async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
   // Everything below depends on the request and the current time, so it is rendered per request.
   await connection();
   const [{ intentId }, query] = await Promise.all([params, searchParams]);
-  const application = getApplication();
+  const opened = await openApplication();
+  if (opened === "unavailable") return <StoreUnavailable />;
+  const application = opened;
   if (application.mode === "postgres") {
     return (
       <CheckoutFrame>
@@ -126,7 +130,7 @@ async function CheckoutContent({ params, searchParams }: PageProps) {
       </CheckoutFrame>
     );
   }
-  const runtime = getRuntime();
+  const runtime = runtimeOf(application);
   if (!runtime.ok) {
     return (
       <CheckoutFrame>
@@ -214,4 +218,9 @@ export default function CheckoutPage(props: PageProps) {
       <CheckoutContent {...props} />
     </Suspense>
   );
+}
+
+/** A save refused while rendering shows the unavailable notice, never a partial or success view. */
+async function CheckoutContent(props: Parameters<typeof CheckoutContentUnguarded>[0]) {
+  return guardPage(() => CheckoutContentUnguarded(props), () => <StoreUnavailable />);
 }

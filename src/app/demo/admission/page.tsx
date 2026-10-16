@@ -7,7 +7,9 @@ import "../../guided-presentation.css";
 import { type AdmissionCopy } from "@/lib/i18n/demo-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
 import { admissionScreen, type AdmissionScreenModel } from "@/server/demo-admission";
-import { getApplication, getRuntime } from "@/server/runtime";
+import { runtimeOf } from "@/server/runtime";
+import { guardPage, openApplication } from "@/server/runtime-access";
+import { StoreUnavailable } from "@/components/StoreUnavailable";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -95,12 +97,14 @@ export default function DemoAdmissionPage({ searchParams }: { searchParams: Sear
   );
 }
 
-async function AdmissionContent({ searchParams }: { searchParams: SearchParams }) {
+async function AdmissionContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
   await connection();
-  const application = getApplication();
+  const opened = await openApplication();
+  if (opened === "unavailable") return <StoreUnavailable />;
+  const application = opened;
   if (application.mode === "postgres") notFound();
   if (application.mode === "invalid") return <ConfigNotice errors={["SHOPACCESS_PERSISTENCE_MODE"]} />;
-  const runtime = getRuntime();
+  const runtime = runtimeOf(application);
   if (!runtime.ok) return <ConfigNotice errors={runtime.error} />;
 
   const query = await searchParams;
@@ -113,4 +117,9 @@ async function AdmissionContent({ searchParams }: { searchParams: SearchParams }
   );
   if (model === "not-found") notFound();
   return <AdmissionScreen model={model} />;
+}
+
+/** A save refused while rendering shows the unavailable notice, never a partial or success view. */
+async function AdmissionContent(props: Parameters<typeof AdmissionContentUnguarded>[0]) {
+  return guardPage(() => AdmissionContentUnguarded(props), () => <StoreUnavailable />);
 }

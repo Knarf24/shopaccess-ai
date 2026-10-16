@@ -7,13 +7,19 @@ import fsExt from "fs-ext";
 import { canonicalJson } from "../shared/canonical-json";
 import type { NeedsDraft, RetainedRecommendation, SessionRecord } from "./store";
 
-const FORMAT = 1;
+const FORMAT = 2;
+/** Format-1 files (sessions and drafts only) are still read; they are upgraded in memory and rewritten as format 2 on the next commit. */
+const LEGACY_FORMAT = 1;
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 const MAX_SESSIONS = 500;
 const MAX_DRAFTS = 500;
 const MAX_ALLOCATION_COUNT = 30;
 const MAX_RECOMMENDATIONS = 30;
+/** Conversation lines kept per session. Matches MAX_CONVERSATION_TURNS: eight lines (shopper or assistant), not eight exchanges. */
+const MAX_CONVERSATION_LINES = 8;
+const MAX_SHOPPER_LINE = 2000;
+const MAX_EPOCH = 999_999_999;
 const MAX_UNIT_AMOUNT_CENTS = 2_000_000;
 const ABSOLUTE_LIFETIME_MS = 86_400_000;
 const IDENTITY_LABEL = "shopaccess.mock-store.v1";
@@ -39,7 +45,8 @@ const LOCK_MODE = 0o600;
 const DIRECTORY_MODE = 0o700;
 
 export type PublishedSnapshot = {
-  readonly format: 1;
+  /** The format the file was written in. A format-1 body is returned upgraded, with empty conversations and selections. */
+  readonly format: 1 | 2;
   readonly identity: string;
   readonly sha256: string;
   readonly body: PublishedBody;
@@ -56,11 +63,27 @@ type SnapshotSession = {
 
 type SnapshotDraft = NeedsDraft & { readonly sessionId: string };
 
+/** One shopper line, or one assistant line holding a NeedsNotice token. */
+type SnapshotTurn = { readonly role: "shopper" | "assistant"; readonly text: string };
+
+/** The guided conversation for a session's current draft. */
+type SnapshotConversation = {
+  readonly sessionId: string;
+  readonly draftId: string;
+  readonly interfaceLanguage: "en" | "es";
+  readonly turns: readonly SnapshotTurn[];
+};
+
+/** Needs-bound checkout selection state: a supported requirement change closes it and advances the epoch. */
+type SnapshotSelection = { readonly sessionId: string; readonly epoch: number; readonly closed: boolean };
+
 export type PublishedBody = {
   readonly allocation: WindowState;
   readonly admissionLogin: WindowState;
   readonly sessions: readonly SnapshotSession[];
   readonly drafts: readonly SnapshotDraft[];
+  readonly conversations: readonly SnapshotConversation[];
+  readonly selections: readonly SnapshotSelection[];
 };
 
 type WindowState = { readonly windowStartedAt: number | null; readonly count: number };
@@ -69,9 +92,19 @@ export type StoreReadResult =
   | { readonly status: "ready"; readonly value: PublishedSnapshot }
   | { readonly status: "unavailable" };
 
+/**
+ * A refused commit is either definite or indeterminate.
+ * - "definite": nothing was renamed into place; the previously published snapshot is unchanged and the store stays usable.
+ * - "indeterminate": the new file was renamed into place but its directory entry could not be made durable. The outcome
+ *   after a crash is unknown, so the store faults and serves nothing until it is reopened.
+ */
+export type CommitResult =
+  | { readonly status: "ready"; readonly value: PublishedSnapshot }
+  | { readonly status: "unavailable"; readonly outcome: "definite" | "indeterminate" };
+
 export type FoundationStore = {
   readPublished(): StoreReadResult;
-  commit(body: unknown): Promise<StoreReadResult>;
+  commit(body: unknown): Promise<CommitResult>;
 };
 
 export type OpenResult =
@@ -166,6 +199,16 @@ export async function openFoundationStore(directory: string, keyBytes: Uint8Arra
   }
 }
 
+/**
+ * Opens an initialised store with its identity key read from `keyFile` (a 0600 regular file owned by this user, not a
+ * symlink). Used only by src/server/runtime-access.ts. Codes only; never a path or key byte.
+ */
+export async function openFoundationStoreWithKeyFile(directory: string, keyFile: string): Promise<OpenResult> {
+  const key = await readKeyFile(keyFile);
+  if (!key.ok) return unavailable("key-file");
+  return openFoundationStore(directory, key.bytes);
+}
+
 function createStore(state: StoreState): FoundationStore {
   let chain = Promise.resolve();
   const enqueue = <T>(task: () => Promise<T>): Promise<T> => {
@@ -186,19 +229,26 @@ function createStore(state: StoreState): FoundationStore {
         const owned = structuredClone(body);
         return enqueue(() => commitBody(state, owned));
       } catch {
-        return enqueue(() => Promise.resolve({ status: "unavailable" }));
+        return enqueue(() => Promise.resolve(definite()));
       }
     },
   };
 }
 
-async function commitBody(state: StoreState, body: unknown): Promise<StoreReadResult> {
-  if (state.faulted) return { status: "unavailable" };
-  const parsed = parseBody(body);
-  if (!parsed) return { status: "unavailable" };
+function definite(): CommitResult {
+  return { status: "unavailable", outcome: "definite" };
+}
+
+async function commitBody(state: StoreState, body: unknown): Promise<CommitResult> {
+  // A faulted store already had an indeterminate commit; it stays indeterminate until reopened.
+  if (state.faulted) return { status: "unavailable", outcome: "indeterminate" };
+  const parsed = parseBody(body, FORMAT);
+  if (!parsed) return definite();
   const snapshot = seal(parsed, state.keyBytes);
   const tempPath = join(state.directory, `store.json.tmp.${randomBytes(8).toString("hex")}`);
   const bytes = Buffer.from(JSON.stringify(snapshot), "utf8");
+  // Refuse before writing anything that could not be read back on the next open.
+  if (bytes.length > MAX_BYTES) return definite();
   let temp: fs.promises.FileHandle | null = null;
   let created = false;
   let renamed = false;
@@ -217,14 +267,14 @@ async function commitBody(state: StoreState, body: unknown): Promise<StoreReadRe
     } catch {
       state.faulted = true;
       state.published = null;
-      return { status: "unavailable" };
+      return { status: "unavailable", outcome: "indeterminate" };
     }
     state.published = snapshot;
     return { status: "ready", value: structuredClone(snapshot) };
   } catch {
     if (temp) await closeQuiet(temp);
     if (created && !renamed) await fs.promises.unlink(tempPath).catch(() => undefined);
-    return { status: "unavailable" };
+    return renamed ? { status: "unavailable", outcome: "indeterminate" } : definite();
   }
 }
 
@@ -353,17 +403,24 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
     return null;
   }
   if (!isRecord(parsed) || !hasExactKeys(parsed, ["format", "identity", "sha256", "body"])) return null;
-  if (parsed.format !== FORMAT || typeof parsed.identity !== "string" || !HEX_64.test(parsed.identity)) return null;
+  if (parsed.format !== FORMAT && parsed.format !== LEGACY_FORMAT) return null;
+  const format: 1 | 2 = parsed.format === LEGACY_FORMAT ? 1 : 2;
+  if (typeof parsed.identity !== "string" || !HEX_64.test(parsed.identity)) return null;
   if (typeof parsed.sha256 !== "string" || !HEX_64.test(parsed.sha256)) return null;
   if (parsed.identity !== identityFor(key)) return null;
-  const body = parseBody(parsed.body);
+  // The checksum covers the body exactly as written, so it is checked before any upgrade.
+  if (!isRecord(parsed.body) || parsed.sha256 !== checksumFor(parsed.body)) return null;
+  const body = parseBody(parsed.body, format);
   if (!body) return null;
-  if (parsed.sha256 !== checksumFor(body)) return null;
-  return { format: FORMAT, identity: parsed.identity, sha256: parsed.sha256, body };
+  return { format, identity: parsed.identity, sha256: parsed.sha256, body };
 }
 
-function parseBody(value: unknown): PublishedBody | null {
-  if (!isRecord(value) || !hasExactKeys(value, ["allocation", "admissionLogin", "sessions", "drafts"])) return null;
+const LEGACY_BODY_KEYS = ["allocation", "admissionLogin", "sessions", "drafts"] as const;
+const BODY_KEYS = [...LEGACY_BODY_KEYS, "conversations", "selections"] as const;
+
+/** Parses a body written in `format`. A format-1 body is returned upgraded with empty conversations and selections. */
+function parseBody(value: unknown, format: 1 | 2): PublishedBody | null {
+  if (!isRecord(value) || !hasExactKeys(value, format === LEGACY_FORMAT ? LEGACY_BODY_KEYS : BODY_KEYS)) return null;
   const allocation = parseWindow(value.allocation, MAX_ALLOCATION_COUNT);
   const admissionLogin = parseWindow(value.admissionLogin, MAX_SAFE);
   if (!allocation || !admissionLogin || !Array.isArray(value.sessions) || !Array.isArray(value.drafts)) return null;
@@ -376,13 +433,68 @@ function parseBody(value: unknown): PublishedBody | null {
     ids.add(session.id);
     digests.add(session.tokenDigest);
   }
-  const owners = new Set<string>();
+  const draftOf = new Map<string, string>();
   for (const entry of value.drafts) {
-    const draft = draftIdentity(entry, ids);
-    if (!draft || owners.has(draft.sessionId)) return null;
-    owners.add(draft.sessionId);
+    const draft = draftIdentity(entry, ids, format);
+    if (!draft || draftOf.has(draft.sessionId)) return null;
+    draftOf.set(draft.sessionId, draft.draftId);
+  }
+  if (format === LEGACY_FORMAT) {
+    // Format 1 had no pending flag. Its contract defined a pending interpretation as: claim on the current version, no
+    // notice, nothing confirmed, no recommendation claim. That definition is applied once, on upgrade.
+    const drafts = (value.drafts as Array<Omit<SnapshotDraft, "interpretationPending">>).map((draft) => ({
+      ...draft,
+      interpretationPending:
+        draft.interpretationClaimVersion !== null &&
+        draft.interpretationClaimVersion === draft.version &&
+        draft.notice === null &&
+        draft.confirmedUse === null &&
+        draft.recommendationClaim === null,
+    }));
+    return { ...(value as Omit<PublishedBody, "conversations" | "selections" | "drafts">), drafts, conversations: [], selections: [] };
+  }
+  if (!Array.isArray(value.conversations) || !Array.isArray(value.selections)) return null;
+  if (value.conversations.length > MAX_SESSIONS || value.selections.length > MAX_SESSIONS) return null;
+  const talking = new Set<string>();
+  for (const entry of value.conversations) {
+    const conversation = conversationIdentity(entry, draftOf);
+    if (!conversation || talking.has(conversation.sessionId)) return null;
+    talking.add(conversation.sessionId);
+  }
+  const selecting = new Set<string>();
+  for (const entry of value.selections) {
+    const selection = selectionIdentity(entry, ids);
+    if (!selection || selecting.has(selection.sessionId)) return null;
+    selecting.add(selection.sessionId);
   }
   return value as PublishedBody;
+}
+
+/** A conversation belongs to a stored session and to that session's current draft. */
+function conversationIdentity(value: unknown, draftOf: ReadonlyMap<string, string>): { sessionId: string } | null {
+  if (!isRecord(value) || !hasExactKeys(value, ["sessionId", "draftId", "interfaceLanguage", "turns"])) return null;
+  if (typeof value.sessionId !== "string" || typeof value.draftId !== "string") return null;
+  if (draftOf.get(value.sessionId) !== value.draftId) return null;
+  if (value.interfaceLanguage !== "en" && value.interfaceLanguage !== "es") return null;
+  if (!Array.isArray(value.turns) || value.turns.length > MAX_CONVERSATION_LINES) return null;
+  for (const turn of value.turns) {
+    if (!isRecord(turn) || !hasExactKeys(turn, ["role", "text"]) || typeof turn.text !== "string") return null;
+    if (turn.role === "assistant") {
+      if (!NOTICES.has(turn.text)) return null;
+    } else if (turn.role === "shopper") {
+      if (turn.text.length < 1 || turn.text.length > MAX_SHOPPER_LINE || turn.text !== turn.text.trim() || CONTROL.test(turn.text)) return null;
+    } else {
+      return null;
+    }
+  }
+  return { sessionId: value.sessionId };
+}
+
+function selectionIdentity(value: unknown, sessionIds: ReadonlySet<string>): { sessionId: string } | null {
+  if (!isRecord(value) || !hasExactKeys(value, ["sessionId", "epoch", "closed"])) return null;
+  if (typeof value.sessionId !== "string" || !sessionIds.has(value.sessionId)) return null;
+  if (!isBoundedInteger(value.epoch, 0, MAX_EPOCH) || typeof value.closed !== "boolean") return null;
+  return { sessionId: value.sessionId };
 }
 
 function parseWindow(value: unknown, maxCount: number): WindowState | null {
@@ -411,8 +523,8 @@ function sessionIdentity(value: unknown): { id: string; tokenDigest: string } | 
   return { id: value.id, tokenDigest: value.tokenDigest };
 }
 
-function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>): { sessionId: string } | null {
-  const keys = [
+function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>, format: 1 | 2): { sessionId: string; draftId: string } | null {
+  const legacyKeys = [
     "sessionId",
     "draftId",
     "version",
@@ -428,7 +540,13 @@ function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>): { sessi
     "notice",
     "expiresAtMs",
   ] as const;
+  const keys = format === LEGACY_FORMAT ? legacyKeys : [...legacyKeys, "interpretationPending"];
   if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
+  if (format !== LEGACY_FORMAT) {
+    // Pending means a claim on the current version whose result has not been written.
+    if (typeof value.interpretationPending !== "boolean") return null;
+    if (value.interpretationPending && value.interpretationClaimVersion !== value.version) return null;
+  }
   if (typeof value.sessionId !== "string" || !sessionIds.has(value.sessionId)) return null;
   if (typeof value.draftId !== "string" || !DRAFT_ID.test(value.draftId)) return null;
   if (!isBoundedInteger(value.version, 1, 999_999_999)) return null;
@@ -445,7 +563,7 @@ function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>): { sessi
   const recommendation = parseRecommendation(value.recommendation);
   if (recommendation === undefined) return null;
   if (!claimShape(value.recommendationClaim, value.confirmedUse, recommendation)) return null;
-  return { sessionId: value.sessionId };
+  return { sessionId: value.sessionId, draftId: value.draftId };
 }
 
 function claimShape(
@@ -499,6 +617,8 @@ function emptyBody(): PublishedBody {
     admissionLogin: { windowStartedAt: null, count: 0 },
     sessions: [],
     drafts: [],
+    conversations: [],
+    selections: [],
   };
 }
 
@@ -514,7 +634,7 @@ function identityFor(key: Buffer): string {
   return createHash("sha256").update(Buffer.concat([label, separator, key])).digest("hex");
 }
 
-function checksumFor(body: PublishedBody): string {
+function checksumFor(body: Record<string, unknown> | PublishedBody): string {
   return createHash("sha256").update(canonicalJson(body), "utf8").digest("hex");
 }
 

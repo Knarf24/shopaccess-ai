@@ -20,7 +20,9 @@ import { isPayPalSandboxProvider, PayPalSandboxProvider, type PaypalTransport } 
 import { InMemoryAuditLog } from "@/lib/security/audit";
 import { createFixedWindowRateLimiter, InMemoryRateLimitStore, type RateLimiter } from "@/lib/security/rate-limit";
 import { createSessionService, SESSION_IDLE_TIMEOUT_MS, type SessionService } from "@/lib/session/service";
+import { memoryDurableHost, snapshotDurableHost, type DurableHost } from "@/lib/session/durable";
 import { InMemorySessionStore } from "@/lib/session/store";
+import type { StateGate } from "@/lib/session/snapshot-state";
 import { systemClock, type Clock } from "@/lib/shared/clock";
 import { randomIdGenerator, type IdGenerator } from "@/lib/shared/ids";
 import type { Result } from "@/lib/shared/result";
@@ -79,6 +81,11 @@ export interface Runtime {
    * from the environment.
    */
   readonly admission: DemoAdmission;
+  /**
+   * Where shopper state lives. `memory`: this process only, as before. `snapshot`: the save-first gate; every change
+   * is durable before it is published, and a refused save makes the runtime unavailable (M2-1).
+   */
+  readonly durable: DurableHost;
 }
 
 const MAINTENANCE_INTERVAL_MS = 60_000;
@@ -98,6 +105,8 @@ type RuntimeOverrides = {
   sandboxProvider?: PayPalSandboxProvider;
   /** Offline tests supply this. Production never does, and it is not the live transport. */
   channel3Transport?: Channel3Transport;
+  /** Snapshot persistence: the recovered save-first gate. Supplied only by openRuntime (runtime-access.ts) and tests. */
+  gate?: StateGate;
 };
 
 export interface Channel3SearchRequest {
@@ -168,8 +177,19 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     await ledger.deleteOrphans((intentId) => store.hasIntent(intentId));
     provider.retainOnlyRequests(ledger.providerRequestIds());
   };
-  const sessionStore = new InMemorySessionStore();
-  const sessions = createSessionService({ store: sessionStore, key: config.sessionKey, clock, ids, onSessionsReclaimed });
+  const admission = overrides.admission ?? { mode: "off" };
+  const durable = overrides.gate
+    ? snapshotDurableHost(overrides.gate, store)
+    : memoryDurableHost(store, new InMemorySessionStore(), admission.mode === "on" ? admission.attempts : { windowStartedAt: null, count: 0 });
+  const sessionStore = durable.sessionStore;
+  const sessions = createSessionService({
+    store: sessionStore,
+    key: config.sessionKey,
+    clock,
+    ids,
+    onSessionsReclaimed,
+    ...(durable.mode === "snapshot" ? { spendAllocation: durable.spendAllocation } : {}),
+  });
   // Synchronous: the checkout store calls this inside its atomic commit (single-process mock only).
   const sessionIsLive = (sessionId: string): boolean => sessionStore.isLive(sessionId, clock(), SESSION_IDLE_TIMEOUT_MS);
 
@@ -231,7 +251,8 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
       ...(sandbox && config.payment?.mode === "sandbox" ? { paypalMerchantId: config.payment.merchantId } : {}),
     },
     maintain,
-    admission: overrides.admission ?? { mode: "off" },
+    admission,
+    durable,
   };
   if (sandbox) sandboxInstallations().set(runtime, sandbox);
   return runtime;
@@ -266,6 +287,42 @@ function environment(): Readonly<Record<string, string | undefined>> {
   return process.env;
 }
 
+/** Snapshot persistence settings (M2-1). Values are paths; they are never logged or shown. */
+export type MockStoreSettings =
+  | { readonly state: "absent" }
+  | { readonly state: "requested"; readonly directory: string | null; readonly keyFile: string | null; readonly mode: "mock" | "postgres" | "invalid" };
+
+/**
+ * Neither setting: the in-memory mock, as before. Either setting: snapshot persistence is requested, and the runtime
+ * must be opened through openRuntime; a missing or invalid setting then fails closed rather than falling back to memory.
+ */
+export function mockStoreSettings(): MockStoreSettings {
+  const env = environment();
+  const directory = env.SHOPACCESS_MOCK_STORE_DIR;
+  const keyFile = env.SHOPACCESS_MOCK_STORE_KEY_FILE;
+  if (directory === undefined && keyFile === undefined) return { state: "absent" };
+  const mode = parsePersistenceMode(env);
+  return { state: "requested", directory: directory || null, keyFile: keyFile || null, mode: mode.ok ? mode.value : "invalid" };
+}
+
+/** The mock runtime of an application, or an error with nothing to list. */
+export function runtimeOf(application: Application): Result<Runtime, RuntimeConfigError[]> {
+  return application.mode === "mock" ? application.runtime : { ok: false, error: [] };
+}
+
+/**
+ * The snapshot-mode application, built only by openRuntime after recovery is durable. Configuration and admission
+ * are parsed exactly as for the in-memory mock.
+ */
+export function createSnapshotApplication(gate: StateGate): Application {
+  const env = environment();
+  const config = parseRuntimeConfig(env);
+  return {
+    mode: "mock",
+    runtime: config.ok ? { ok: true, value: createRuntime(config.value, { admission: resolveDemoAdmission(env, config.value.sessionKey), gate }) } : config,
+  };
+}
+
 /**
  * The process-wide application, created once from environment configuration. In PostgreSQL mode no in-memory
  * checkout or session store is ever built, and in mock mode nothing of the PostgreSQL runtime is.
@@ -277,9 +334,13 @@ export function getApplication(): Application {
 
   const env = environment();
   const mode = parsePersistenceMode(env);
+  const store = mockStoreSettings();
   let application: Application;
   if (!mode.ok) {
     application = { mode: "invalid" };
+  } else if (store.state === "requested") {
+    // Snapshot persistence never reaches createPgRuntime, and is never served from here: openRuntime owns it.
+    application = { mode: "mock", runtime: { ok: false, error: [mode.value === "postgres" ? "MOCK_STORE_UNSUPPORTED" : "MOCK_STORE_REQUIRES_OPEN_RUNTIME"] } };
   } else if (mode.value === "postgres" && advisoryBudgetPresence(env) === "present") {
     // getApplication is the PostgreSQL gate. A budget setting must not construct that runtime.
     application = { mode: "mock", runtime: { ok: false, error: ["ADVISORY_BUDGET_INVALID"] } };

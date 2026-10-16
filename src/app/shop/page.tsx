@@ -14,7 +14,9 @@ import { journeyCopy } from "@/lib/i18n/demo-copy";
 import type { PgRuntime } from "@/server/pg-runtime";
 import { buildPgShoppingView, pgCookieHeader, resolvePgPageSession } from "@/server/pg-views";
 import { protectedAdmissionLocation } from "@/server/demo-admission";
-import { getApplication, getRuntime } from "@/server/runtime";
+import { runtimeOf } from "@/server/runtime";
+import { guardPage, openApplication } from "@/server/runtime-access";
+import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { buildShoppingView, parsePreferences, preferencesQuery, USE_LABELS, type ShopperPreferences, type ShoppingView } from "@/server/shopping";
 import { messageFor, resolvePageSession } from "@/server/views";
 
@@ -75,14 +77,16 @@ async function PgShopContent({ query, runtime }: { query: Query; runtime: PgRunt
   );
 }
 
-async function ShopContent({ searchParams }: { searchParams: SearchParams }) {
+async function ShopContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
   // Everything below depends on the request and the current time, so it is rendered per request.
   await connection();
   const query = await searchParams;
-  const application = getApplication();
+  const opened = await openApplication();
+  if (opened === "unavailable") return <StoreUnavailable />;
+  const application = opened;
   if (application.mode === "postgres") return <PgShopContent query={query} runtime={application.runtime} />;
   if (application.mode === "invalid") return <ConfigNotice errors={["SHOPACCESS_PERSISTENCE_MODE"]} />;
-  const runtime = getRuntime();
+  const runtime = runtimeOf(application);
   if (!runtime.ok) return <ConfigNotice errors={runtime.error} />;
 
   const admissionLocation = protectedAdmissionLocation(
@@ -208,4 +212,9 @@ export default function ShopPage({ searchParams }: { searchParams: SearchParams 
       </Suspense>
     </main>
   );
+}
+
+/** A save refused while rendering shows the unavailable notice, never a partial or success view. */
+async function ShopContent(props: Parameters<typeof ShopContentUnguarded>[0]) {
+  return guardPage(() => ShopContentUnguarded(props), () => <StoreUnavailable />);
 }

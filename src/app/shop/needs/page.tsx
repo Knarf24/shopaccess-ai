@@ -14,7 +14,9 @@ import { TranslatedCatalogList } from "@/components/mock-journey/TranslatedCatal
 import { journeyCopy, type JourneyCopy } from "@/lib/i18n/demo-copy";
 import { allowlistedJourneyLanguage, guidedSessionEntry, type JourneyLanguage } from "@/lib/i18n/language";
 import { protectedAdmissionLocation } from "@/server/demo-admission";
-import { getApplication, getRuntime } from "@/server/runtime";
+import { runtimeOf } from "@/server/runtime";
+import { guardPage, openApplication } from "@/server/runtime-access";
+import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { loadNeedsJourney, visibleNeedsNotice } from "@/server/shopping";
 import { resolvePageSession } from "@/server/views";
 
@@ -93,12 +95,14 @@ export function MissingSessionNeeds({
   redirect(guidedSessionEntry(lang));
 }
 
-async function NeedsContent({ searchParams }: { searchParams: SearchParams }) {
+async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
   await connection();
-  const application = getApplication();
+  const opened = await openApplication();
+  if (opened === "unavailable") return <StoreUnavailable />;
+  const application = opened;
   if (application.mode === "postgres") notFound();
   if (application.mode === "invalid") return <ConfigNotice errors={["SHOPACCESS_PERSISTENCE_MODE"]} />;
-  const runtime = getRuntime();
+  const runtime = runtimeOf(application);
   if (!runtime.ok) return <ConfigNotice errors={runtime.error} />;
 
   const query = await searchParams;
@@ -335,4 +339,9 @@ export default function NeedsPage({ searchParams }: { searchParams: SearchParams
       </div>
     </main>
   );
+}
+
+/** A save refused while rendering shows the unavailable notice, never a partial or success view. */
+async function NeedsContent(props: Parameters<typeof NeedsContentUnguarded>[0]) {
+  return guardPage(() => NeedsContentUnguarded(props), () => <StoreUnavailable />);
 }
