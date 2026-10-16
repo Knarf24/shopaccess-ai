@@ -61,6 +61,16 @@ interpretation shows the existing "could not be interpreted" notice, and
 suggestions show as not available, with how to ask again. Logs name the
 storage mode and a code, never a path or key.
 
+### Optional: the ShopAccess side panel (local mock only)
+
+`SHOPACCESS_EXTENSION_ORIGINS` lists the exact extension origins allowed to use
+`/api/extension/v1` (comma-separated `chrome-extension://<32 letters a–p>`).
+Absent, every extension route is "not found"; a malformed value switches the
+shop off (`EXTENSION_ORIGINS_INVALID`). The panel can read and continue the
+conversation of the session that approved it, never confirm, check out or pay.
+Grants are kept in the snapshot file as a keyed digest only. See
+`extension/README.md`.
+
 ## PostgreSQL mode (opt-in; written, never run)
 
 The application can be pointed at PostgreSQL instead of its in-memory stores.

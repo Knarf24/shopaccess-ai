@@ -37,6 +37,8 @@ const legacyBody = () => {
   // Format-1 drafts have no interpretationPending field.
   return { allocation, admissionLogin, sessions, drafts: drafts.map((draft) => Object.fromEntries(Object.entries(draft).filter(([key]) => key !== "interpretationPending"))) };
 };
+/** The same body in the current write format (3): format 2 plus an empty grant list. */
+const v3 = (value: Record<string, unknown>) => ({ ...value, grants: [] });
 const identityFor = (key: Buffer) => createHash("sha256").update(Buffer.concat([Buffer.from("shopaccess.mock-store.v1"), Buffer.from([0]), key])).digest("hex");
 const checksum = (value: unknown) => createHash("sha256").update(canonicalJson(value), "utf8").digest("hex");
 const file = (format: number, value: unknown) => Buffer.from(JSON.stringify({ format, identity: identityFor(KEY), sha256: checksum(value), body: value }));
@@ -64,13 +66,13 @@ describe("snapshot format 2", () => {
     if (opened.status !== "ready") return;
     const read = opened.value.readPublished();
     expect(read.status === "ready" && read.value.format).toBe(2);
-    expect(read.status === "ready" && canonicalJson(read.value.body)).toBe(canonicalJson(value));
+    expect(read.status === "ready" && canonicalJson(read.value.body)).toBe(canonicalJson(v3(value)));
     const next = body({ conversations: [conversation(1), conversation(2, { interfaceLanguage: "en", turns: turns(8) })], selections: [selection(1), selection(2, { epoch: 0, closed: false })] });
-    const committed = await opened.value.commit(next);
+    const committed = await opened.value.commit(v3(next));
     expect(committed.status).toBe("ready");
     const stored = JSON.parse(fs.readFileSync(join(directory, "store.json"), "utf8"));
-    expect(stored.format).toBe(2);
-    expect(canonicalJson(stored.body)).toBe(canonicalJson(next));
+    expect(stored.format).toBe(3);
+    expect(canonicalJson(stored.body)).toBe(canonicalJson(v3(next)));
   });
 
   it("refuses inconsistent or malformed conversation and selection entries", async () => {
@@ -106,7 +108,7 @@ describe("snapshot format 2", () => {
     expect(await opens(file(3, body())), "unknown format").toBe(false);
   });
 
-  it("reads a format-1 file upgraded, leaves it untouched, and writes format 2 on the next commit", async () => {
+  it("reads a format-1 file upgraded, leaves it untouched, and writes the current format (3) on the next commit", async () => {
     const legacy = legacyBody();
     const bytes = file(1, legacy);
     const directory = fixture(bytes);
@@ -115,14 +117,14 @@ describe("snapshot format 2", () => {
     if (opened.status !== "ready") return;
     const read = opened.value.readPublished();
     expect(read.status === "ready" && read.value.format).toBe(1);
-    expect(read.status === "ready" && canonicalJson(read.value.body)).toBe(canonicalJson({ ...legacy, drafts: legacy.drafts.map((d) => ({ ...d, interpretationPending: false })), conversations: [], selections: [] }));
+    expect(read.status === "ready" && canonicalJson(read.value.body)).toBe(canonicalJson({ ...legacy, drafts: legacy.drafts.map((d) => ({ ...d, interpretationPending: false })), conversations: [], selections: [], grants: [] }));
     expect(fs.readFileSync(join(directory, "store.json")).equals(bytes)).toBe(true);
-    const committed = await opened.value.commit(body());
+    const committed = await opened.value.commit(v3(body()));
     expect(committed.status).toBe("ready");
     const stored = JSON.parse(fs.readFileSync(join(directory, "store.json"), "utf8"));
-    expect(stored.format).toBe(2);
-    expect(canonicalJson(stored.body)).toBe(canonicalJson(body()));
-    expect(stored.sha256).toBe(checksum(body()));
+    expect(stored.format).toBe(3);
+    expect(canonicalJson(stored.body)).toBe(canonicalJson(v3(body())));
+    expect(stored.sha256).toBe(checksum(v3(body())));
   });
 
   it("refuses a commit larger than the readable limit as definite, leaving the store usable", async () => {
@@ -132,17 +134,17 @@ describe("snapshot format 2", () => {
     if (opened.status !== "ready") return;
     const before = fs.readFileSync(join(directory, "store.json"));
     const many = Array.from({ length: 480 }, (_, i) => i + 10);
-    const huge = body({
+    const huge = v3(body({
       sessions: many.map(session),
       drafts: many.map((n) => draft(n, { shopperText: "y".repeat(2000) })),
       conversations: many.map((n) => conversation(n, { turns: Array.from({ length: 8 }, () => ({ role: "shopper", text: "z".repeat(2000) })) })),
       selections: [],
-    });
+    }));
     const result = await opened.value.commit(huge);
     expect(result).toEqual({ status: "unavailable", outcome: "definite" });
     expect(fs.readFileSync(join(directory, "store.json")).equals(before)).toBe(true);
     expect(fs.readdirSync(directory).filter((name) => name.startsWith("store.json.tmp."))).toEqual([]);
-    expect((await opened.value.commit(body({ selections: [] }))).status).toBe("ready");
+    expect((await opened.value.commit(v3(body({ selections: [] })))).status).toBe("ready");
   });
 
   it("reports a refused body as definite and a post-rename flush failure as indeterminate", async () => {
@@ -155,8 +157,8 @@ describe("snapshot format 2", () => {
     const faultDir = fixture(file(2, body()));
     const faulting = await openFoundationStore(faultDir, KEY, { directoryFsync: async () => { throw new Error("flush"); } });
     if (faulting.status !== "ready") throw new Error("open");
-    expect(await faulting.value.commit(body({ selections: [] }))).toEqual({ status: "unavailable", outcome: "indeterminate" });
+    expect(await faulting.value.commit(v3(body({ selections: [] })))).toEqual({ status: "unavailable", outcome: "indeterminate" });
     expect(faulting.value.readPublished().status).toBe("unavailable");
-    expect(await faulting.value.commit(body())).toEqual({ status: "unavailable", outcome: "indeterminate" });
+    expect(await faulting.value.commit(v3(body()))).toEqual({ status: "unavailable", outcome: "indeterminate" });
   });
 });

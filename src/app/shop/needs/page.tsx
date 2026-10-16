@@ -7,6 +7,8 @@ import { ConfigNotice } from "@/components/ConfigNotice";
 import { GuidedProgress, type GuidedStep } from "@/components/mock-journey/GuidedProgress";
 import { InterpretedNeedsReview, NEEDS_REVIEW_HEADING_ID } from "@/components/mock-journey/InterpretedNeedsReview";
 import { NeedsConversation } from "@/components/mock-journey/NeedsConversation";
+import { PAIRED_ACCESS_RESULT_ID, PairedAccess } from "@/components/PairedAccess";
+import { revocationMessage } from "@/lib/i18n/extension-copy";
 import "../../guided-presentation.css";
 import { ExternalListings, type ListingNotice } from "@/components/mock-journey/ExternalListings";
 import { TranslatedAdvisory } from "@/components/mock-journey/TranslatedAdvisory";
@@ -27,18 +29,23 @@ export const NEEDS_EXPIRED_ALERT_ID = "needs-expired-alert";
 export const NEEDS_PAGE_HEADING_ID = "guided-page-title";
 export const NEEDS_SUGGESTIONS_HEADING_ID = "guided-advisory-heading";
 
-export type NeedsCurrentTarget = "expired" | "alert" | "notice" | "review" | "suggestions" | "heading";
+export type NeedsCurrentTarget = "expired" | "alert" | "revoked" | "notice" | "review" | "suggestions" | "heading";
 
-/** One skip target. Expired alert, validation alert, notice, review, suggestions, then the page heading. */
+/**
+ * One skip target. Expired alert, validation alert, the result of revoking a paired side panel (M2-2), notice, review,
+ * suggestions, then the page heading.
+ */
 export function selectNeedsCurrentTarget(state: {
   readonly expiredDraft: boolean;
   readonly validationAlert: boolean;
+  readonly revocationRendered?: boolean;
   readonly noticeRendered: boolean;
   readonly reviewRendered: boolean;
   readonly suggestionsRendered: boolean;
 }): NeedsCurrentTarget {
   if (state.expiredDraft) return "expired";
   if (state.validationAlert) return "alert";
+  if (state.revocationRendered) return "revoked";
   if (state.noticeRendered) return "notice";
   if (state.reviewRendered) return "review";
   if (state.suggestionsRendered) return "suggestions";
@@ -51,6 +58,8 @@ export function needsCurrentTargetId(target: NeedsCurrentTarget): string {
       return NEEDS_EXPIRED_ALERT_ID;
     case "alert":
       return NEEDS_VALIDATION_ALERT_ID;
+    case "revoked":
+      return PAIRED_ACCESS_RESULT_ID;
     case "notice":
       return "needs-notice";
     case "review":
@@ -164,9 +173,12 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
   const listingsPending = journey.listings?.status === "pending";
   const externalListings = journey.listings?.status === "ready" ? journey.listings.listings : null;
   const suggestedVariantIds = journey.draft?.recommendation?.recommendations.map((item) => item.variantId) ?? [];
+  const pairedAccessShown = runtime.value.extensionOrigins.size > 0;
+  const revokedLabel = pairedAccessShown && typeof query.revoked === "string" ? query.revoked : null;
   const currentTarget = selectNeedsCurrentTarget({
     expiredDraft,
     validationAlert: validationAlertId !== undefined,
+    revocationRendered: revocationMessage(language, revokedLabel, 0) !== null,
     noticeRendered,
     reviewRendered: showConfirm,
     suggestionsRendered,
@@ -313,6 +325,14 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
             pending={listingsPending}
           />
         </>
+      ) : null}
+      {pairedAccessShown ? (
+        <PairedAccess
+          language={language}
+          csrfToken={session.csrfToken}
+          grants={runtime.value.pairing.list(session.id, runtime.value.clock())}
+          revokedLabel={revokedLabel}
+        />
       ) : null}
       <p>
         <Link href="/" prefetch={false} className="underline">

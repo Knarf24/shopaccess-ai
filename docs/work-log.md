@@ -73,6 +73,19 @@ Unmet acceptance criteria / blockers: review and commit pending.
 Next action: owner review.
 Owner decision needed, if any: approve the commit.
 
+## October 16, 2026 — M2-2 extension integration (implementation, uncommitted)
+Goal: implement `docs/m2-2-plan.md` in bounded slices; mock only; review target October 19.
+Source branch / starting commit: feature/m2-2-extension-integration from main b86a41b (PR #1 merge; no CI configured, no check results exist).
+Changes and resulting commit: format 3 snapshot grants (digest only); pairing authority; `/api/extension/v1` (5 routes, allowlist, originless read rule); shared follow-up path for website and panel; approval page, decide and revoke routes, Paired access list (EN/ES, pairing-specific revocation message); logout revokes grants durably; `extension/` side panel promoted from E1. No commit.
+Checks actually run and outcomes: per-slice gates; final suite 47 files, 1,297 passed; typecheck 0; lint 0 errors, 9 warnings. Elapsed per slice in the private progress log (about 31 minutes in all).
+Evidence references and evidence type: private m2-2-extension-20261016/PROGRESS.md and run outputs (source, unit). Not published.
+Browser check (owner-assisted, 127.0.0.1, mock only, 18:44–19:59Z): all plan §5 browser items observed. It found five defects, all fixed with tests: B1, an M2-1 defect (conversation and confirmation-withdrawal state could miss the saved state when routes used different module copies under the dev server; pairing did not erase saved state), B2 raw notice key in the panel, B3 focus after Send, B4 old history kept after a refused token, B5 focus after revoke. Final suite 48 files, 1,300 passed; typecheck 0; lint 0 errors, 9 warnings. Server stopped, port free.
+Source review and correction round: independent review passed with notes. Corrected: the B1 record; panel messages share the website's 20-per-minute message limit; a reused request ID with a different message is refused; focus after a refused send; approval page language; behavioural panel tests for B3/B4; a misplaced comment; stale plan wording. Finding 3 (no matching code on the approval page) is an accepted carry-forward, required before any non-local use.
+Unmet acceptance criteria / blockers: owner review of the corrections; screen-reader items stay open as listed in the plan §5.
+Estimate and assumptions: October 19 holds.
+Next action: owner review, then commit and PR without merge.
+Owner decision needed, if any: approve commit and PR.
+
 ## Session entry template
 Date/time:
 Goal and agreed session limit:

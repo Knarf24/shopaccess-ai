@@ -1,0 +1,226 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// M2-2: the real side-panel script (extension/panel.mjs) on a minimal page and Chrome stand-in, in the style of the E1
+// fake-page tests. Only what panel.mjs touches is modelled. A disabled control cannot take focus, as in a browser.
+const ORIGIN = "http://127.0.0.1:3000";
+const CONTROLS: Record<string, string> = { pair: "button", refresh: "button", disconnect: "button", "save-origin": "button", send: "button", origin: "input", text: "textarea" };
+
+type FakeElement = {
+  tag: string;
+  id?: string;
+  textContent: string;
+  value: string;
+  disabled: boolean;
+  isConnected: boolean;
+  children: FakeElement[];
+  onclick: null | (() => unknown);
+  onsubmit: null | ((event: { preventDefault(): void }) => unknown);
+  focus(): void;
+  replaceChildren(...children: FakeElement[]): void;
+};
+
+function installPage() {
+  const elements = new Map<string, FakeElement>();
+  const body = { tag: "body" } as unknown as FakeElement;
+  const doc = { body, activeElement: body as FakeElement, documentElement: { lang: "en" } } as {
+    body: FakeElement;
+    activeElement: FakeElement;
+    documentElement: { lang: string };
+    getElementById(id: string): FakeElement;
+    createElement(tag: string): FakeElement;
+    querySelectorAll(selector: string): FakeElement[];
+  };
+  const make = (tag: string, id?: string): FakeElement => {
+    const el: FakeElement = {
+      tag,
+      id,
+      textContent: "",
+      value: "",
+      disabled: false,
+      isConnected: true,
+      children: [],
+      onclick: null,
+      onsubmit: null,
+      focus() {
+        if (!el.disabled) doc.activeElement = el;
+      },
+      replaceChildren(...children) {
+        el.children = children;
+      },
+    };
+    // As in a browser: disabling the focused control moves focus to <body>.
+    let disabled = false;
+    Object.defineProperty(el, "disabled", {
+      get: () => disabled,
+      set(value: boolean) {
+        disabled = value;
+        if (value && doc.activeElement === el) doc.activeElement = doc.body;
+      },
+    });
+    return el;
+  };
+  doc.getElementById = (id) => {
+    if (!elements.has(id)) elements.set(id, make(CONTROLS[id] ?? "p", id));
+    return elements.get(id)!;
+  };
+  doc.createElement = (tag) => make(tag);
+  doc.querySelectorAll = (selector) => (selector === "button,input,textarea" ? [...elements.values()].filter((el) => ["button", "input", "textarea"].includes(el.tag)) : []);
+  const listeners: (() => void)[] = [];
+  vi.stubGlobal("document", doc);
+  vi.stubGlobal("window", { addEventListener: (_type: string, fn: () => void) => listeners.push(fn) });
+  return { doc, el: (id: string) => doc.getElementById(id), unload: () => listeners.forEach((fn) => fn()) };
+}
+
+function installChrome(sessionValues: Record<string, unknown>) {
+  const area = (values: Record<string, unknown>) => ({
+    values,
+    async get(key: string) {
+      return key in values ? { [key]: structuredClone(values[key]) } : {};
+    },
+    async set(next: Record<string, unknown>) {
+      Object.assign(values, structuredClone(next));
+    },
+    async remove(keys: string | string[]) {
+      for (const key of [keys].flat()) delete values[key];
+    },
+  });
+  const session = area({ ...sessionValues });
+  const local = area({});
+  const tabs: string[] = [];
+  vi.stubGlobal("chrome", {
+    runtime: { id: "m".repeat(32) },
+    storage: { session, local },
+    tabs: { create: async ({ url }: { url: string }) => tabs.push(url) },
+    permissions: { request: async () => true },
+  });
+  return { session, tabs };
+}
+
+type Route = (body: unknown) => { status: number; body: unknown };
+function installFetch(routes: Record<string, Route>) {
+  const calls: { path: string; body: unknown }[] = [];
+  vi.stubGlobal("fetch", async (url: URL, init: RequestInit = {}) => {
+    const path = new URL(url).pathname.replace("/api/extension/v1", "");
+    const body = init.body ? JSON.parse(String(init.body)) : undefined;
+    calls.push({ path, body });
+    const route = routes[path];
+    const answer = route ? route(body) : { status: 404, body: { ok: false, code: "NOT_FOUND" } };
+    return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { "content-type": "application/json" } });
+  });
+  return calls;
+}
+
+const ok = (value: unknown) => ({ status: 200, body: { ok: true, value } });
+const refused = (status: number, code: string) => ({ status, body: { ok: false, code } });
+const view = (turns: { role: string; text: string }[], language = "en") => ({
+  draft: { draftId: `nd_${"1".repeat(32)}`, version: turns.length / 2 + 1, language, notice: "review", prefilledUse: "programming", prefilledBudgetDollars: "900", confirmedUse: null, confirmedBudgetDollars: null, recommendationClaim: null },
+  conversation: { interfaceLanguage: language, turns },
+});
+const TWO = [
+  { role: "shopper", text: "mostly for programming" },
+  { role: "assistant", text: "Check the use and budget, change anything that is wrong, then confirm." },
+];
+const FOUR = [...TWO, { role: "shopper", text: "thanks" }, { role: "assistant", text: "Check the use and budget, change anything that is wrong, then confirm." }];
+const PAIRED = { access: { bearer: "b".repeat(64), grantId: `grt_${"2".repeat(32)}`, expiresAt: Date.now() + 3_600_000, origin: ORIGIN } };
+
+const settled = async (page: ReturnType<typeof installPage>) => {
+  for (let i = 0; i < 200 && /Working|Procesando/.test(page.el("status").textContent) ; i++) await new Promise((r) => setTimeout(r, 2));
+  await new Promise((r) => setTimeout(r, 2));
+};
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function openPanel(routes: Record<string, Route>, sessionValues: Record<string, unknown> = PAIRED) {
+  const page = installPage();
+  const chromeStub = installChrome(sessionValues);
+  const calls = installFetch(routes);
+  vi.resetModules();
+  await import("../../extension/panel.mjs");
+  await settled(page);
+  return { page, chrome: chromeStub, calls };
+}
+
+const submit = (page: ReturnType<typeof installPage>) => page.el("turn-form").onsubmit!({ preventDefault() {} });
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("side panel behaviour (extension/panel.mjs)", () => {
+  it("after a successful Send, focus is in the Message box, the field is empty and the new reply is announced", async () => {
+    let current = view(TWO);
+    const { page } = await openPanel({
+      "/conversation": () => ok(current),
+      "/conversation/turns": () => ok({ failure: null, duplicate: false, ...(current = view(FOUR)) }),
+    });
+    expect(page.el("history").children.map((li) => li.textContent)).toEqual(["You: mostly for programming", `Assistant: ${TWO[1].text}`]);
+    page.el("text").value = "thanks";
+    page.el("send").focus();
+    submit(page);
+    await settled(page);
+    expect(page.doc.activeElement).toBe(page.el("text"));
+    expect(page.el("text").value).toBe("");
+    expect(page.el("history").children).toHaveLength(4);
+    await wait(200);
+    expect(page.el("announce").textContent).toBe(`Assistant reply 1: ${FOUR[3].text}`);
+    expect(page.el("status").textContent).toBe("");
+  });
+
+  it("a refused token clears the history, summary and pending announcement, and focus moves to Pair with website", async () => {
+    let refuse = false;
+    let current = view(TWO);
+    const { page, chrome: stub } = await openPanel({
+      "/conversation": () => (refuse ? refused(401, "TOKEN_INVALID") : ok(current)),
+      "/conversation/turns": () => refused(401, "TOKEN_INVALID"),
+    });
+    // A new reply arrives (announcement pending), then the next request is refused.
+    current = view(FOUR);
+    page.el("refresh").onclick!();
+    await settled(page);
+    page.el("text").value = "are you there";
+    page.el("send").focus();
+    refuse = true;
+    submit(page);
+    await settled(page);
+    expect(page.el("history").children).toEqual([]);
+    expect(page.el("summary").textContent).toBe("");
+    expect(page.el("error").textContent).toBe("Not paired. Select Pair with website. (TOKEN_INVALID)");
+    expect(page.el("status").textContent).toBe("");
+    expect(stub.session.values.access).toBeUndefined();
+    expect(page.el("send").disabled).toBe(true);
+    expect(page.doc.activeElement).toBe(page.el("pair"));
+    await wait(250);
+    expect(page.el("announce").textContent).toBe("");
+  });
+
+  it("a Spanish draft opens the Spanish approval page, even though pairing forgets the local view first", async () => {
+    const { page, chrome: stub, calls } = await openPanel({
+      "/conversation": () => ok(view(TWO, "es")),
+      "/pairings": () => ok({ pairingId: "c".repeat(64), exchangeSecret: "d".repeat(64), expiresAt: Date.now() + 300_000 }),
+    });
+    expect(page.doc.documentElement.lang).toBe("es");
+    page.el("pair").onclick!();
+    await settled(page);
+    page.unload(); // stop the pairing poll timer
+    expect(stub.tabs).toHaveLength(1);
+    const url = new URL(stub.tabs[0]);
+    expect(url.origin + url.pathname).toBe(`${ORIGIN}/extension/pair`);
+    expect(url.searchParams.get("pairing")).toBe("c".repeat(64));
+    expect(url.searchParams.get("lang")).toBe("es");
+    expect(calls.find((c) => c.path === "/pairings")?.body).toMatchObject({ protocolVersion: 1 });
+  });
+
+  it("a rate-limited Send keeps the message, explains in the draft's language, and returns focus to Send", async () => {
+    const { page } = await openPanel({
+      "/conversation": () => ok(view(TWO, "es")),
+      "/conversation/turns": () => refused(429, "RATE_LIMITED"),
+    });
+    page.el("text").value = "otra cosa";
+    page.el("send").focus();
+    submit(page);
+    await settled(page);
+    expect(page.el("text").value).toBe("otra cosa");
+    expect(page.el("error").textContent).toBe("Demasiados mensajes en el último minuto. Espere y vuelva a enviar; su mensaje se conserva. (RATE_LIMITED)");
+    expect(page.el("history").children).toHaveLength(2);
+    expect(page.doc.activeElement).toBe(page.el("send"));
+  });
+});

@@ -21,36 +21,36 @@ export interface ConversationState {
 /** Shopper and assistant lines kept for one draft. Older lines are dropped. */
 export const MAX_CONVERSATION_TURNS = 8;
 
-const conversations = new WeakMap<object, Map<string, ConversationState>>();
-const purchaseEpochs = new WeakMap<object, Map<string, number>>();
-const closedSelections = new WeakMap<object, Set<string>>();
-const checkoutEpochs = new WeakMap<object, Map<string, { readonly sessionId: string; readonly epoch: number }>>();
+/**
+ * Per-store state is attached to the store object under global symbols, as needs drafts are (store.ts). A module-level
+ * WeakMap is not enough: the Next.js server can load this module more than once (one copy per route bundle), and each
+ * copy would see an empty map for the same store. The runtime's save could then miss a line a route had just recorded.
+ */
+const CONVERSATIONS = Symbol.for("shopaccess.conversations");
+const PURCHASE_EPOCHS = Symbol.for("shopaccess.purchaseEpochs");
+const CLOSED_SELECTIONS = Symbol.for("shopaccess.closedSelections");
+const CHECKOUT_EPOCHS = Symbol.for("shopaccess.checkoutEpochs");
 
-function conversationMap(store: object): Map<string, ConversationState> {
-  let found = conversations.get(store);
-  if (!found) {
-    found = new Map();
-    conversations.set(store, found);
+function slot<T>(store: object, key: symbol, create: () => T): T {
+  const host = store as Record<symbol, T | undefined>;
+  let found = host[key];
+  if (found === undefined) {
+    found = create();
+    host[key] = found;
   }
   return found;
+}
+
+function conversationMap(store: object): Map<string, ConversationState> {
+  return slot(store, CONVERSATIONS, () => new Map<string, ConversationState>());
 }
 
 function epochMap(store: object): Map<string, number> {
-  let found = purchaseEpochs.get(store);
-  if (!found) {
-    found = new Map();
-    purchaseEpochs.set(store, found);
-  }
-  return found;
+  return slot(store, PURCHASE_EPOCHS, () => new Map<string, number>());
 }
 
 function checkoutMap(store: object): Map<string, { readonly sessionId: string; readonly epoch: number }> {
-  let found = checkoutEpochs.get(store);
-  if (!found) {
-    found = new Map();
-    checkoutEpochs.set(store, found);
-  }
-  return found;
+  return slot(store, CHECKOUT_EPOCHS, () => new Map<string, { readonly sessionId: string; readonly epoch: number }>());
 }
 
 export function readConversation(store: object, sessionId: string): ConversationState | null {
@@ -157,12 +157,7 @@ export function mergeFollowUpCandidate(
 }
 
 function closedSet(store: object): Set<string> {
-  let found = closedSelections.get(store);
-  if (!found) {
-    found = new Set();
-    closedSelections.set(store, found);
-  }
-  return found;
+  return slot(store, CLOSED_SELECTIONS, () => new Set<string>());
 }
 
 /** Bumps the epoch that needs-bound checkout selections must still match. */

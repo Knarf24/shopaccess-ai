@@ -145,6 +145,18 @@ export function protectedAdmissionLocation(
   return null;
 }
 
+/**
+ * When the presented admission ends (admission on and the cookie valid), or null when admission is off or invalid.
+ * Bounds extension grants (M2-2).
+ */
+export function admissionExpiryMs(admission: DemoAdmission, cookieHeader: string | null | undefined, nowMs: number): number | null {
+  if (admission.mode !== "on") return null;
+  const value = readPurposeCookie(cookieHeader, ADMISSION_COOKIE_NAME);
+  if (!value || !verifyPurposeCookie(value, admission.key, nowMs, ADMISSION_LIFETIME_MS, ADMISSION_LABEL)) return null;
+  const expiry = Number(value.split(".")[1]);
+  return Number.isSafeInteger(expiry) ? expiry : null;
+}
+
 /** What the admission page may render. The page itself does not set a cookie. */
 export function admissionScreen(
   admission: DemoAdmission,

@@ -90,6 +90,19 @@ export class InMemorySessionStore implements SessionStore {
     return this.byId.size;
   }
 
+  /** When a stored, unrevoked session stops being live (idle or absolute, whichever is first), or null. */
+  liveUntil(sessionId: string, idleTimeoutMs: number): number | null {
+    const record = this.byId.get(sessionId);
+    if (!record || record.revokedAt !== null) return null;
+    return Math.min(record.lastSeenAt.getTime() + idleTimeoutMs, record.absoluteExpiresAt.getTime());
+  }
+
+  /** Absolute expiry of a stored, unrevoked session, or null. Synchronous, for bounding extension grants. */
+  absoluteExpiryOf(sessionId: string): Date | null {
+    const record = this.byId.get(sessionId);
+    return record && record.revokedAt === null ? record.absoluteExpiresAt : null;
+  }
+
   /**
    * SYNCHRONOUS liveness decision for the single-process mock: true only if the
    * session is stored right now, is not revoked, and is inside both its idle

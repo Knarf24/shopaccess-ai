@@ -7,8 +7,10 @@ import fsExt from "fs-ext";
 import { canonicalJson } from "../shared/canonical-json";
 import type { NeedsDraft, RetainedRecommendation, SessionRecord } from "./store";
 
-const FORMAT = 2;
-/** Format-1 files (sessions and drafts only) are still read; they are upgraded in memory and rewritten as format 2 on the next commit. */
+const FORMAT = 3;
+/** Format 2 (M2-1): no extension grants. Read upgraded with an empty grant list. */
+const PREVIOUS_FORMAT = 2;
+/** Format-1 files (sessions and drafts only) are still read; they are upgraded in memory and rewritten as format 3 on the next commit. */
 const LEGACY_FORMAT = 1;
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
@@ -20,6 +22,13 @@ const MAX_RECOMMENDATIONS = 30;
 const MAX_CONVERSATION_LINES = 8;
 const MAX_SHOPPER_LINE = 2000;
 const MAX_EPOCH = 999_999_999;
+/** Extension grants (M2-2): at most three active per session, each living at most one hour. */
+const MAX_ACTIVE_GRANTS_PER_SESSION = 3;
+const MAX_GRANT_LIFETIME_MS = 3_600_000;
+const GRANT_SCOPES = new Set(["conversation:read", "conversation:write"]);
+const GRANT_ID = /^grt_[0-9a-f]{32}$/;
+const INSTALLATION_ID = /^ins_[0-9a-f]{32}$/;
+const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 const MAX_UNIT_AMOUNT_CENTS = 2_000_000;
 const ABSOLUTE_LIFETIME_MS = 86_400_000;
 const IDENTITY_LABEL = "shopaccess.mock-store.v1";
@@ -46,7 +55,7 @@ const DIRECTORY_MODE = 0o700;
 
 export type PublishedSnapshot = {
   /** The format the file was written in. A format-1 body is returned upgraded, with empty conversations and selections. */
-  readonly format: 1 | 2;
+  readonly format: 1 | 2 | 3;
   readonly identity: string;
   readonly sha256: string;
   readonly body: PublishedBody;
@@ -77,6 +86,19 @@ type SnapshotConversation = {
 /** Needs-bound checkout selection state: a supported requirement change closes it and advances the epoch. */
 type SnapshotSelection = { readonly sessionId: string; readonly epoch: number; readonly closed: boolean };
 
+/** A conversation-scoped extension grant. The token itself is never stored, only its keyed digest. */
+export type SnapshotGrant = {
+  readonly grantId: string;
+  readonly sessionId: string;
+  readonly tokenDigest: string;
+  readonly extensionOrigin: string;
+  readonly installationId: string;
+  readonly scopes: readonly ("conversation:read" | "conversation:write")[];
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly revokedAt: string | null;
+};
+
 export type PublishedBody = {
   readonly allocation: WindowState;
   readonly admissionLogin: WindowState;
@@ -84,6 +106,7 @@ export type PublishedBody = {
   readonly drafts: readonly SnapshotDraft[];
   readonly conversations: readonly SnapshotConversation[];
   readonly selections: readonly SnapshotSelection[];
+  readonly grants: readonly SnapshotGrant[];
 };
 
 type WindowState = { readonly windowStartedAt: number | null; readonly count: number };
@@ -403,8 +426,8 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
     return null;
   }
   if (!isRecord(parsed) || !hasExactKeys(parsed, ["format", "identity", "sha256", "body"])) return null;
-  if (parsed.format !== FORMAT && parsed.format !== LEGACY_FORMAT) return null;
-  const format: 1 | 2 = parsed.format === LEGACY_FORMAT ? 1 : 2;
+  if (parsed.format !== FORMAT && parsed.format !== PREVIOUS_FORMAT && parsed.format !== LEGACY_FORMAT) return null;
+  const format: 1 | 2 | 3 = parsed.format === LEGACY_FORMAT ? 1 : parsed.format === PREVIOUS_FORMAT ? 2 : 3;
   if (typeof parsed.identity !== "string" || !HEX_64.test(parsed.identity)) return null;
   if (typeof parsed.sha256 !== "string" || !HEX_64.test(parsed.sha256)) return null;
   if (parsed.identity !== identityFor(key)) return null;
@@ -416,11 +439,13 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
 }
 
 const LEGACY_BODY_KEYS = ["allocation", "admissionLogin", "sessions", "drafts"] as const;
-const BODY_KEYS = [...LEGACY_BODY_KEYS, "conversations", "selections"] as const;
+const PREVIOUS_BODY_KEYS = [...LEGACY_BODY_KEYS, "conversations", "selections"] as const;
+const BODY_KEYS = [...PREVIOUS_BODY_KEYS, "grants"] as const;
 
 /** Parses a body written in `format`. A format-1 body is returned upgraded with empty conversations and selections. */
-function parseBody(value: unknown, format: 1 | 2): PublishedBody | null {
-  if (!isRecord(value) || !hasExactKeys(value, format === LEGACY_FORMAT ? LEGACY_BODY_KEYS : BODY_KEYS)) return null;
+function parseBody(value: unknown, format: 1 | 2 | 3): PublishedBody | null {
+  const keys = format === LEGACY_FORMAT ? LEGACY_BODY_KEYS : format === PREVIOUS_FORMAT ? PREVIOUS_BODY_KEYS : BODY_KEYS;
+  if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
   const allocation = parseWindow(value.allocation, MAX_ALLOCATION_COUNT);
   const admissionLogin = parseWindow(value.admissionLogin, MAX_SAFE);
   if (!allocation || !admissionLogin || !Array.isArray(value.sessions) || !Array.isArray(value.drafts)) return null;
@@ -451,7 +476,7 @@ function parseBody(value: unknown, format: 1 | 2): PublishedBody | null {
         draft.confirmedUse === null &&
         draft.recommendationClaim === null,
     }));
-    return { ...(value as Omit<PublishedBody, "conversations" | "selections" | "drafts">), drafts, conversations: [], selections: [] };
+    return { ...(value as Omit<PublishedBody, "conversations" | "selections" | "drafts" | "grants">), drafts, conversations: [], selections: [], grants: [] };
   }
   if (!Array.isArray(value.conversations) || !Array.isArray(value.selections)) return null;
   if (value.conversations.length > MAX_SESSIONS || value.selections.length > MAX_SESSIONS) return null;
@@ -467,7 +492,58 @@ function parseBody(value: unknown, format: 1 | 2): PublishedBody | null {
     if (!selection || selecting.has(selection.sessionId)) return null;
     selecting.add(selection.sessionId);
   }
+  if (format === PREVIOUS_FORMAT) return { ...(value as Omit<PublishedBody, "grants">), grants: [] };
+  if (!Array.isArray(value.grants) || value.grants.length > MAX_SESSIONS * MAX_ACTIVE_GRANTS_PER_SESSION * 4) return null;
+  const grantIds = new Set<string>();
+  const tokenDigests = new Set<string>();
+  const activePerSession = new Map<string, number>();
+  const activeInstallations = new Set<string>();
+  for (const entry of value.grants) {
+    const grant = grantIdentity(entry, ids);
+    if (!grant || grantIds.has(grant.grantId) || tokenDigests.has(grant.tokenDigest)) return null;
+    grantIds.add(grant.grantId);
+    tokenDigests.add(grant.tokenDigest);
+    if (grant.active) {
+      const count = (activePerSession.get(grant.sessionId) ?? 0) + 1;
+      if (count > MAX_ACTIVE_GRANTS_PER_SESSION) return null;
+      activePerSession.set(grant.sessionId, count);
+      // One active grant per installation: a re-pair replaces, it does not add.
+      if (activeInstallations.has(grant.installationKey)) return null;
+      activeInstallations.add(grant.installationKey);
+    }
+  }
   return value as PublishedBody;
+}
+
+function grantIdentity(
+  value: unknown,
+  sessionIds: ReadonlySet<string>,
+): { grantId: string; sessionId: string; tokenDigest: string; active: boolean; installationKey: string } | null {
+  const keys = ["grantId", "sessionId", "tokenDigest", "extensionOrigin", "installationId", "scopes", "createdAt", "expiresAt", "revokedAt"];
+  if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
+  if (typeof value.grantId !== "string" || !GRANT_ID.test(value.grantId)) return null;
+  if (typeof value.sessionId !== "string" || !sessionIds.has(value.sessionId)) return null;
+  if (typeof value.tokenDigest !== "string" || !DIGEST.test(value.tokenDigest)) return null;
+  if (typeof value.extensionOrigin !== "string" || !EXTENSION_ORIGIN.test(value.extensionOrigin)) return null;
+  if (typeof value.installationId !== "string" || !INSTALLATION_ID.test(value.installationId)) return null;
+  if (!Array.isArray(value.scopes) || value.scopes.length === 0 || value.scopes.length > GRANT_SCOPES.size) return null;
+  if (new Set(value.scopes).size !== value.scopes.length || !value.scopes.every((scope) => typeof scope === "string" && GRANT_SCOPES.has(scope))) return null;
+  const createdAt = parseTimestamp(value.createdAt);
+  const expiresAt = parseTimestamp(value.expiresAt);
+  if (!createdAt || !expiresAt) return null;
+  if (expiresAt.getTime() <= createdAt.getTime() || expiresAt.getTime() - createdAt.getTime() > MAX_GRANT_LIFETIME_MS) return null;
+  let revokedAt: Date | null = null;
+  if (value.revokedAt !== null) {
+    revokedAt = parseTimestamp(value.revokedAt);
+    if (!revokedAt || revokedAt.getTime() < createdAt.getTime()) return null;
+  }
+  return {
+    grantId: value.grantId,
+    sessionId: value.sessionId,
+    tokenDigest: value.tokenDigest,
+    active: revokedAt === null,
+    installationKey: `${value.sessionId}\u0000${value.extensionOrigin}\u0000${value.installationId}`,
+  };
 }
 
 /** A conversation belongs to a stored session and to that session's current draft. */
@@ -523,7 +599,7 @@ function sessionIdentity(value: unknown): { id: string; tokenDigest: string } | 
   return { id: value.id, tokenDigest: value.tokenDigest };
 }
 
-function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>, format: 1 | 2): { sessionId: string; draftId: string } | null {
+function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>, format: 1 | 2 | 3): { sessionId: string; draftId: string } | null {
   const legacyKeys = [
     "sessionId",
     "draftId",
@@ -619,6 +695,7 @@ function emptyBody(): PublishedBody {
     drafts: [],
     conversations: [],
     selections: [],
+    grants: [],
   };
 }
 

@@ -26,6 +26,21 @@ export interface PersistedSelection {
 
 export type Windows = Pick<PublishedBody, "allocation" | "admissionLogin">;
 
+export type GrantScope = "conversation:read" | "conversation:write";
+
+/** A conversation-scoped extension grant (M2-2). Only the keyed digest of its token is kept. */
+export interface PersistedGrant {
+  readonly grantId: string;
+  readonly sessionId: string;
+  readonly tokenDigest: string;
+  readonly extensionOrigin: string;
+  readonly installationId: string;
+  readonly scopes: readonly GrantScope[];
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+  readonly revokedAt: Date | null;
+}
+
 /** The whole persisted application state. Values are treated as immutable: a decision returns a new state. */
 export interface DurableState {
   readonly sessions: readonly SessionRecord[];
@@ -33,6 +48,7 @@ export interface DurableState {
   readonly conversations: ReadonlyMap<string, ConversationState>;
   readonly selections: ReadonlyMap<string, PersistedSelection>;
   readonly windows: Windows;
+  readonly grants: readonly PersistedGrant[];
 }
 
 /** Builds the body to commit. Entries whose session is gone, and conversations for a replaced draft, are left out. */
@@ -63,6 +79,19 @@ export function bodyFromState(state: DurableState): PublishedBody {
     selections: [...state.selections]
       .filter(([sessionId]) => ids.has(sessionId))
       .map(([sessionId, selection]) => ({ sessionId, epoch: selection.epoch, closed: selection.closed })),
+    grants: state.grants
+      .filter((grant) => ids.has(grant.sessionId))
+      .map((grant) => ({
+        grantId: grant.grantId,
+        sessionId: grant.sessionId,
+        tokenDigest: grant.tokenDigest,
+        extensionOrigin: grant.extensionOrigin,
+        installationId: grant.installationId,
+        scopes: [...grant.scopes],
+        createdAt: grant.createdAt.toISOString(),
+        expiresAt: grant.expiresAt.toISOString(),
+        revokedAt: grant.revokedAt ? grant.revokedAt.toISOString() : null,
+      })),
   };
 }
 
@@ -132,8 +161,12 @@ export function restoreState(body: PublishedBody, now: Date): RecoveredState {
       turns: conversation.turns.map((turn) => ({ role: turn.role, text: turn.text })),
     });
   }
+  // Only usable grants are restored: their session is live, they are not revoked, and they have not expired.
+  const grants: PersistedGrant[] = body.grants
+    .filter((grant) => ids.has(grant.sessionId) && grant.revokedAt === null && at < Date.parse(grant.expiresAt))
+    .map((grant) => ({ ...grant, scopes: [...grant.scopes], createdAt: new Date(grant.createdAt), expiresAt: new Date(grant.expiresAt), revokedAt: null }));
   return {
-    state: { sessions, drafts, conversations, selections, windows: { allocation: body.allocation, admissionLogin: body.admissionLogin } },
+    state: { sessions, drafts, conversations, selections, windows: { allocation: body.allocation, admissionLogin: body.admissionLogin }, grants },
     interrupted: { interpretations, recommendations },
     droppedSessions,
   };
