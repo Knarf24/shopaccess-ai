@@ -86,14 +86,17 @@ Prepared October 16, 2026 (America/New_York) by Claude. Planned against `main` a
 | `merchantId` | seller identity, exactly the catalog's `merchantId` (today `dmm_shopaccessdemo`) |
 | `productId`, `variantId` | item identity; must exist in the merchant catalog at creation |
 | `maxQuantity` | integer, 1 to the variant's `maxQuantityPerOrder` (catalog cap 10) |
-| `maxTotalCents` | positive safe integer, at most the existing amount cap |
+| `maxTotalCents` | positive integer, at most **20,000,000 cents**: the existing maximum unit amount (2,000,000 cents) times the maximum quantity of 10 |
 | `currency` | `"USD"`; a quote in any other currency never matches |
 | `createdAt`, `expiresAt` | ISO times. `expiresAt` is always a concrete timestamp, computed once at creation: the earliest of the shopper's choice (15 minutes, 1 hour, or "until this session ends"), the session's absolute expiry and, when admission is on, the admission cookie's expiry. "Until this session ends" is stored as that earliest deadline, never as an open-ended value, so expiry is the same after a restart |
-| `state` | `active`, `reserved`, `executing`, `consumed`, `revoked` or `outcome_unknown` |
-| `checkoutIntentId` | the checkout holding the permission (`reserved`, `executing`, `consumed`), else `null` |
+| `state` | `active`, `reserved`, `executing`, `consumed`, `revoked`, `expired` or `outcome_unknown` |
+| `checkoutIntentId` | the checkout holding the permission (`reserved`, `executing`, `consumed`), and kept on `outcome_unknown` for tracing and reconciling the uncertain checkout; else `null`. `outcome_unknown` never has purchase authority |
 | `changedAt` | time of the last state change |
 
-**Derived, not saved:** "expired" means the current time is at or after `expiresAt`, whatever the state. Expired gives no authority.
+**Expiry:**
+- **Authority is always checked against `expiresAt`.** A permission at or past its `expiresAt` has no authority, whatever its saved state.
+- **`expired` is also saved, as bookkeeping only.** The next permission decision after an `active` or `reserved` permission lapses records it as `expired`, and a restore does the same. This frees its exact seller + product + variant binding for a new permission.
+- **The saved state never restores or extends authority.**
 
 **Limits (D-M23-6):** a permission is *live* while it is `active`, `reserved` or `executing` and not expired. Live permissions are the ones that carry or are exercising authority.
 - **Binding uniqueness:** at most **one live permission per session for the same exact binding** (seller `merchantId` + `productId` + `variantId`). Creating another for a binding that already has a live permission is **refused** with `PERMISSION_DUPLICATE`, and nothing changes. There is no automatic replacement: the shopper revokes the existing one first. Two authorities for one binding can never exist at once, and a checkout always matches exactly one permission.
@@ -136,6 +139,11 @@ Prepared October 16, 2026 (America/New_York) by Claude. Planned against `main` a
 - **Rollback note:** M2-2 code cannot read a format-4 file and will refuse it (fail closed). See §11.
 
 ## 5. Where the policy checks run
+
+**Slice 2 invariant (from slice 1):**
+- In memory mode, logout does not rewrite permission records.
+- A dead session's permissions have no authority.
+- **Every slice 2 authorization check must independently require a live session.**
 
 There is one function, `checkPermission(state, { sessionId, quote, checkoutIntentId, phase, now })`, which returns `ok` or a refusal code. Every caller uses it. "Matches" means all of the following:
 - the same session;

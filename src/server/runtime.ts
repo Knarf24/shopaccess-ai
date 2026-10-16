@@ -23,6 +23,7 @@ import { createSessionService, SESSION_IDLE_TIMEOUT_MS, type SessionService } fr
 import { memoryDurableHost, snapshotDurableHost, type DurableHost } from "@/lib/session/durable";
 import { InMemorySessionStore } from "@/lib/session/store";
 import { createPairingAuthority, type PairingAuthority } from "@/lib/session/grants";
+import { createPermissionAuthority, type PermissionAuthority } from "@/lib/permissions/authority";
 import type { StateGate } from "@/lib/session/snapshot-state";
 import { systemClock, type Clock } from "@/lib/shared/clock";
 import { randomIdGenerator, type IdGenerator } from "@/lib/shared/ids";
@@ -91,6 +92,8 @@ export interface Runtime {
   readonly pairing: PairingAuthority;
   /** Allowed extension origins; empty switches the extension API off. */
   readonly extensionOrigins: ReadonlySet<string>;
+  /** F07 purchase permissions (M2-3). Website only; never reachable from the extension API. */
+  readonly permissions: PermissionAuthority;
 }
 
 const MAINTENANCE_INTERVAL_MS = 60_000;
@@ -203,6 +206,12 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     sessionLive: sessionIsLive,
     sessionExpiresAt: (sessionId) => sessionStore.absoluteExpiryOf(sessionId),
   });
+  const permissions = createPermissionAuthority({
+    durable,
+    catalog,
+    sessionLive: sessionIsLive,
+    sessionExpiresAt: (sessionId) => sessionStore.absoluteExpiryOf(sessionId),
+  });
 
   if (channel3ClientForProcess() !== "disabled") {
     throw new Error("Channel3 live transport is not installed.");
@@ -266,6 +275,7 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     durable,
     pairing,
     extensionOrigins: config.extensionOrigins ?? new Set<string>(),
+    permissions,
   };
   if (sandbox) sandboxInstallations().set(runtime, sandbox);
   return runtime;
