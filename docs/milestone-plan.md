@@ -19,6 +19,44 @@ Retain existing useful implementation and historical records. Do not remove feat
 
 M1 precedes final scheduling of M2–M7. Accessibility develops alongside each implementation milestone. All required milestones target October 24; internal dates and effort estimates are not yet established. Report this scheduling gap rather than inventing them.
 
+## Proposed internal dates (M1 assessment, October 16)
+
+These dates are PROPOSED, not owner-approved. They come from the estimates and dependencies in [M1 assessment](m1-assessment.md). The October 24 target and the scope are unchanged.
+
+| Milestone | Proposed finish | Depends on | Estimate (h) |
+| --- | --- | --- | --- |
+| M1 | Sat Oct 17 | E1–E5 authorized and run; owner decisions | 8–11 |
+| M2 | Mon Oct 19 | M1 | F02 11–19, F07 10–18 |
+| M3 | Wed Oct 21 | M2 | F01 20–34, F03 11–18 |
+| M4 | Wed Oct 21 | M2; live discovery only if authorized | F04 5–9, F05 18–30 |
+| M5 | Thu Oct 22 | M2, M4; Sandbox run only if authorized; Checkout MCP eligibility (E2) | F06 11–21 (up to the handover only; agent completion not estimated), F08 10–20 |
+| M6 | Fri Oct 23 (accessibility alongside each milestone) | M3–M5; owner VoiceOver session | F09 10–19, F10 6–11, F11 13–20 |
+| M7 | Sat Oct 24 | M6; owner records the video | F12 11–20 |
+
+These dates assume:
+- at least two implementers in parallel after M2;
+- at least 16 productive hours per day of combined capacity;
+- the low end of every estimate;
+- no failed experiment.
+
+None of these is established.
+
+**Forecasted miss: likely.** The estimates exclude unestimated work, notably agent-completed external checkout (the goal is unchanged), so the forecast is a lower bound, not a complete delivery forecast. Nothing here authorizes application execution or live integration.
+- The critical path (M1, then F02/F07, F01, F06, then integration and submission) is about 77–126 h.
+- At about 10 h/day it ends around Oct 23 at the low estimate, Oct 26 at the midpoint, and Oct 28 at the high estimate.
+- Unmet criteria at risk on October 24:
+  - F05/F06 extension and supported-store acceptance;
+  - F08 current Sandbox journey and repeat-order revalidation;
+  - F10 voice;
+  - F11 final VoiceOver acceptance;
+  - F12 video.
+
+Owner options (none applied):
+- add capacity;
+- keep the date and accept the named gaps;
+- move the date, which affects Wild Link;
+- change scope.
+
 ## Acceptance journey
 A shopper asks for a backup MacBook charger. The assistant clarifies the device and budget, checks compatibility, explains a shortlist, accepts corrections, and continues through a supported purchasing path under scoped user permission. Website and extension share state. Verify in English and Spanish, keyboard and screen reader, plus voice. An external retailer integration requires evidence; a controlled demo does not prove Amazon support.
 

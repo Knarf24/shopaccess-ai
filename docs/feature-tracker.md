@@ -16,6 +16,36 @@ Updated October 16, 2026. Target: October 24. Initial status reflects published 
 | F11 | Keyboard and screen-reader independence | Partial historical checks; announcements/focus and A35 unresolved | Actual assistive-technology comparison and final-review journey |
 | F12 | Submission and reproducibility | Source published; revised product not accepted | Setup, license/rule review, working-product video and submission checks |
 
+## M1 assessment status (October 16, 2026)
+
+Source inspected: `main` at `5eb1ed9af6b1c0277330465e9778dcefe6620a53`. The application source there is identical to `0379134d4ec61117fa334caa16c2b59d9308ebe4`. This was a source reading only; no tests or browsers were run. Full detail, evidence references and sources: [M1 assessment](m1-assessment.md).
+
+Evidence labels:
+- **source:** read in the published tree.
+- **unit-hist:** suite run on an October 15 tree before `0379134`; not re-run on the published commit.
+- **private:** the owner's local evidence store. Not published, so the monitor cannot verify it.
+- **owner-reported:** unverified; no retained evidence.
+- **documented:** official third-party documentation; untested here.
+
+None of F01–F12 is accepted.
+
+| ID | Source state at `5eb1ed9` | Evidence and limits | Estimate (impl + verify), confidence |
+| --- | --- | --- | --- |
+| F01 | Partial: 8-turn conversation held in process memory; extracts laptop use and budget only; replies are fixed notices (`src/lib/session/conversation.ts`, `src/lib/providers/ai.ts`) | unit-hist and private `guided-conversation-20261015-210229` (45/45); multi-turn browser observation: none | 20–34 h, low |
+| F02 | Partial: session and draft snapshot store; conversation excluded; no device profile (`src/lib/session/snapshot-store.ts`) | unit-hist only; PostgreSQL never executed by the application | 11–19 h, medium-low |
+| F03 | Laptop readiness only; evidence-quality grading reusable; no charger schema or rules (`src/lib/readiness/engine.ts`, `src/lib/catalog/schemas.ts`) | unit-hist for laptops | 11–18 h, medium |
+| F04 | Channel3 adapter, `CHANNEL3_LIVE_ACTIVATION = false`, laptop queries (`src/lib/providers/channel3-discovery.ts`) | unit-hist; private manual browser check: disabled message seen, pending inconclusive. **Postman exploration: owner-reported, unverified**, outside the application | 5–9 h, low; live portion gated |
+| F05 | Absent: no manifest or `chrome.*` code | documented: side panel needs Chrome 114+ and MV3; `open()` needs Chrome 116+ and a user action | 18–30 h, low |
+| F06 | Absent; demo merchant schema allows only the simulated Sandbox merchant. Goal unchanged: agent-completed purchase within scoped authorization; a handover is not completion | documented, untested: Shopify Checkout MCP `complete_checkout` "when eligible" (**eligibility unresolved**, trust-tier page not read; merchant stays merchant of record); `checkoutUrl` / `continue_url` handover. Amazon: no consumer ordering API; terms restrict robots (**official page unavailable**, 503) | 11–21 h covers mechanics up to the handover only; agent completion, Amazon and any second store not estimated, so no complete F06 estimate |
+| F07 | Per-purchase quote, confirmation and intent binding only; no grants, limits, expiry or revoke | unit-hist for quote and confirmation | 10–18 h, medium-low |
+| F08 | Payment state machine and PayPal Sandbox adapter present; no repeat-order revalidation | private: attempt nine `CAPTURED_VERIFIED`, **overall exit 6, acceptance NOT MET**; correction 28 offline 145/145, not executed; all on trees before `0379134` | 10–20 h, medium; saved-payment repeat charging not estimated (limited release) |
+| F09 | EN/ES copy; language fixed per draft; no switching; `<html lang="en">` | Spanish-content defect: private owner-operated record. Untested hypothesis: `src/app/shop/needs/page.tsx:123` prefers the draft's language | 10–19 h, medium-low |
+| F10 | Absent | documented: Chrome recognition sends audio to a server by default | 6–11 h, medium |
+| F11 | Partial: skip link, status/alert roles; no focus management after a conversation turn | private: October 12 VoiceOver pass on the earlier flow; A35 unmet; automatic announcements unresolved | 13–20 h incl. 3–4 h owner VoiceOver, medium-low |
+| F12 | Private repository; README setup; no LICENSE | event rules unverified (official page 403 to Claude) | 11–20 h, medium |
+
+Partial total: 136–239 h, plus 8–11 h of M1 experiments. Unestimated work is excluded, so this is not a complete delivery forecast. Internal dates in the milestone plan are proposed, not owner-approved. Nothing here authorizes application execution or live integration. The October 24 forecast is a likely miss; see [M1 assessment](m1-assessment.md#forecast-against-october-24).
+
 ## Updating a row
 Record implementation state, evidence type, exact source commit, dated test/run reference, remaining gap, dependency and next action. Use unknown when evidence is missing. Distinguish source inspection, automated tests, browser observation, screen-reader acceptance and live-provider verification. Never upgrade a historical result to acceptance of a newer source tree.
 

@@ -10,6 +10,27 @@ All dates use America/New_York. Claude maintains this log after each work sessio
 - Tracking documents and monitor instructions are being added. This entry does not claim application changes, new tests, a live call, Cursor configuration or Slack delivery.
 - Next: Claude reconciles any local unpublished planning records, inspects the current implementation against the feature tracker, records feasibility findings and estimates, and keeps these published documents current.
 
+## October 16, 2026 — M1 implementation assessment (documentation only)
+Date/time: October 16, from about 06:14 (start of preservation). End time not recorded.
+Goal and agreed session limit: M1 assessment of F01–F12; planning documents only.
+Source branch / starting commit: local `main` at `0379134`, with unpublished planning documents. Fast-forwarded to `5eb1ed9af6b1c0277330465e9778dcefe6620a53` after preservation.
+Local unpublished work reconciled:
+- The October 15–16 local drafts (an October 18 plan with tasks T1–T23, a local work log, and a governance status addition) were preserved before synchronizing. They are in `git stash` ("local-unpublished-planning-docs-20261016") and in a checksummed private backup, `local-docs-preservation-20261016-061418`.
+- The owner's October 24 direction supersedes their October 18 schedule. Their historical findings are carried into [M1 assessment](m1-assessment.md) with evidence labels.
+- The drafts were not published, because they cite private evidence paths at length.
+
+Changes and resulting commit: added `docs/m1-assessment.md`; added the M1 status section to `docs/feature-tracker.md`; added proposed internal dates to `docs/milestone-plan.md`; added this entry. Committed together with this entry (commit hash in `git log`; a commit cannot contain its own hash).
+Checks actually run and outcomes:
+- Source reading and search only.
+- Official documentation was read for Shopify, Chrome and PayPal. Amazon's Conditions of Use page returned 503.
+- No tests, builds, services, live calls, payments or database work.
+
+Evidence references and evidence type: source at `5eb1ed9`, documented (see the assessment's Sources). Historical evidence is labelled private or owner-reported.
+Unmet acceptance criteria / blockers: all of F01–F12 are unaccepted. E1–E5 are not authorized. The Spanish defect is undiagnosed (an untested hypothesis is recorded).
+Estimate and assumptions: partial estimate of 136–239 h for F01–F12, plus 8–11 h for M1 experiments. Excludes unestimated work, notably agent-completed external checkout (still the goal), so it is not a complete delivery forecast. Forecasted miss of October 24: likely. Internal dates are proposed, not owner-approved. No application execution or live integration is authorized.
+Next action: owner decisions (assessment list 1–11), then authorization of the E1–E5 experiments.
+Owner decision needed, if any: yes. See [M1 assessment](m1-assessment.md#unresolved-owner-decisions).
+
 ## Session entry template
 Date/time:
 Goal and agreed session limit:
