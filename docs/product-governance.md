@@ -138,3 +138,11 @@ Channel3 search and product detail were explored through Postman. The returned f
 The suggestion panel now labels each stored suggestion and each other eligible laptop. The source sentence names the provider that produced the stored result. A local or fallback result is not labeled as the configured model.
 
 The Increment 1 SQL seed, `db/migrations/0004_merchant_catalog_seed.sql`, was not rewritten. Its own header still says it was never executed under Gate B-W. It was later applied on disposable Increment 1 clusters, and its bytes stay checksum-pinned. The application fixture is no longer equal to that seed.
+
+## Expanded owner direction and tracking (October 16, 2026)
+
+The owner has expanded the planned product to a conversational shopping website and browser extension, persistent shopping state and optional device profiles, compatibility explanations and comparisons, supported external-store assistance, scoped revocable delegated purchasing and repeat-order checks, voice input/output, English/Spanish with explicit switching, and independent keyboard/screen-reader operation. This is planned scope, not a claim of implementation or external-retailer support. Account access is not spending authorization. Store capability and permitted checkout mechanisms require investigation. Existing merchant quote/payment boundaries remain in force; external listings do not become purchasable through the demo merchant.
+
+October 24, 2026 replaces the Sunday October 18 completion target. No cutoff hour is set. Wild Link starts October 24 and continues through November 12. See [milestone plan](milestone-plan.md), [feature tracker](feature-tracker.md) and [work log](work-log.md). These targets do not establish validated engineering estimates. Retain the full scope unless the owner changes it; report forecasted misses explicitly.
+
+Coding sessions are manually started. Scheduled read-only monitoring remains desired, with instructions in [progress monitor instructions](progress-monitor-instructions.md). Claude maintains the tracking documents after each session. This documentation update does not configure Cursor, send Slack messages or authorize live execution. Prior status sections and historical evidence remain unchanged; their dates and limitations still apply.
