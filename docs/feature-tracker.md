@@ -61,3 +61,8 @@ F02 conversation persistence:
 - Evidence: unit and behavioural tests, 41 files and 1,243 passed. Private mock-only browser restart check passed.
 - Not accepted until reviewed and committed. Device profile (the rest of F02) is not started. See `docs/m2-1-plan.md` §9–10.
 
+## Voice addendum (October 16, 2026)
+
+F10 now also records the owner's optional "Hey ShopAccess" hands-free activation: local wake-word detection, spoken conversation, a visible listening state and a stop command. It is planned as a separate feasibility experiment (`docs/m2-2-plan.md` §8). It is not part of M2-2 and not implemented; there is no estimate beyond the experiment's 5–9 hours.
+
+F05 (October 16): M2-2 integrates pairing, a shared conversation and per-grant revocation into the application, uncommitted on `feature/m2-2-extension-integration`. Unit evidence (1,300 tests) and an owner-assisted mock browser check on 127.0.0.1 (pairing, shared history, revoke, restart, keyboard). An independent source review passed with notes; its corrections are made and await owner review. B1, a conversation-persistence defect from M2-1, was found in that browser check and fixed. Before any non-local use, pairing needs a matching code (accepted carry-forward). Screen-reader acceptance is open. F05 is not accepted.

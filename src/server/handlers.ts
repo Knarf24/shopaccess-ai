@@ -18,7 +18,7 @@ import { readLimitedForm } from "@/lib/security/limits";
 import { PROPOSED_RATE_LIMIT_POLICIES, type RateLimitPolicy } from "@/lib/security/rate-limit";
 import { runtimeSandboxProvider, type Runtime } from "./runtime";
 import { readSessionCookie, serializeSessionCookie } from "@/lib/session/cookie";
-import { protectedAdmissionLocation } from "@/server/demo-admission";
+import { admissionExpiryMs, protectedAdmissionLocation } from "@/server/demo-admission";
 import { authorizeMutation } from "@/lib/session/request-guard";
 import type { Session } from "@/lib/session/service";
 import {
@@ -278,6 +278,75 @@ function controlChange<T extends string>(posted: T | null, current: string | nul
   return posted;
 }
 
+export type FollowUpOutcome =
+  | { readonly kind: "duplicate" }
+  | { readonly kind: "session_dead" }
+  | { readonly kind: "refused"; readonly code: "STALE_DRAFT" | "DRAFT_EXPIRED" | "CLARIFICATION_INVALID" | "DRAFT_NOT_FOUND" }
+  | { readonly kind: "done"; readonly failure: "malformed" | "unavailable" | null };
+
+/**
+ * One follow-up message on an existing draft, shared by the website form and the extension panel (M2-2). The claim is
+ * durable before the interpreter starts, the interpreter's input is the claimed text, and the result, any confirmation
+ * withdrawal and the conversation line are one durable decision. `typedUse`/`typedBudget` are the website's structured
+ * controls; the panel sends none.
+ */
+export async function continueNeedsFollowUp(
+  runtime: Runtime,
+  sessionId: string,
+  input: {
+    readonly draftId: string;
+    readonly version: number;
+    readonly text: string;
+    readonly typedUse: IntendedUse | null;
+    readonly typedBudget: string | null;
+    readonly expiresAtMs: number;
+    readonly live: () => boolean;
+  },
+): Promise<FollowUpOutcome> {
+  const message = ShopperMessageSchema.safeParse(input.text);
+  if (!message.success) return { kind: "refused", code: "CLARIFICATION_INVALID" };
+  // The claim is durable before the interpreter starts.
+  const claimed = await runtime.durable.change((host) =>
+    claimFollowUp(host, sessionId, { draftId: input.draftId, version: input.version, shopperText: message.data, expiresAtMs: input.expiresAtMs, now: runtime.clock().getTime() }, input.live),
+  );
+  if (claimed.kind === "duplicate") return { kind: "duplicate" };
+  if (claimed.kind === "session_dead") return { kind: "session_dead" };
+  if (claimed.kind === "stale") return { kind: "refused", code: "STALE_DRAFT" };
+  if (claimed.kind === "expired") return { kind: "refused", code: "DRAFT_EXPIRED" };
+  if (claimed.kind === "invalid") return { kind: "refused", code: "CLARIFICATION_INVALID" };
+  if (claimed.kind !== "claimed") return { kind: "refused", code: "DRAFT_NOT_FOUND" };
+
+  // Provider input comes from the saved claim, not from the request.
+  const claimedText = claimed.draft.shopperText;
+  const interpreted = await interpretNeedsSafely(runtime.ai, claimedText, (diagnostic) => {
+    const line = formatAdvisoryFailureDiagnostic(diagnostic);
+    if (line) console.warn(line);
+  });
+  if (!input.live()) return { kind: "refused", code: "DRAFT_EXPIRED" };
+  const model = interpreted.ok ? interpreted.value : interpreted.error === "OUTPUT_INVALID" ? "malformed" : "unavailable";
+  const typedUse = controlChange(input.typedUse, claimed.draft.prefilledUse);
+  const typedBudget = controlChange(input.typedBudget, claimed.draft.prefilledBudgetDollars);
+  const settled = mergeInterpretedNeeds(typedUse, typedBudget, settleShopperText(claimedText, model));
+  const merged = mergeFollowUpCandidate(claimed.draft, settled);
+  const confirmedUse = claimed.draft.confirmedUse;
+  const confirmedBudget = claimed.draft.confirmedBudgetDollars;
+  const withdrawConfirmation = Boolean(
+    confirmedUse &&
+      confirmedBudget &&
+      merged.notice === "review" &&
+      merged.prefilledUse &&
+      merged.prefilledBudgetDollars &&
+      (merged.prefilledUse !== confirmedUse || merged.prefilledBudgetDollars !== confirmedBudget),
+  );
+  // One durable decision: the follow-up result, any confirmation withdrawal, and the conversation line.
+  await runtime.durable.change((host) => {
+    const written = commitFollowUp(host, sessionId, claimed.draft.draftId, claimed.draft.version, { ...merged, withdrawConfirmation }, runtime.clock().getTime());
+    if (written && withdrawConfirmation) invalidatePurchaseSelections(host, sessionId);
+    if (written) rememberNeedsTurn(host, sessionId, written, claimedText);
+  });
+  return { kind: "done", failure: model === "malformed" || model === "unavailable" ? model : null };
+}
+
 /** POST /shop/needs/submit. A complete structured use and budget does not call the interpreter. */
 export async function handleNeedsSubmit(request: Request, runtime: Runtime): Promise<Response> {
   const refused = admissionRefusal(request, runtime);
@@ -328,49 +397,18 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
       return seeOther(needsBack(language));
     }
 
-    const message = ShopperMessageSchema.safeParse(reply);
-    if (!message.success) return seeOther(needsBack(language, "CLARIFICATION_INVALID"));
-    // The claim is durable before the interpreter starts.
-    const claimed = await runtime.durable.change((host) =>
-      claimFollowUp(host, session.id, { draftId, version, shopperText: message.data, expiresAtMs, now: runtime.clock().getTime() }, live),
-    );
-    if (claimed.kind === "duplicate") return seeOther(needsBack(language));
-    if (claimed.kind === "session_dead") return seeOther(needsBack(language));
-    if (claimed.kind === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
-    if (claimed.kind === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
-    if (claimed.kind === "invalid") return seeOther(needsBack(language, "CLARIFICATION_INVALID"));
-    if (claimed.kind !== "claimed") return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
-
-    // Provider input comes from the saved claim, not from the request.
-    const claimedText = claimed.draft.shopperText;
-    const interpreted = await interpretNeedsSafely(runtime.ai, claimedText, (diagnostic) => {
-      const line = formatAdvisoryFailureDiagnostic(diagnostic);
-      if (line) console.warn(line);
+    const outcome = await continueNeedsFollowUp(runtime, session.id, {
+      draftId,
+      version,
+      text: reply,
+      typedUse: needsUse(form.get("use")),
+      typedBudget: needsBudget(form.get("budget")),
+      expiresAtMs,
+      live,
     });
-    if (!live()) return seeOther(needsBack(language, "DRAFT_EXPIRED"));
-    const model = interpreted.ok ? interpreted.value : interpreted.error === "OUTPUT_INVALID" ? "malformed" : "unavailable";
-    const typedUse = controlChange(needsUse(form.get("use")), claimed.draft.prefilledUse);
-    const typedBudget = controlChange(needsBudget(form.get("budget")), claimed.draft.prefilledBudgetDollars);
-    const settled = mergeInterpretedNeeds(typedUse, typedBudget, settleShopperText(claimedText, model));
-    const merged = mergeFollowUpCandidate(claimed.draft, settled);
-    const confirmedUse = claimed.draft.confirmedUse;
-    const confirmedBudget = claimed.draft.confirmedBudgetDollars;
-    const withdrawConfirmation = Boolean(
-      confirmedUse &&
-        confirmedBudget &&
-        merged.notice === "review" &&
-        merged.prefilledUse &&
-        merged.prefilledBudgetDollars &&
-        (merged.prefilledUse !== confirmedUse || merged.prefilledBudgetDollars !== confirmedBudget),
-    );
-    // One durable decision: the follow-up result, any confirmation withdrawal, and the conversation line.
-    await runtime.durable.change((host) => {
-      const written = commitFollowUp(host, session.id, claimed.draft.draftId, claimed.draft.version, { ...merged, withdrawConfirmation }, runtime.clock().getTime());
-      if (written && withdrawConfirmation) invalidatePurchaseSelections(host, session.id);
-      if (written) rememberNeedsTurn(host, session.id, written, claimedText);
-    });
-    const failure = model === "malformed" || model === "unavailable" ? model : null;
-    return seeOther(needsBack(language, undefined, failure));
+    if (outcome.kind === "duplicate" || outcome.kind === "session_dead") return seeOther(needsBack(language));
+    if (outcome.kind === "refused") return seeOther(needsBack(language, outcome.code));
+    return seeOther(needsBack(language, undefined, outcome.failure));
   }
 
   const text = form.get("shopperText") ?? "";
@@ -724,3 +762,44 @@ export async function handleSandboxCancel(request: Request, runtime: Runtime, in
   if (!canceled.ok) return seeOther(checkoutBack(ready.intent.id, "APPROVAL_NOT_CONFIRMED"));
   return seeOther(`/checkout/${ready.intent.id}`);
 }
+
+/**
+ * POST /extension/pair/decide (M2-2). The website decides a pairing for its own live session, after the usual admission,
+ * origin, Fetch Metadata and CSRF checks. An approval is bounded by the admission expiry when admission is on.
+ */
+export async function handleExtensionPairDecision(request: Request, runtime: Runtime): Promise<Response> {
+  if (runtime.extensionOrigins.size === 0) return refuse("NOT_FOUND", runtime);
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
+  if (!guarded.ok) return guarded.response;
+  const { session, form } = guarded;
+  const language = needsLanguage(form);
+  const pairingId = form.get("pairingId") ?? "";
+  const decision = form.get("decision");
+  if (!/^[0-9a-f]{64}$/.test(pairingId) || (decision !== "approve" && decision !== "deny")) return seeOther(`/extension/pair?lang=${language}&result=failed`);
+  const nowMs = runtime.clock().getTime();
+  const decided = runtime.pairing.approve(
+    { pairingId, sessionId: session.id, deny: decision === "deny", boundMs: admissionExpiryMs(runtime.admission, request.headers.get("cookie"), nowMs) },
+    nowMs,
+  );
+  const result = decided.ok ? decided.value.status : "failed";
+  return seeOther(`/extension/pair?lang=${language}&result=${result}`);
+}
+
+/** POST /extension/revoke (M2-2). Revokes one of this session's grants; durable before the page reports it. */
+export async function handleExtensionRevoke(request: Request, runtime: Runtime): Promise<Response> {
+  if (runtime.extensionOrigins.size === 0) return refuse("NOT_FOUND", runtime);
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
+  if (!guarded.ok) return guarded.response;
+  const { session, form } = guarded;
+  const language = needsLanguage(form);
+  const grantId = form.get("grantId") ?? "";
+  if (!/^grt_[0-9a-f]{32}$/.test(grantId)) return seeOther(needsBack(language));
+  const revoked = await runtime.pairing.revoke(session.id, grantId, runtime.clock());
+  if (revoked !== "revoked") return seeOther(needsBack(language));
+  return seeOther(`/shop/needs?lang=${language}&revoked=${grantId.slice(4, 12)}`);
+}
+

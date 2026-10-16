@@ -91,7 +91,7 @@ describe("snapshot foundation", () => {
             interpretationPending:
               draft.interpretationClaimVersion !== null && draft.interpretationClaimVersion === draft.version && draft.notice === null && draft.confirmedUse === null && draft.recommendationClaim === null,
           }));
-          expect(canonicalJson(published.value), row.id).toBe(canonicalJson({ ...file, body: { ...file.body, drafts, conversations: [], selections: [] } }));
+          expect(canonicalJson(published.value), row.id).toBe(canonicalJson({ ...file, body: { ...file.body, drafts, conversations: [], selections: [], grants: [] } }));
           if (row.id === "F16") expect(stalenessDetectedByChecksum).toBe(false);
         } else {
           expect(opened.status, row.id).toBe("unavailable");
@@ -694,11 +694,12 @@ function omit(value: object, key: string): Record<string, unknown> {
 /** A format-2 body: the format-1 fields plus empty (or given) conversations and selections. */
 function current(body: Record<string, unknown>, patch: Record<string, unknown> = {}) {
   const drafts = Array.isArray(body.drafts) ? body.drafts.map((draft) => ({ interpretationPending: false, ...(draft as Record<string, unknown>) })) : body.drafts;
-  return { conversations: [], selections: [], ...body, drafts, ...patch };
+  return { conversations: [], selections: [], grants: [], ...body, drafts, ...patch };
 }
 
+/** A file in the current write format (3). */
 function pack2(body: unknown): Buffer {
-  return Buffer.from(JSON.stringify({ format: 2, identity: identityFor(KEY), sha256: checksum(body), body }));
+  return Buffer.from(JSON.stringify({ format: 3, identity: identityFor(KEY), sha256: checksum(body), body }));
 }
 
 function pack(body: unknown): Buffer {

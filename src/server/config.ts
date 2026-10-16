@@ -12,6 +12,11 @@ export type AdvisoryConfig =
 export interface RuntimeConfig {
   readonly sessionKey: Buffer;
   readonly trustedOrigins: ReadonlySet<string>;
+  /**
+   * Exact `chrome-extension://<id>` origins allowed to use /api/extension/v1 (M2-2). Absent: the extension API is
+   * switched off (404) and the application is unchanged.
+   */
+  readonly extensionOrigins?: ReadonlySet<string>;
   /** Absent means the local assistant. Parsed configuration always sets this. */
   readonly advisory?: AdvisoryConfig;
   /** Absent means the advisory transport budget is off. Parsed configuration sets this only when the budget is on. */
@@ -49,6 +54,8 @@ export type RuntimeConfigError =
   | "MOCK_STORE_REQUIRES_OPEN_RUNTIME"
   /** Snapshot persistence together with PostgreSQL mode is unsupported. */
   | "MOCK_STORE_UNSUPPORTED"
+  /** SHOPACCESS_EXTENSION_ORIGINS is set but is not a comma-separated list of chrome-extension origins. */
+  | "EXTENSION_ORIGINS_INVALID"
   | AdvisoryBudgetError;
 
 export type PersistenceMode = "mock" | "postgres";
@@ -109,11 +116,23 @@ export function parseRuntimeConfig(env: Readonly<Record<string, string | undefin
   });
   if (!budget.ok) errors.push(budget.error);
 
-  if (errors.length > 0 || !key.ok || !trustedOrigins || !advisory.ok || !budget.ok) return err(errors);
-  const parsed = budget.value.mode === "off"
+  const extensionOrigins = parseExtensionOrigins(env.SHOPACCESS_EXTENSION_ORIGINS);
+  if (extensionOrigins === "invalid") errors.push("EXTENSION_ORIGINS_INVALID");
+
+  if (errors.length > 0 || !key.ok || !trustedOrigins || !advisory.ok || !budget.ok || extensionOrigins === "invalid") return err(errors);
+  const base = budget.value.mode === "off"
     ? { sessionKey: key.value, trustedOrigins, advisory: advisory.value }
     : { sessionKey: key.value, trustedOrigins, advisory: advisory.value, advisoryBudget: budget.value };
+  const parsed = extensionOrigins ? { ...base, extensionOrigins } : base;
   return ok(sandboxPayment ? { ...parsed, payment: sandboxPayment } : parsed);
+}
+
+/** Absent: no extension API. Present: one or more exact chrome-extension origins, comma separated. */
+function parseExtensionOrigins(value: string | undefined): ReadonlySet<string> | null | "invalid" {
+  if (value === undefined) return null;
+  const origins = value.split(",").map((origin) => origin.trim()).filter(Boolean);
+  if (origins.length === 0 || !origins.every((origin) => /^chrome-extension:\/\/[a-p]{32}$/.test(origin))) return "invalid";
+  return new Set(origins);
 }
 
 /**

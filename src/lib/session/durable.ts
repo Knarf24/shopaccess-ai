@@ -1,5 +1,5 @@
 import { conversationStateOf, replaceConversationState } from "./conversation";
-import type { DurableState, StateGate, Windows } from "./snapshot-state";
+import type { DurableState, PersistedGrant, StateGate, Windows } from "./snapshot-state";
 import { needsDraftsFor, replaceNeedsDrafts, type InMemorySessionStore, type SessionRecord, type SessionStore } from "./store";
 
 /**
@@ -53,6 +53,10 @@ export function spendWindow(window: WindowState, nowMs: number, policy: WindowPo
 export interface LiveSessionStore extends SessionStore {
   /** Synchronous liveness on the published state; false when unavailable. */
   isLive(sessionId: string, now: Date, idleTimeoutMs: number): boolean;
+  /** Absolute expiry of a stored, unrevoked session on the published state, or null. */
+  absoluteExpiryOf(sessionId: string): Date | null;
+  /** When a stored, unrevoked session stops being live (idle or absolute), on the published state, or null. */
+  liveUntil(sessionId: string, idleTimeoutMs: number): number | null;
 }
 
 export interface DurableHost {
@@ -69,11 +73,19 @@ export interface DurableHost {
   spendAdmissionAttempt(nowMs: number, policy: WindowPolicy): Promise<WindowDecision>;
   /** False once a save was refused (snapshot mode only). */
   available(): boolean;
+  /** Extension grants as last published (never a candidate). */
+  readGrants(): readonly PersistedGrant[];
+  /**
+   * Runs a grant decision against the published grants. A returned `grants` list replaces them and is durable before
+   * the value is returned (snapshot mode); a refused save throws PersistenceUnavailableError.
+   */
+  decideGrants<T>(decide: (grants: readonly PersistedGrant[]) => { readonly value: T; readonly grants?: readonly PersistedGrant[] }): Promise<T>;
 }
 
 /** Today's behaviour, unchanged: one process, in memory. */
 export function memoryDurableHost(store: object, sessionStore: InMemorySessionStore, admissionAttempts: { windowStartedAt: number | null; count: number }): DurableHost {
   let allocation: WindowState = { windowStartedAt: null, count: 0 };
+  let grants: readonly PersistedGrant[] = [];
   return {
     mode: "memory",
     async change(change) {
@@ -92,6 +104,12 @@ export function memoryDurableHost(store: object, sessionStore: InMemorySessionSt
       return spent.decision;
     },
     available: () => true,
+    readGrants: () => grants,
+    async decideGrants(decide) {
+      const decision = decide(grants);
+      if (decision.grants) grants = decision.grants;
+      return decision.value;
+    },
   };
 }
 
@@ -113,7 +131,14 @@ function withHost(state: DurableState, host: object): DurableState {
 /** Drops everything a removed session owned, in the same state. */
 function withoutSessions(state: DurableState, removed: ReadonlySet<string>): DurableState {
   const keep = <V>(map: ReadonlyMap<string, V>) => new Map([...map].filter(([sessionId]) => !removed.has(sessionId)));
-  return { ...state, sessions: state.sessions.filter((s) => !removed.has(s.id)), drafts: keep(state.drafts), conversations: keep(state.conversations), selections: keep(state.selections) };
+  return {
+    ...state,
+    sessions: state.sessions.filter((s) => !removed.has(s.id)),
+    drafts: keep(state.drafts),
+    conversations: keep(state.conversations),
+    selections: keep(state.selections),
+    grants: state.grants.filter((grant) => !removed.has(grant.sessionId)),
+  };
 }
 
 /**
@@ -163,7 +188,11 @@ export function snapshotDurableHost(gate: StateGate, published: object): Durable
       decide((state) => {
         const record = state.sessions.find((s) => s.id === id);
         if (!record || record.revokedAt || at.getTime() < record.createdAt.getTime()) return { value: undefined };
-        return { value: undefined, next: replaceSession(state, { ...record, revokedAt: at }) };
+        // Logout also revokes the session's extension grants, in the same durable decision (M2-2 §3.3).
+        const grants = state.grants.map((grant) =>
+          grant.sessionId === id && grant.revokedAt === null ? { ...grant, revokedAt: new Date(Math.max(at.getTime(), grant.createdAt.getTime())) } : grant,
+        );
+        return { value: undefined, next: { ...replaceSession(state, { ...record, revokedAt: at }), grants } };
       }),
     deleteExpired: (now, idleCutoff) =>
       decide((state) => {
@@ -174,6 +203,19 @@ export function snapshotDurableHost(gate: StateGate, published: object): Durable
         return { value: removed, next: withoutSessions(state, new Set(removed)) };
       }),
     count: async () => current().sessions.length,
+    liveUntil(sessionId, idleTimeoutMs) {
+      const read = gate.read();
+      if (read.status !== "ready") return null;
+      const record = read.state.sessions.find((s) => s.id === sessionId);
+      if (!record || record.revokedAt !== null) return null;
+      return Math.min(record.lastSeenAt.getTime() + idleTimeoutMs, record.absoluteExpiresAt.getTime());
+    },
+    absoluteExpiryOf(sessionId) {
+      const read = gate.read();
+      if (read.status !== "ready") return null;
+      const record = read.state.sessions.find((s) => s.id === sessionId);
+      return record && record.revokedAt === null ? record.absoluteExpiresAt : null;
+    },
     isLive(sessionId, now, idleTimeoutMs) {
       const read = gate.read();
       if (read.status !== "ready") return false;
@@ -203,5 +245,11 @@ export function snapshotDurableHost(gate: StateGate, published: object): Durable
     spendAllocation: spend("allocation", false),
     spendAdmissionAttempt: spend("admissionLogin", true),
     available: () => gate.status().kind === "ready",
+    readGrants: () => current().grants,
+    decideGrants: (grantDecision) =>
+      decide((state) => {
+        const decision = grantDecision(state.grants);
+        return decision.grants ? { value: decision.value, next: { ...state, grants: decision.grants } } : { value: decision.value };
+      }),
   };
 }

@@ -22,6 +22,7 @@ import { createFixedWindowRateLimiter, InMemoryRateLimitStore, type RateLimiter 
 import { createSessionService, SESSION_IDLE_TIMEOUT_MS, type SessionService } from "@/lib/session/service";
 import { memoryDurableHost, snapshotDurableHost, type DurableHost } from "@/lib/session/durable";
 import { InMemorySessionStore } from "@/lib/session/store";
+import { createPairingAuthority, type PairingAuthority } from "@/lib/session/grants";
 import type { StateGate } from "@/lib/session/snapshot-state";
 import { systemClock, type Clock } from "@/lib/shared/clock";
 import { randomIdGenerator, type IdGenerator } from "@/lib/shared/ids";
@@ -86,6 +87,10 @@ export interface Runtime {
    * is durable before it is published, and a refused save makes the runtime unavailable (M2-1).
    */
   readonly durable: DurableHost;
+  /** Extension pairing and grants (M2-2). Used only when `extensionOrigins` is non-empty. */
+  readonly pairing: PairingAuthority;
+  /** Allowed extension origins; empty switches the extension API off. */
+  readonly extensionOrigins: ReadonlySet<string>;
 }
 
 const MAINTENANCE_INTERVAL_MS = 60_000;
@@ -192,6 +197,12 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
   });
   // Synchronous: the checkout store calls this inside its atomic commit (single-process mock only).
   const sessionIsLive = (sessionId: string): boolean => sessionStore.isLive(sessionId, clock(), SESSION_IDLE_TIMEOUT_MS);
+  const pairing = createPairingAuthority({
+    durable,
+    key: config.sessionKey,
+    sessionLive: sessionIsLive,
+    sessionExpiresAt: (sessionId) => sessionStore.absoluteExpiryOf(sessionId),
+  });
 
   if (channel3ClientForProcess() !== "disabled") {
     throw new Error("Channel3 live transport is not installed.");
@@ -253,6 +264,8 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     maintain,
     admission,
     durable,
+    pairing,
+    extensionOrigins: config.extensionOrigins ?? new Set<string>(),
   };
   if (sandbox) sandboxInstallations().set(runtime, sandbox);
   return runtime;

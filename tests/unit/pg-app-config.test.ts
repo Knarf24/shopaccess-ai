@@ -292,6 +292,8 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
       .sort();
     expect(getRoutes).toEqual(
       [
+        // M2-2: the extension conversation read. It changes nothing; it is bearer-authenticated and mock only.
+        join("src", "app", "api", "extension", "v1", "conversation", "route.ts"),
         join("src", "app", "checkout", "[intentId]", "paypal-cancel", "route.ts"),
         join("src", "app", "checkout", "[intentId]", "return", "route.ts"),
         join("src", "app", "session", "needs", "route.ts"),
@@ -311,6 +313,12 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
     const routes = filesUnder(join(SRC, "app"), /^route\.ts$/).map(relative).sort();
     expect(routes).toEqual(
       [
+        // M2-2 extension API (docs/m2-2-plan.md §3.1): mock only.
+        join("src", "app", "api", "extension", "v1", "conversation", "route.ts"),
+        join("src", "app", "api", "extension", "v1", "conversation", "turns", "route.ts"),
+        join("src", "app", "api", "extension", "v1", "pairings", "[pairingId]", "exchange", "route.ts"),
+        join("src", "app", "api", "extension", "v1", "pairings", "[pairingId]", "status", "route.ts"),
+        join("src", "app", "api", "extension", "v1", "pairings", "route.ts"),
         join("src", "app", "checkout", "[intentId]", "approve", "route.ts"),
         join("src", "app", "checkout", "[intentId]", "cancel", "route.ts"),
         join("src", "app", "checkout", "[intentId]", "capture", "route.ts"),
@@ -322,6 +330,9 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
         join("src", "app", "checkout", "start", "route.ts"),
         join("src", "app", "demo", "admission", "logout", "route.ts"),
         join("src", "app", "demo", "admission", "submit", "route.ts"),
+        // M2-2 website side of pairing: approve or deny, and revoke. Mock only.
+        join("src", "app", "extension", "pair", "decide", "route.ts"),
+        join("src", "app", "extension", "revoke", "route.ts"),
         join("src", "app", "session", "needs", "route.ts"),
         join("src", "app", "session", "new", "route.ts"),
         join("src", "app", "session", "rotate", "route.ts"),
@@ -338,6 +349,13 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
       [join("src", "app", "shop", "needs", "listings", "route.ts")]: "handleNeedsListings(request, runtime)",
       [join("src", "app", "demo", "admission", "submit", "route.ts")]: "handleDemoAdmissionSubmit(request, runtime)",
       [join("src", "app", "demo", "admission", "logout", "route.ts")]: "handleDemoAdmissionLogout(request, runtime)",
+      [join("src", "app", "api", "extension", "v1", "pairings", "route.ts")]: "handleExtensionPairingStart(request, runtime)",
+      [join("src", "app", "api", "extension", "v1", "pairings", "[pairingId]", "status", "route.ts")]: "handleExtensionPairingStatus(request, runtime, pairingId)",
+      [join("src", "app", "api", "extension", "v1", "pairings", "[pairingId]", "exchange", "route.ts")]: "handleExtensionPairingExchange(request, runtime, pairingId)",
+      [join("src", "app", "api", "extension", "v1", "conversation", "route.ts")]: "handleExtensionConversation(request, runtime)",
+      [join("src", "app", "api", "extension", "v1", "conversation", "turns", "route.ts")]: "handleExtensionTurn(request, runtime)",
+      [join("src", "app", "extension", "pair", "decide", "route.ts")]: "handleExtensionPairDecision(request, runtime)",
+      [join("src", "app", "extension", "revoke", "route.ts")]: "handleExtensionRevoke(request, runtime)",
     };
     const sandboxRoutes: Record<string, string> = {
       [join("src", "app", "checkout", "[intentId]", "approve", "route.ts")]: "handleSandboxApprove(request, runtime, intentId)",

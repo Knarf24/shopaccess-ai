@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>ShopAccess</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="panel.mjs"></script>
+  </head>
+  <body>
+    <a href="#heading" id="skip">Skip to conversation</a>
+    <main id="main" tabindex="-1">
+      <h1 id="title">ShopAccess</h1>
+      <p id="notice">Reads and continues your shopping conversation. Confirming, checkout and payment stay on the website.</p>
+      <p id="status" role="status" aria-live="polite"></p>
+      <p id="error" role="alert"></p>
+      <p id="announce" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
+
+      <section aria-labelledby="connection-heading">
+        <h2 id="connection-heading">Connection</h2>
+        <form id="origin-form">
+          <label for="origin" id="origin-label">ShopAccess address</label>
+          <input id="origin" type="url" inputmode="url" autocomplete="off" spellcheck="false" required />
+          <button type="submit" id="save-origin">Save address</button>
+        </form>
+        <button type="button" id="pair">Pair with website</button>
+        <button type="button" id="refresh">Refresh conversation</button>
+        <button type="button" id="disconnect">Forget local pairing</button>
+        <p id="extension-id"></p>
+      </section>
+
+      <h2 id="heading" tabindex="-1">Conversation</h2>
+      <p id="summary"></p>
+      <ol id="history"></ol>
+      <form id="turn-form">
+        <label for="text" id="text-label">Message</label>
+        <textarea id="text" maxlength="2000" required></textarea>
+        <button type="submit" id="send">Send</button>
+      </form>
+    </main>
+  </body>
+</html>

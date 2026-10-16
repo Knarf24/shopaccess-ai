@@ -62,7 +62,7 @@ function memoryStore(seed: PublishedBody) {
   };
 }
 
-const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [] };
+const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [] };
 
 async function snapshotRuntime(store: FoundationStore, time = createTestClock()): Promise<Runtime> {
   const opened = await recoverStateGate(store, time.clock());
