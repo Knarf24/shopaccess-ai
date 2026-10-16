@@ -1,0 +1,130 @@
+✖ expired idle cookie remains expired after restart (41.39586ms)
+✖ unknown suffix paths refuse without mutation (14.906409ms)
+✖ snapshot byte cap is checked before publication (41.777867ms)
+✖ post-rename sync failure is indeterminate and poisons writes (7.445858ms)
+✖ dictionary names produce ordinary isolated conversations (0.411111ms)
+✖ forget generation prevents in-flight approved poll exchange (0.333444ms)
+✖ forget during exchange prevents late credential persistence (0.154603ms)
+✖ stale write refreshes state without resubmitting (0.1325ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 0
+ℹ fail 8
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 189.123352
+
+✖ failing tests:
+
+test at e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:3:1
+✖ expired idle cookie remains expired after restart (41.39586ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 401
+  
+      at TestContext.<anonymous> (file:///workspace/scratch/ced8f7f1b7f6/e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:3:548)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 401,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:4:1
+✖ unknown suffix paths refuse without mutation (14.906409ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 405
+  
+      at TestContext.<anonymous> (file:///workspace/scratch/ced8f7f1b7f6/e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:4:572)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 405,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:5:1
+✖ snapshot byte cap is checked before publication (41.777867ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (file:///workspace/scratch/ced8f7f1b7f6/e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:5:410)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: { code: 'SNAPSHOT_CAPACITY' },
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:6:1
+✖ post-rename sync failure is indeterminate and poisons writes (7.445858ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + undefined
+  - 'PERSISTENCE_OUTCOME_UNKNOWN'
+  
+      at TestContext.<anonymous> (file:///workspace/scratch/ced8f7f1b7f6/e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:6:362)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'PERSISTENCE_OUTCOME_UNKNOWN',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:7:1
+✖ dictionary names produce ordinary isolated conversations (0.411111ms)
+  DataCloneError: function Object() { [native code] } could not be cloned.
+      at new DOMException (node:internal/per_context/domexception:76:18)
+      at structuredClone (node:internal/worker/js_transferable:127:26)
+      at Object.read (file:///workspace/scratch/ced8f7f1b7f6/e1-prototype/experiments/e1-shared-session/conversation.mjs:7:24)
+      at TestContext.<anonymous> (file:///workspace/scratch/ced8f7f1b7f6/e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:7:179)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:8:1
+✖ forget generation prevents in-flight approved poll exchange (0.333444ms)
+  TypeError: runPairingPoll is not a function
+      at TestContext.<anonymous> (file:///workspace/scratch/ced8f7f1b7f6/e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:8:135)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:9:1
+✖ forget during exchange prevents late credential persistence (0.154603ms)
+  TypeError: runPairingPoll is not a function
+      at TestContext.<anonymous> (file:///workspace/scratch/ced8f7f1b7f6/e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:9:121)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+
+test at e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:10:1
+✖ stale write refreshes state without resubmitting (0.1325ms)
+  TypeError: recoverStale is not a function
+      at TestContext.<anonymous> (file:///workspace/scratch/ced8f7f1b7f6/e1-prototype/experiments/e1-shared-session/tests/review-regressions.test.mjs:10:112)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)

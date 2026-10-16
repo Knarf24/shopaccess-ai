@@ -1,0 +1,21 @@
+✔ expired idle cookie remains expired after restart (54.163873ms)
+✔ unknown suffix paths refuse without mutation (22.585797ms)
+✔ snapshot byte cap is checked before publication (37.893834ms)
+✔ post-rename sync failure is indeterminate and poisons writes (3.895643ms)
+✔ dictionary names produce ordinary isolated conversations (0.608659ms)
+✔ forget generation prevents in-flight approved poll exchange (0.28437ms)
+✔ forget during exchange prevents late credential persistence (0.909514ms)
+✔ stale write refreshes state without resubmitting (0.365272ms)
+✔ restored authority preserves original absolute expiration (1.841441ms)
+✔ HTTP pairing and cross-surface turns, revoke and no-store (80.060881ms)
+✔ origin, CSRF, bearer and content guards refuse (21.812149ms)
+✔ stale revisions and duplicate writes through HTTP (17.416651ms)
+✔ restart preserves website history but invalidates child tokens (25.840738ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 236.066337

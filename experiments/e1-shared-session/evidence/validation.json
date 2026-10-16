@@ -1,0 +1,47 @@
+{
+  "unit": {
+    "command": [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+      "--test",
+      "experiments/e1-shared-session/tests/authority.test.mjs",
+      "experiments/e1-shared-session/tests/conversation.test.mjs",
+      "experiments/e1-shared-session/tests/persistence.test.mjs",
+      "experiments/e1-shared-session/tests/extension.test.mjs"
+    ],
+    "exit": 0,
+    "summary": [
+      "\u2139 tests 27",
+      "\u2139 suites 0",
+      "\u2139 pass 27",
+      "\u2139 fail 0",
+      "\u2139 cancelled 0",
+      "\u2139 skipped 0",
+      "\u2139 todo 0",
+      "\u2139 duration_ms 121.422091"
+    ]
+  },
+  "loopback": {
+    "command": [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+      "--test",
+      "experiments/e1-shared-session/tests/server.test.mjs",
+      "experiments/e1-shared-session/tests/review-regressions.test.mjs"
+    ],
+    "exit": 0,
+    "summary": [
+      "\u2139 tests 13",
+      "\u2139 suites 0",
+      "\u2139 pass 13",
+      "\u2139 fail 0",
+      "\u2139 cancelled 0",
+      "\u2139 skipped 0",
+      "\u2139 todo 0",
+      "\u2139 duration_ms 236.066337"
+    ]
+  },
+  "node": "v24.19.0",
+  "environmentNames": [
+    "PATH"
+  ],
+  "recordedAtUtc": "2026-10-16T11:21:04.020105+00:00"
+}

@@ -1,0 +1,22 @@
+✔ approval, exchange and scope resolve (2.888593ms)
+✔ exchange requires approval and matching verifier (0.428817ms)
+✔ exchange is consumed exactly once (0.276868ms)
+✔ approval cannot be reassigned (0.244229ms)
+✔ pairing expires exactly at five minutes (0.346434ms)
+✔ at most three approved pending pairings per parent (0.372102ms)
+✔ poll throttling and ten-poll budget (0.457311ms)
+✔ wrong exchange secret is refused (0.261856ms)
+✔ child expiry and revocation checked on every call (0.677072ms)
+✔ parent revocation and rotation invalidate children (0.943005ms)
+✔ child activity does not touch parent idle lifetime (0.335677ms)
+✔ absolute expiry wins even with recent parent activity (0.228035ms)
+✔ denial prevents exchange (0.176597ms)
+✔ process creation cap and malformed challenge (0.99289ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 89.938085

@@ -1,0 +1,12 @@
+✔ manifest restricts privileges and referenced local files exist (3.904438ms)
+✔ submit lock blocks duplicate and unlocks after thrown action (0.553716ms)
+✔ pairing keeps verifier private and stores access in session adapter (3.069838ms)
+✔ source assets contain no provider endpoint, eval, unsafe HTML or extra credentials (2.220525ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 85.313802

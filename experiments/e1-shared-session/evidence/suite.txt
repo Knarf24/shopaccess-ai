@@ -1,0 +1,48 @@
+✔ approval, exchange and scope resolve (3.236015ms)
+✔ exchange requires approval and matching verifier (0.713778ms)
+✔ exchange is consumed exactly once (0.427045ms)
+✔ approval cannot be reassigned (0.333644ms)
+✔ pairing expires exactly at five minutes (0.369698ms)
+✔ at most three approved pending pairings per parent (0.687127ms)
+✔ poll throttling and ten-poll budget (0.641708ms)
+✔ wrong exchange secret is refused (0.322947ms)
+✔ child expiry and revocation checked on every call (0.932457ms)
+✔ parent revocation and rotation invalidate children (1.011777ms)
+✔ child activity does not touch parent idle lifetime (0.465653ms)
+✔ absolute expiry wins even with recent parent activity (0.216647ms)
+✔ denial prevents exchange (5.029704ms)
+✔ process creation cap and malformed challenge (1.941762ms)
+✔ concurrent edits reject stale revision and isolate sessions (3.52367ms)
+✔ duplicate ID reuses result, changed payload conflicts (1.32498ms)
+✔ language switch changes revision only (0.49625ms)
+✔ supported correction invalidates confirmation and selection (0.403719ms)
+✔ history is capped at eight lines with truncation (1.052298ms)
+✔ save failure retains last acknowledged state (0.330849ms)
+✔ invalid and oversized input refused, unknown fields refused (0.352642ms)
+✔ manifest restricts privileges and referenced local files exist (7.700655ms)
+✔ submit lock blocks duplicate and unlocks after thrown action (0.8744ms)
+✔ pairing keeps verifier private and stores access in session adapter (6.072577ms)
+✔ source assets contain no provider endpoint, eval, unsafe HTML or extra credentials (4.034ms)
+✔ restart reloads history without credentials and uses private mode (19.118593ms)
+✔ corrupt and unknown format refuse startup (6.119434ms)
+✔ expired idle cookie remains expired after restart (62.075873ms)
+✔ unknown suffix paths refuse without mutation (18.861605ms)
+✔ snapshot byte cap is checked before publication (36.205594ms)
+✔ post-rename sync failure is indeterminate and poisons writes (4.006589ms)
+✔ dictionary names produce ordinary isolated conversations (0.734219ms)
+✔ forget generation prevents in-flight approved poll exchange (0.271319ms)
+✔ forget during exchange prevents late credential persistence (0.868632ms)
+✔ stale write refreshes state without resubmitting (0.274735ms)
+✔ restored authority preserves original absolute expiration (1.929303ms)
+✔ HTTP pairing and cross-surface turns, revoke and no-store (83.000995ms)
+✔ origin, CSRF, bearer and content guards refuse (25.416415ms)
+✔ stale revisions and duplicate writes through HTTP (18.108517ms)
+✔ restart preserves website history but invalidates child tokens (31.444761ms)
+ℹ tests 40
+ℹ suites 0
+ℹ pass 40
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 318.923367

@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "ShopAccess E1 local pairing prototype",
+  "description": "Synthetic local conversation pairing only. No shopping or payments.",
+  "version": "0.0.1",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel", "storage"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "action": { "default_title": "Open ShopAccess E1 prototype" },
+  "background": { "service_worker": "background.mjs", "type": "module" },
+  "side_panel": { "default_path": "panel.html" }
+}

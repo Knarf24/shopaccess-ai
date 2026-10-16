@@ -1,0 +1,31 @@
+✔ approval, exchange and scope resolve (2.406796ms)
+✔ exchange requires approval and matching verifier (0.399844ms)
+✔ exchange is consumed exactly once (0.319473ms)
+✔ approval cannot be reassigned (0.334365ms)
+✔ pairing expires exactly at five minutes (0.382779ms)
+✔ at most three approved pending pairings per parent (0.468448ms)
+✔ poll throttling and ten-poll budget (0.643623ms)
+✔ wrong exchange secret is refused (0.347335ms)
+✔ child expiry and revocation checked on every call (0.702711ms)
+✔ parent revocation and rotation invalidate children (0.750334ms)
+✔ child activity does not touch parent idle lifetime (0.413745ms)
+✔ absolute expiry wins even with recent parent activity (0.235776ms)
+✔ denial prevents exchange (0.929624ms)
+✔ process creation cap and malformed challenge (1.096497ms)
+✔ concurrent edits reject stale revision and isolate sessions (2.555651ms)
+✔ duplicate ID reuses result, changed payload conflicts (1.457477ms)
+✔ language switch changes revision only (0.43008ms)
+✔ supported correction invalidates confirmation and selection (0.644373ms)
+✔ history is capped at eight lines with truncation (0.818316ms)
+✔ save failure retains last acknowledged state (0.289047ms)
+✔ invalid and oversized input refused, unknown fields refused (0.318902ms)
+✔ restart reloads history without credentials and uses private mode (9.99464ms)
+✔ corrupt and unknown format refuse startup (5.681478ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 96.507789

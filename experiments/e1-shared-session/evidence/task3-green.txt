@@ -1,0 +1,12 @@
+✔ HTTP pairing and cross-surface turns, revoke and no-store (65.213222ms)
+✔ origin, CSRF, bearer and content guards refuse (23.015621ms)
+✔ stale revisions and duplicate writes through HTTP (17.648943ms)
+✔ restart preserves website history but invalidates child tokens (27.020882ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 208.761337
