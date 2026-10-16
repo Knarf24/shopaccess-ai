@@ -44,3 +44,6 @@ Next action:
 Owner decision needed, if any:
 
 No new commits does not prove no local work occurred. If local work is reported but unavailable to the monitor, record that visibility limitation.
+
+## October 16 — Codex read-only external-store investigation
+Official rules and Shopify auth/WebMCP documentation read. See [capability matrix and sources](external-store-feasibility-20261016.md). Shopify project eligibility remains unknown; browser WebMCP is a separate candidate requiring investigation. PayPal Store Sync documentation retains buyer payment approval. E5 rules-reading portion completed; E1–E4 not run. Amazon retail terms could not be retrieved. No product API calls, credentials, payments, services, database work or application changes. Estimates and internal milestone dates unchanged. Next: bounded E2 proposal with prerequisites and stop conditions; no live execution authorized.
