@@ -27,7 +27,7 @@ import { createSequentialIdGenerator } from "@/lib/shared/ids";
 import { handleConfirm, handleSessionStart } from "@/server/handlers";
 import { createRuntime } from "@/server/runtime";
 import { buildCheckoutView } from "@/server/views";
-import { confirmedIntent, createTestClock, createWorld, LEASE_MS, MINUTE, newSession, quotedIntent, stateOf, TEST_SESSION_KEY, type World } from "./helpers";
+import { confirmedIntent, createTestClock, createWorld, LEASE_MS, MINUTE, newSession, quotedIntent, stateOf, TEST_SESSION_KEY, type World, permitPurchase } from "./helpers";
 
 // ---------------------------------------------------------------------------
 // AUD-003: capture evidence verification
@@ -509,9 +509,12 @@ describe("AUD-002: one active confirmation challenge per quote", () => {
     const established = await runtime.sessions.establish(null);
     if (!established.ok) throw new Error("setup");
     const session = established.value.session;
-    const { startCheckout, requestQuote } = await import("@/lib/checkout/service");
-    const intent = await startCheckout(runtime.checkout, session.id);
-    await requestQuote(runtime.checkout, session.id, intent.id, { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 });
+    // M2-3: the application's checkout start, which reserves the shopper's purchase permission.
+    const { startCheckoutWithQuote } = await import("@/lib/checkout/service");
+    await permitPurchase(runtime, session.id);
+    const started = await startCheckoutWithQuote(runtime.checkout, session.id, { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 });
+    if (!started.ok) throw new Error(started.error);
+    const intent = started.value.intent;
 
     const seen = new Set<string>();
     for (let view = 0; view < 200; view += 1) {
@@ -548,10 +551,12 @@ describe("AUD-002: one active confirmation challenge per quote", () => {
     const established = await runtime.sessions.establish(null);
     if (!established.ok) throw new Error("setup");
     const { session, issuedToken } = established.value;
-    const { startCheckout, requestQuote } = await import("@/lib/checkout/service");
+    const { startCheckoutWithQuote } = await import("@/lib/checkout/service");
     const { messageFor } = await import("@/server/views");
-    const intent = await startCheckout(runtime.checkout, session.id);
-    await requestQuote(runtime.checkout, session.id, intent.id, { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 });
+    await permitPurchase(runtime, session.id);
+    const started = await startCheckoutWithQuote(runtime.checkout, session.id, { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 });
+    if (!started.ok) throw new Error(started.error);
+    const intent = started.value.intent;
     const tabA = (await buildCheckoutView(runtime, session, intent.id))!.challenge!;
     await buildCheckoutView(runtime, session, intent.id);
 

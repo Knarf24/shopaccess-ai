@@ -24,6 +24,7 @@ import { memoryDurableHost, snapshotDurableHost, type DurableHost } from "@/lib/
 import { InMemorySessionStore } from "@/lib/session/store";
 import { createPairingAuthority, type PairingAuthority } from "@/lib/session/grants";
 import { createPermissionAuthority, type PermissionAuthority } from "@/lib/permissions/authority";
+import { createPurchaseGate } from "@/lib/permissions/gate";
 import type { StateGate } from "@/lib/session/snapshot-state";
 import { systemClock, type Clock } from "@/lib/shared/clock";
 import { randomIdGenerator, type IdGenerator } from "@/lib/shared/ids";
@@ -206,6 +207,8 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     sessionLive: sessionIsLive,
     sessionExpiresAt: (sessionId) => sessionStore.absoluteExpiryOf(sessionId),
   });
+  // F07 enforcement for checkout start, confirmation, order creation and capture (M2-3 slice 2).
+  const purchaseGate = createPurchaseGate({ durable, sessionLive: sessionIsLive, clock });
   const permissions = createPermissionAuthority({
     durable,
     catalog,
@@ -257,7 +260,7 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     },
     limiter: createFixedWindowRateLimiter(new InMemoryRateLimitStore(), clock),
     audit,
-    checkout: { store, sessionIsLive, catalog, clock, ids },
+    checkout: { store, sessionIsLive, catalog, clock, ids, purchaseGate },
     payment: {
       store,
       ledger,
@@ -268,6 +271,7 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
       ids,
       workerId: "demo-worker",
       leaseMs: 30_000,
+      purchaseGate,
       ...(sandbox && config.payment?.mode === "sandbox" ? { paypalMerchantId: config.payment.merchantId } : {}),
     },
     maintain,

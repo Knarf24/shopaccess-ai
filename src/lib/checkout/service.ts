@@ -1,4 +1,5 @@
 import type { MerchantCatalog } from "../catalog/schemas";
+import type { PurchaseGate, PurchaseRefusal } from "../permissions/gate";
 import {
   INITIAL_PAYMENT_SNAPSHOT,
   transition,
@@ -23,6 +24,8 @@ export interface CheckoutDeps {
   readonly catalog: MerchantCatalog;
   readonly clock: Clock;
   readonly ids: IdGenerator;
+  /** F07 purchase permissions (M2-3). Required: there is no checkout without it. */
+  readonly purchaseGate: PurchaseGate;
 }
 
 export type ApplyEventFailure = { code: "INTENT_NOT_FOUND" } | { code: "VERSION_CONFLICT" } | TransitionRejection;
@@ -54,7 +57,7 @@ export async function startCheckout(deps: CheckoutDeps, sessionId: string): Prom
   return record;
 }
 
-export type StartCheckoutFailure = QuoteRejection | "SESSION_NOT_ACTIVE" | "CHECKOUT_NOT_CREATED";
+export type StartCheckoutFailure = QuoteRejection | PurchaseRefusal | "SESSION_NOT_ACTIVE" | "CHECKOUT_NOT_CREATED";
 
 /**
  * Starts a checkout for one demo variant.
@@ -67,6 +70,9 @@ export type StartCheckoutFailure = QuoteRejection | "SESSION_NOT_ACTIVE" | "CHEC
  *    and writes all three records, or writes none of them. A request whose
  *    session expired, was revoked or was reclaimed after it was authorized is
  *    rejected with SESSION_NOT_ACTIVE and leaves no record of any kind.
+ *
+ * F07 (M2-3): between 1 and 3, the one matching purchase permission is reserved for this checkout and saved. Without
+ * one there is no checkout. If step 3 then fails, the reservation is released (no capture can have happened).
  */
 export async function startCheckoutWithQuote(
   deps: CheckoutDeps,
@@ -96,8 +102,13 @@ export async function startCheckoutWithQuote(
     createdAt: now.toISOString(),
     ...(interfaceLanguage ? { interfaceLanguage } : {}),
   };
+  const reserved = await deps.purchaseGate.reserveForCheckout(sessionId, quote.value, intentId, async (id) => (await deps.store.findIntent(id))?.snapshot.state ?? null);
+  if (!reserved.ok) return err(reserved.code);
   const committed = await deps.store.commitCheckoutStart({ intent, transitions: [quoted.value.record], quote: quote.value }, deps.sessionIsLive);
-  if (!committed) return err("SESSION_NOT_ACTIVE");
+  if (!committed) {
+    await deps.purchaseGate.releaseCheckout(intentId);
+    return err("SESSION_NOT_ACTIVE");
+  }
   return ok({ intent, quote: quote.value });
 }
 

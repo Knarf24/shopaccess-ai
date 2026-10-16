@@ -190,6 +190,16 @@ A refusal never changes the permission, except at Start, where no reservation is
 
 Reusable permissions with a cumulative budget are recorded as deferred.
 
+**Definitive decline (slice 2, owner-approved):**
+- A capture the provider definitively declines or rejects returns the permission from `executing` to `reserved` for the **same** checkout, never to `active`.
+- **That checkout's earlier confirmation is spent.** The payment state machine lets the buyer approve again (`DECLINED_RETRYABLE` → `APPROVED_VERIFIED`) without a new shopper confirmation. So `prepareCapture` passes "declined before" to the gate, which refuses any further capture on that checkout with `CONFIRMATION_REQUIRED`.
+- **A fresh confirmation means a new checkout.** The shopper cancels, which releases the permission under the existing release rule, then starts a new checkout and confirms again.
+- Regression test: `tests/unit/purchase-gate.test.ts`, "after a definitive decline the old confirmation is spent".
+
+**Tracked for slice 3 (no change in slice 2):**
+- **Unavailable after a successful capture:** if the save after a verified capture fails, the system correctly fails closed (the permission stays `executing`, then becomes `outcome_unknown` on restart), but the shopper may see "unavailable" although the capture succeeded. Slice 3 wording should say the payment may have gone through and point to the checkout's status.
+- **Reconciliation after the session has ended:** no resend is allowed. The checkout stays unknown and goes to manual review (fail closed), by design.
+
 ## 7. Amounts and price changes
 
 **The amount limit applies to the final payable total** (the quote's `totalCents`: subtotal minus discount plus tax and shipping), not the item subtotal (decision D-M23-4).

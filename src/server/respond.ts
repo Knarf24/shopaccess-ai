@@ -40,6 +40,17 @@ function refuseWithoutRuntime(code: PublicErrorCode): Response {
   return Response.json(error.body, { status: error.status, headers: { "cache-control": "no-store" } });
 }
 
+/**
+ * M2-3: PostgreSQL mode has no F07 purchase-permission enforcement, so every checkout step there refuses (fail closed).
+ * There is no fallback to an unprotected checkout. The PostgreSQL checkout handlers stay unchanged and unreachable from
+ * routes until equivalent enforcement exists (docs/m2-3-plan.md §11).
+ */
+export async function pgCheckoutWithoutPermissions(): Promise<Response> {
+  const error = toPublicError("UNAVAILABLE", randomIdGenerator("event"));
+  const body = { error: { ...error.body.error, message: "Checkout is turned off in PostgreSQL mode: purchase permissions are not enforced there." } };
+  return Response.json(body, { status: error.status, headers: { "cache-control": "no-store" } });
+}
+
 /** A route that exists only in PostgreSQL mode: in the mock it is "not found", as it was before the route existed. */
 export async function mockRouteNotFound(): Promise<Response> {
   return refuseWithoutRuntime("NOT_FOUND");

@@ -365,15 +365,22 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
     };
     const shared: Record<string, [string, string]> = {
       [join("src", "app", "session", "start", "route.ts")]: ["handleSessionStart(request, runtime)", "handlePgSessionStart(request, services)"],
-      [join("src", "app", "checkout", "start", "route.ts")]: ["handleCheckoutStart(request, runtime)", "handlePgCheckoutStart(request, services)"],
-      [join("src", "app", "checkout", "[intentId]", "confirm", "route.ts")]: ["handleConfirm(request, runtime, intentId)", "handlePgConfirm(request, services, intentId)"],
-      [join("src", "app", "checkout", "[intentId]", "simulate", "route.ts")]: ["handleSimulate(request, runtime, intentId)", "handlePgSimulate(request, services)"],
+    };
+    // M2-3: PostgreSQL mode has no F07 purchase-permission enforcement, so its checkout steps are refused (fail closed).
+    const pgCheckoutRefused: Record<string, string> = {
+      [join("src", "app", "checkout", "start", "route.ts")]: "handleCheckoutStart(request, runtime)",
+      [join("src", "app", "checkout", "[intentId]", "confirm", "route.ts")]: "handleConfirm(request, runtime, intentId)",
+      [join("src", "app", "checkout", "[intentId]", "simulate", "route.ts")]: "handleSimulate(request, runtime, intentId)",
     };
     for (const route of routes) {
       const text = readFileSync(join(ROOT, route), "utf8");
       expect(text, route).toMatch(/withApplication\(\{/);
       const pair = shared[route];
-      if (pair) {
+      if (route.startsWith(join("src", "app", "checkout"))) expect(text, route).not.toMatch(/handlePg|pg-handlers/);
+      if (pgCheckoutRefused[route]) {
+        expect(text, route).toContain(`mock: (runtime) => ${pgCheckoutRefused[route]}`);
+        expect(text, route).toContain("postgres: async () => pgCheckoutWithoutPermissions()");
+      } else if (pair) {
         expect(text, route).toContain(`mock: (runtime) => ${pair[0]}`);
         expect(text, route).toContain(`postgres: (services) => ${pair[1]}`);
       } else if (mockOnly[route]) {
@@ -384,7 +391,10 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
         expect(text, route).toContain("postgres: () => mockRouteNotFound()");
       } else if (route === join("src", "app", "checkout", "[intentId]", "cancel", "route.ts")) {
         expect(text, route).toContain('runtime.paymentMode === "sandbox" ? handleSandboxCancel(request, runtime, intentId) : mockRouteNotFound()');
-        expect(text, route).toContain("postgres: (services) => handlePgCancel(request, services, intentId)");
+        expect(text, route).toContain("postgres: async () => pgCheckoutWithoutPermissions()");
+      } else if (route === join("src", "app", "checkout", "[intentId]", "review", "route.ts")) {
+        expect(text, route).toContain("mock: () => mockRouteNotFound()");
+        expect(text, route).toContain("postgres: async () => pgCheckoutWithoutPermissions()");
       } else {
         expect(text, route).toContain("mock: () => mockRouteNotFound()");
         expect(text, route).not.toMatch(/@\/server\/handlers/);

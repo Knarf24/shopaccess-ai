@@ -18,7 +18,7 @@ import { generateSessionToken } from "@/lib/session/token";
 import { createSequentialIdGenerator } from "@/lib/shared/ids";
 import { handleCheckoutStart, handleSessionStart } from "@/server/handlers";
 import { createRuntime, type Runtime } from "@/server/runtime";
-import { createTestClock, MINUTE, TEST_SESSION_KEY } from "./helpers";
+import { createTestClock, MINUTE, TEST_SESSION_KEY, permitPurchase } from "./helpers";
 
 const ORIGIN = "https://shop.example.test";
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -193,14 +193,23 @@ function runtimeWorld() {
 async function shopper(runtime: Runtime) {
   const established = await runtime.sessions.establish(null);
   if (!established.ok) throw new Error(`session refused: ${established.error.reason}`);
+  // M2-3: a shopper creates the purchase permission before checking out.
+  await permitPurchase(runtime, established.value.session.id);
   return { session: established.value.session, token: established.value.issuedToken! };
 }
 
 const VALID_REQUEST = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 };
 
 /** Drives one checkout through quote, confirmation, order, approval and capture, leaving records of every kind. */
-async function fullCheckout(runtime: Runtime, sessionId: string, capture: "complete" | "pending" | "lost" = "complete") {
-  const started = await startCheckoutWithQuote(runtime.checkout, sessionId, VALID_REQUEST);
+// M2-3: a purchase permission is single use and one per item, so open checkouts in one session use different items.
+const OTHER_REQUESTS = {
+  aspirego15: { productId: "dmp_aspirego15", variantId: "dmv_aspirego15", quantity: 1 },
+  vivobook16: { productId: "dmp_vivobook16", variantId: "dmv_vivobook16", quantity: 1 },
+};
+
+async function fullCheckout(runtime: Runtime, sessionId: string, capture: "complete" | "pending" | "lost" = "complete", request = VALID_REQUEST) {
+  await permitPurchase(runtime, sessionId, request);
+  const started = await startCheckoutWithQuote(runtime.checkout, sessionId, request);
   if (!started.ok) throw new Error(started.error);
   const { intent, quote } = started.value;
   const challenge = await prepareConfirmation(runtime.checkout, sessionId, quote.quoteId);
@@ -233,8 +242,9 @@ describe("AUD-012: reclaiming a mock session removes everything it owned", () =>
     const alice = await shopper(runtime);
     // Include unknown and pending outcomes: in the local mock these are removed too.
     await fullCheckout(runtime, alice.session.id, "complete");
-    await fullCheckout(runtime, alice.session.id, "pending");
-    await fullCheckout(runtime, alice.session.id, "lost");
+    await fullCheckout(runtime, alice.session.id, "pending", OTHER_REQUESTS.aspirego15);
+    await fullCheckout(runtime, alice.session.id, "lost", OTHER_REQUESTS.vivobook16);
+    await permitPurchase(runtime, alice.session.id);
     await startCheckoutWithQuote(runtime.checkout, alice.session.id, VALID_REQUEST);
 
     const before = totals(runtime);
@@ -290,6 +300,7 @@ describe("AUD-012: reclaiming a mock session removes everything it owned", () =>
     ).toBe(bobSnapshot);
 
     // Bob can still start, confirm and pay (simulated) for a new checkout.
+    await permitPurchase(runtime, bob.session.id);
     const bobOpen = await startCheckoutWithQuote(runtime.checkout, bob.session.id, VALID_REQUEST);
     if (!bobOpen.ok) throw new Error("setup");
     const challenge = await prepareConfirmation(runtime.checkout, bob.session.id, bobOpen.value.quote.quoteId);

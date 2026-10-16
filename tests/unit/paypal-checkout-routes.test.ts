@@ -22,7 +22,7 @@ import {
 } from "@/server/handlers";
 import { createRuntime, type Runtime } from "@/server/runtime";
 import type { CheckoutView } from "@/server/views";
-import { TEST_SESSION_KEY } from "./helpers";
+import { TEST_SESSION_KEY, permitPurchase } from "./helpers";
 
 const ORIGIN = "https://shop.example.test";
 const PAYEE = "2ABCDEFGHJKLM";
@@ -78,6 +78,8 @@ async function shopper(runtime: Runtime): Promise<Shopper> {
   const token = response.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!;
   const session = await runtime.sessions.resolve(token);
   if (!session.ok) throw new Error("session");
+  // M2-3: a shopper creates the purchase permission before checking out.
+  await permitPurchase(runtime, session.value.id);
   return { cookie: `${SESSION_COOKIE_NAME}=${token}`, csrfToken: session.value.csrfToken, sessionId: session.value.id };
 }
 

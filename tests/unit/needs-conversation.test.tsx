@@ -10,7 +10,7 @@ import { needsDraftsFor } from "@/lib/session/store";
 import { handleCheckoutStart, handleConfirm, handleNeedsConfirm, handleNeedsSession, handleNeedsSubmit } from "@/server/handlers";
 import { createRuntime, type Runtime } from "@/server/runtime";
 import { loadNeedsJourney } from "@/server/shopping";
-import { createTestClock, TEST_SESSION_KEY } from "./helpers";
+import { createTestClock, TEST_SESSION_KEY, permitCatalog } from "./helpers";
 
 const ORIGIN = "https://shop.example.test";
 
@@ -25,6 +25,8 @@ async function shopper(runtime: Runtime) {
   const token = response.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!;
   const session = await runtime.sessions.resolve(token);
   if (!session.ok) throw new Error("session not established");
+  // M2-3: a shopper creates the purchase permission before checking out.
+  await permitCatalog(runtime, session.value.id);
   return { cookie: `${SESSION_COOKIE_NAME}=${token}`, sessionId: session.value.id, csrfToken: session.value.csrfToken, session: session.value };
 }
 

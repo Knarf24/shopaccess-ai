@@ -73,6 +73,17 @@ Unmet acceptance criteria / blockers: review and commit pending.
 Next action: owner review.
 Owner decision needed, if any: approve the commit.
 
+## October 16, 2026 — M2-3 F07 purchase permissions (in progress)
+Goal: website-only, single-use purchase permissions enforced on the mock checkout (`docs/m2-3-plan.md`); local and mock only.
+Source branch / starting commit: feature/m2-3-purchase-permissions from main e6bb69d. Plan ac95a17; slice 1 bb33781 (model, snapshot format 4).
+Changes and resulting commit: slice 2 enforces permissions at checkout start (reserve), confirmation, order creation and capture (`executing` saved before any capture), records consumed or outcome unknown, limits reconciliation to the same operation, and fails PostgreSQL checkout closed. After owner review: a definitive decline spends the checkout's confirmation (`CONFIRMATION_REQUIRED`).
+Checks actually run and outcomes: suite, typecheck and lint after slice 2; red checks for every enforcement point (see below).
+Red-check incident (slice 2): the first red-check run was invalid. Its backup and restore commands failed (an unquoted shell variable), so the deliberate breakages accumulated in the source. Those results were discarded and are not evidence. The source was restored by applying each edit's exact inverse, every enforcement line was checked, and the full suite passed. A known-good tar snapshot was then taken, and every red check was repeated with restoration from that snapshot after each one. All were caught by failing tests; the final working tree was byte-identical to the snapshot, and the full suite passed again.
+Evidence references and evidence type: private m2-3-permissions-20261016/PROGRESS.md and run outputs (source, unit). Not published.
+Unmet acceptance criteria / blockers: slice 3 (permissions page, refusal copy, EN/ES), mock browser check, security review.
+Next action: slice 2 commit, then slice 3 on approval.
+Owner decision needed, if any: approve slice 3.
+
 ## October 16, 2026 — M2-2 extension integration (implementation, uncommitted)
 Goal: implement `docs/m2-2-plan.md` in bounded slices; mock only; review target October 19.
 Source branch / starting commit: feature/m2-2-extension-integration from main b86a41b (PR #1 merge; no CI configured, no check results exist).

@@ -1,4 +1,5 @@
 import type { MerchantCatalog } from "../catalog/schemas";
+import type { PurchaseGate, PurchaseRefusal } from "../permissions/gate";
 import { applyPaymentEvent } from "../checkout/service";
 import type { CheckoutIntentRecord, CheckoutRepository, ProviderObservation } from "../checkout/store";
 import type {
@@ -47,9 +48,12 @@ export interface PaymentDeps {
   readonly leaseMs: number;
   /** Sandbox seller account. Absent in mock mode, so payee checks do not run. */
   readonly paypalMerchantId?: string;
+  /** F07 purchase permissions (M2-3). Required: order creation and every capture are checked against it. */
+  readonly purchaseGate: PurchaseGate;
 }
 
 export type PaymentFlowFailure =
+  | PurchaseRefusal
   | "INTENT_NOT_FOUND"
   | "INVALID_STATE"
   | "QUOTE_NO_LONGER_VALID"
@@ -166,6 +170,9 @@ export async function prepareOrderCreate(deps: PaymentDeps, intentId: string): P
       await emit(deps, intentId, { type: "QUOTE_INVALIDATED", actor: "server" });
       return err("QUOTE_NO_LONGER_VALID");
     }
+    // F07: the checkout's purchase permission must still cover this quote, with a live session (M2-3).
+    const permitted = deps.purchaseGate.check(intent.sessionId, quote.value, intentId, "order_create");
+    if (!permitted.ok) return err(permitted.code);
 
     const ensured = await deps.ledger.ensureOperation({
       checkoutIntentId: intentId,
@@ -301,8 +308,18 @@ export async function prepareCapture(deps: PaymentDeps, intentId: string): Promi
     const { state, context } = intent.snapshot;
     if (state !== "APPROVED_VERIFIED" || !context.providerOrderId) return err("INVALID_STATE");
 
-    const now = deps.clock();
+    // F07 irreversible boundary (M2-3): the final permission check and the saved `reserved` -> `executing` step happen
+    // here, before the capture operation is claimed and before the provider is called. A refused check leaves the
+    // checkout as it was; a failed save throws, so no capture starts.
+    const authorizedQuote = await loadQuote(deps, intent);
+    if (!authorizedQuote) return err("QUOTE_NO_LONGER_VALID");
     const existing = await deps.ledger.listForIntent(intentId, "CAPTURE");
+    // A definitive decline spends the confirmation: no further capture on this checkout without a fresh one (M2-3).
+    const declinedBefore = existing.some((operation) => operation.state === "DECLINED" || operation.state === "REJECTED");
+    const permitted = await deps.purchaseGate.beginCapture(intent.sessionId, authorizedQuote, intentId, declinedBefore);
+    if (!permitted.ok) return err(permitted.code);
+
+    const now = deps.clock();
     // Reuse the live logical capture if there is one; only a provider-confirmed decline permits a new one.
     const live = existing.find((operation) => operation.state !== "DECLINED" && operation.state !== "REJECTED");
     const ensured = await deps.ledger.ensureOperation({
@@ -424,7 +441,14 @@ export async function sendCapture(deps: PaymentDeps, operation: PaymentOperation
   } else {
     await settleCaptureEvidence(deps, operation, result.value, "provider_response");
   }
-  return finalState(deps, intentId);
+  return recordCaptureOutcome(deps, intentId);
+}
+
+/** After any capture step: the permission becomes consumed, returns to reserved on a proven decline, or outcome unknown. */
+async function recordCaptureOutcome(deps: PaymentDeps, intentId: string): Promise<Result<PaymentState, PaymentFlowFailure>> {
+  const state = await finalState(deps, intentId);
+  if (state.ok) await deps.purchaseGate.recordPaymentState(intentId, state.value);
+  return state;
 }
 
 export async function dispatchCapture(deps: PaymentDeps, intentId: string): Promise<Result<PaymentState, PaymentFlowFailure>> {
@@ -481,7 +505,7 @@ export async function reconcileOperation(deps: PaymentDeps, operationId: string)
     } else {
       await emit(deps, intentId, { type: "READBACK_INCONCLUSIVE", actor: "reconciler" });
     }
-    return finalState(deps, intentId);
+    return isOrder ? finalState(deps, intentId) : recordCaptureOutcome(deps, intentId);
   }
 
   if (readback.kind === "NOT_FOUND") {
@@ -490,7 +514,23 @@ export async function reconcileOperation(deps: PaymentDeps, operationId: string)
       // The provider previously reported this capture; losing it is contradictory evidence.
       await keepAs();
       await emit(deps, intentId, { type: "ESCALATED_TO_MANUAL_REVIEW", actor: "reconciler", reason: "PENDING_CAPTURE_MISSING" });
-      return finalState(deps, intentId);
+      return recordCaptureOutcome(deps, intentId);
+    }
+    // F07: a resend is a new attempt at the same operation. Order creation needs the checkout's reservation; a capture
+    // resend needs this checkout's executing or outcome-unknown permission, unexpired and matching, with a live session,
+    // saved as executing before the resend. Otherwise nothing is sent and the outcome stays unknown (M2-3).
+    const resendIntent = await deps.store.findIntent(intentId);
+    const resendQuote = resendIntent ? await loadQuote(deps, resendIntent) : null;
+    const permitted =
+      !resendIntent || !resendQuote
+        ? ({ ok: false, code: "PERMISSION_UNAVAILABLE" } as const)
+        : isOrder
+          ? deps.purchaseGate.check(resendIntent.sessionId, resendQuote, intentId, "order_resend")
+          : await deps.purchaseGate.beginCaptureResend(resendIntent.sessionId, resendQuote, intentId);
+    if (!permitted.ok) {
+      await keepAs();
+      if (!isOrder) await deps.purchaseGate.recordPaymentState(intentId, "CAPTURE_UNKNOWN");
+      return err(permitted.code);
     }
     await deps.ledger.recordOutcome(operationId, deps.workerId, { state: "READBACK_CLEARED" }, deps.clock());
     const resend = await deps.ledger.claimForDispatch(operationId, deps.workerId, deps.clock(), deps.leaseMs);
@@ -507,7 +547,7 @@ export async function reconcileOperation(deps: PaymentDeps, operationId: string)
 
   if (isOrder) await settleOrderFound(deps, claimed, readback.value as ProviderOrder, "provider_readback");
   else await settleCaptureEvidence(deps, claimed, readback.value, "provider_readback");
-  return finalState(deps, intentId);
+  return isOrder ? finalState(deps, intentId) : recordCaptureOutcome(deps, intentId);
 }
 
 /** Looks for refunds, reversals or disputes on a completed capture. Observation only: nothing is executed. */
@@ -560,7 +600,7 @@ export async function observeCaptureAftermath(deps: PaymentDeps, intentId: strin
 
 /** Local cancellation. Refused once a capture may have been dispatched. */
 export async function cancelCheckout(
-  deps: Pick<PaymentDeps, "store" | "clock" | "ids">,
+  deps: Pick<PaymentDeps, "store" | "clock" | "ids" | "purchaseGate">,
   sessionId: string,
   intentId: string,
 ): Promise<Result<PaymentState, "INTENT_NOT_FOUND" | "CAPTURE_ALREADY_DISPATCHED" | "NOT_CANCELABLE">> {
@@ -572,6 +612,10 @@ export async function cancelCheckout(
     occurredAt: deps.clock().toISOString(),
     actor: "shopper",
   });
-  if (applied.ok) return ok(applied.value.state);
+  if (applied.ok) {
+    // Canceled before any capture could be dispatched: the reservation returns to active (M2-3).
+    await deps.purchaseGate.releaseCheckout(intentId);
+    return ok(applied.value.state);
+  }
   return err("code" in applied.error && applied.error.code === "CAPTURE_ALREADY_DISPATCHED" ? "CAPTURE_ALREADY_DISPATCHED" : "NOT_CANCELABLE");
 }

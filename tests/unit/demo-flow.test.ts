@@ -8,7 +8,7 @@ import { buildShoppingView, parsePreferences } from "@/server/shopping";
 import { availableSteps, SIMULATION_STEPS, STATE_DESCRIPTIONS, STEP_LABELS } from "@/server/simulation";
 import { PAYMENT_STATES } from "@/lib/payment/state-machine";
 import { ID_PATTERNS } from "@/lib/shared/ids";
-import { createTestClock, MINUTE, TEST_SESSION_KEY } from "./helpers";
+import { createTestClock, MINUTE, TEST_SESSION_KEY, permitPurchase } from "./helpers";
 
 // Synthetic, test-only values. Nothing here is a real origin or key.
 const ORIGIN = "https://shop.example.test";
@@ -52,6 +52,8 @@ function post(path: string, fields: Record<string, string>, shopper: Pick<Shoppe
 const QUOTE_FIELDS = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: "1", use: "programming", budget: "900" };
 
 async function startCheckoutFor(runtime: Runtime, shopper: Shopper, extra: Record<string, string> = {}): Promise<string> {
+  const fields = { ...QUOTE_FIELDS, ...extra };
+  await permitPurchase(runtime, shopper.sessionId, { productId: fields.productId, variantId: fields.variantId });
   const response = await handleCheckoutStart(post("/checkout/start", { ...QUOTE_FIELDS, ...extra, csrfToken: shopper.csrfToken }, shopper), runtime);
   expect(response.status).toBe(303);
   const location = response.headers.get("location")!;
@@ -331,7 +333,8 @@ describe("route-level authorization", () => {
     expect(await stateOf(runtime, intentId)).toBe("QUOTED");
 
     // A confirmation for one checkout cannot be submitted against another checkout's URL.
-    const second = await startCheckoutFor(runtime, alice);
+    // M2-3: the first checkout still holds its item's single-use permission, so the second is for another item.
+    const second = await startCheckoutFor(runtime, alice, { productId: "dmp_aspirego15", variantId: "dmv_aspirego15" });
     const crossed = await handleConfirm(post(`/checkout/${second}/confirm`, { ...aliceConfirm.fields, acknowledged: "yes" }, alice), runtime, second);
     expect(crossed.headers.get("location")).toBe(`/checkout/${second}?error=CONFIRMATION_MISMATCH`);
     expect(await stateOf(runtime, intentId)).toBe("QUOTED");

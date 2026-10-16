@@ -15,7 +15,7 @@ import { withMockRuntime } from "@/server/respond";
 import { guardPage } from "@/server/runtime-access";
 import { createRuntime, type Application, type Runtime } from "@/server/runtime";
 import { loadNeedsJourney } from "@/server/shopping";
-import { createTestClock, HOUR, TEST_SESSION_KEY } from "./helpers";
+import { createTestClock, HOUR, TEST_SESSION_KEY, permitPurchase } from "./helpers";
 
 // M2-1 slice 3/4: the mock runtime on the save-first snapshot gate.
 const ORIGIN = "https://shop.example.test";
@@ -164,12 +164,18 @@ describe("snapshot runtime", () => {
     const disk = memoryStore(EMPTY);
     const a = await snapshotRuntime(disk.store, time);
     const buyer = await shopper(a);
+    await permitPurchase(a, buyer.sessionId);
     const started = await handleCheckoutStart(post("/checkout/start", { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: "1", lang: "en", csrfToken: buyer.csrfToken }, buyer.cookie), a);
     const intentId = started.headers.get("location")!.split("/").pop()!;
     expect(await a.store.findIntent(intentId)).not.toBeNull();
     const b = await snapshotRuntime(memoryStore(disk.body()).store, time);
     expect(await b.store.findIntent(intentId)).toBeNull();
-    expect(JSON.stringify(disk.body())).not.toContain(intentId);
+    // M2-3: the checkout itself is never saved. Its ID appears only on the purchase permission it reserved, and the
+    // restart releases that reservation (the checkout cannot resume).
+    const { permissions, ...rest } = disk.body();
+    expect(JSON.stringify(rest)).not.toContain(intentId);
+    expect(permissions.map((p) => [p.state, p.checkoutIntentId])).toEqual([["reserved", intentId]]);
+    expect(b.permissions.list(buyer.sessionId, b.clock()).map((p) => p.state)).toEqual(["active"]);
   });
 
   for (const kind of ["definite", "indeterminate"] as const) {
