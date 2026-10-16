@@ -1,19 +1,37 @@
 import { toPublicError, type PublicErrorCode } from "@/lib/security/errors";
 import { randomIdGenerator } from "@/lib/shared/ids";
+import { isPersistenceUnavailable } from "@/lib/session/durable";
 import type { PgServices } from "./pg-runtime";
-import type { Runtime } from "./runtime";
-import { getApplication, getRuntime } from "./runtime";
+import type { Application, Runtime } from "./runtime";
+import { runtimeOf } from "./runtime";
+import { openRuntime } from "./runtime-access";
 
 /** Runs a handler with the process runtime, or fails closed when configuration is missing or invalid. */
 export async function withRuntime(handler: (runtime: Runtime) => Promise<Response>): Promise<Response> {
-  const runtime = getRuntime();
+  const access = await openRuntime();
+  if (access.status !== "ready") return refuseWithoutRuntime("UNAVAILABLE");
+  return withMockRuntime(access.application, handler);
+}
+
+/**
+ * Runs a mock handler. A blocked snapshot gate refuses before the handler runs, so no provider call starts; a save
+ * refused while the handler runs becomes the same public UNAVAILABLE (HTTP 503, no-store, no Set-Cookie).
+ */
+export async function withMockRuntime(application: Application, handler: (runtime: Runtime) => Promise<Response>): Promise<Response> {
+  const runtime = runtimeOf(application);
   if (!runtime.ok) {
     return Response.json(
       { error: { code: "NOT_CONFIGURED", message: "The demonstration is not configured. See README.md." } },
       { status: 503, headers: { "cache-control": "no-store" } },
     );
   }
-  return handler(runtime.value);
+  if (!runtime.value.durable.available()) return refuseWithoutRuntime("UNAVAILABLE");
+  try {
+    return await handler(runtime.value);
+  } catch (error) {
+    if (isPersistenceUnavailable(error)) return refuseWithoutRuntime("UNAVAILABLE");
+    throw error;
+  }
 }
 
 /** The one generic refusal of a route that has no runtime to take an id from. Fixed text and a new request id. */
@@ -40,8 +58,10 @@ export interface ModeHandlers {
  * "not available" refusal, with no business data.
  */
 export async function withApplication(handlers: ModeHandlers): Promise<Response> {
-  const application = getApplication();
-  if (application.mode === "mock") return withRuntime(handlers.mock);
+  const access = await openRuntime();
+  if (access.status !== "ready") return refuseWithoutRuntime("UNAVAILABLE");
+  const application = access.application;
+  if (application.mode === "mock") return withMockRuntime(application, handlers.mock);
   if (application.mode === "invalid") {
     return Response.json(
       { error: { code: "NOT_CONFIGURED", message: "The demonstration is not configured. See README.md." } },

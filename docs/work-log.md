@@ -31,6 +31,48 @@ Estimate and assumptions: partial estimate of 136–239 h for F01–F12, plus 8�
 Next action: owner decisions (assessment list 1–11), then authorization of the E1–E5 experiments.
 Owner decision needed, if any: yes. See [M1 assessment](m1-assessment.md#unresolved-owner-decisions).
 
+## October 16, 2026 — M2-1 snapshot persistence (implementation, uncommitted)
+Date/time: about 14:50–16:40Z (10:50–12:40 EDT), several sessions, including a usage-limit pause.
+Goal and agreed session limit: approved M2-1 slices 1–5 and a mock-only browser restart check.
+Source branch / starting commit: feature/m2-1-snapshot-persistence from 6cc511c. Not committed.
+Changes and resulting commit:
+- format-2 snapshot;
+- save-first gate and recovery;
+- durable runtime integration (durable.ts, runtime-access.ts, respond.ts, handlers.ts, shopping.ts, six pages);
+- retry wording;
+- README;
+- next.config serverExternalPackages.
+
+No commit yet.
+Checks actually run and outcomes: database-free suite 41 files, 1,243 passed; typecheck 0; lint 0 errors, 9 warnings (pre-existing). Mock-only browser restart check passed.
+Evidence references and evidence type: private m2-1-persistence-20261016 (unit, browser). Not published.
+Unmet acceptance criteria / blockers: review and commit pending. The Security Foundation Specification v1.1 is still not found; the owner-approved direction in m2-1-plan.md §9 governs the runtime boundary.
+Estimate and assumptions (or not estimated): M2-1 implementation complete; review is the remaining owner time.
+Next action: owner review of the diff and evidence; then commit and push on approval.
+Owner decision needed, if any: approve the commit.
+
+## October 16, 2026 — M2-1 review corrections (uncommitted)
+Date/time: about 16:40–17:05Z.
+Goal and agreed session limit: two review findings, affected tests and affected browser checks.
+Source branch / starting commit: feature/m2-1-snapshot-persistence (uncommitted on 6cc511c).
+Changes and resulting commit: pending versus completed interpretation recovery (store.ts claimFollowUp marker, snapshot-state.ts rule); invalid persistence mode fails closed before storage (runtime.ts settings mode, runtime-access.ts). No commit.
+Checks actually run and outcomes: red check, 4 new tests failed on the reversed source; affected 42/42; suite 41 files, 1,250 passed; typecheck 0; lint 0 errors, 9 warnings. Browser checks on 127.0.0.1: a completed interpretation survives a restart; an invalid mode shows the unavailable page and route 503 with the store untouched.
+Evidence references and evidence type: private m2-1-persistence-20261016/CORRECTION-RECORD-20261016.md (unit, browser). Not published.
+Unmet acceptance criteria / blockers: review and commit pending. The earlier all-interface dev-server launch is recorded in the private browser record.
+Next action: owner review.
+Owner decision needed, if any: approve the commit.
+
+## October 16, 2026 — M2-1 review correction 2 (uncommitted)
+Date/time: about 16:55–17:10Z.
+Goal and agreed session limit: completed interpretation, then confirmation, then restart must not be treated as interrupted.
+Source branch / starting commit: feature/m2-1-snapshot-persistence (uncommitted on 6cc511c).
+Changes and resulting commit: explicit persisted interpretationPending flag (store.ts, snapshot-state.ts recovery, snapshot-store.ts format-2 validation and format-1 upgrade); correction 1's claimFollowUp notice marker reverted. No commit.
+Checks actually run and outcomes: red check, 4 new tests failed under the previous rule; suite 41 files, 1,253 passed; typecheck 0; lint 0 errors, 9 warnings. Browser: interpretation, confirmation and restart on 127.0.0.1 kept the confirmed, completed state with 0 interrupted.
+Evidence references and evidence type: private m2-1-persistence-20261016/CORRECTION-RECORD-2-20261016.md (unit, browser). Not published.
+Unmet acceptance criteria / blockers: review and commit pending.
+Next action: owner review.
+Owner decision needed, if any: approve the commit.
+
 ## Session entry template
 Date/time:
 Goal and agreed session limit:

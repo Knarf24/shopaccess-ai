@@ -28,19 +28,43 @@ describe("snapshot foundation", () => {
   it("exports only the storage opener and the non-storage lock predicate", async () => {
     const loaded = await import("../../src/lib/session/snapshot-store");
     const names = Object.keys(loaded).filter((key) => key !== "__esModule").sort();
-    expect(names).toEqual(["lockStatRejects", "openFoundationStore"]);
+    expect(names).toEqual(["lockStatRejects", "openFoundationStore", "openFoundationStoreWithKeyFile"]);
     const uid = process.getuid?.() ?? 0;
     expect(loaded.lockStatRejects({ uid: uid + 1, mode: 0o600, isFile: true, nlink: 1 }, uid)).toBe(true);
     expect(loaded.lockStatRejects({ uid, mode: 0o600, isFile: true, nlink: 1 }, uid)).toBe(false);
   });
 
-  it("keeps snapshot storage out of the application routes and runtime", () => {
-    const files = [...walk(join(ROOT, "src", "app")), join(ROOT, "src", "server", "runtime.ts"), join(ROOT, "src", "server", "respond.ts"), join(ROOT, "src", "server", "handlers.ts"), join(ROOT, "src", "server", "shopping.ts")];
-    for (const file of files) {
+  // Owner-approved M2-1 boundary (docs/m2-1-plan.md §9.8). The October 14 foundation plan deferred runtime integration;
+  // integration is now allowed only through src/server/runtime-access.ts.
+  it("lets only runtime-access.ts reach snapshot storage and keeps it out of routes, handlers, shopping, respond and runtime.ts", () => {
+    const source = walk(join(ROOT, "src")).filter((file) => /\.(ts|tsx|mts)$/.test(file));
+    const rel = (file: string) => file.slice(ROOT.length).replace(/^\//, "");
+    const valueImport = /(?:^|\n)\s*import\s+(?!type\b)[^;]*?from\s+["'][^"']*snapshot-store["']|import\(\s*["'][^"']*snapshot-store["']\s*\)|(?:^|\n)\s*export\s+[^;]*?from\s+["'][^"']*snapshot-store["']/;
+    const typeImport = /(?:^|\n)\s*import\s+type\s+[^;]*?from\s+["'][^"']*snapshot-store["']/;
+    const fsExt = /["']fs-ext["']/;
+    const valueImporters = source.filter((file) => valueImport.test(fs.readFileSync(file, "utf8"))).map(rel).sort();
+    const typeImporters = source.filter((file) => typeImport.test(fs.readFileSync(file, "utf8"))).map(rel).sort();
+    const fsExtImporters = source.filter((file) => fsExt.test(fs.readFileSync(file, "utf8"))).map(rel).sort();
+    const allowedValue = ["src/server/mock-store-init.mts", "src/server/runtime-access.ts"];
+    expect(valueImporters.every((file) => allowedValue.includes(file)), valueImporters.join(", ")).toBe(true);
+    expect(typeImporters.every((file) => file === "src/lib/session/snapshot-state.ts"), typeImporters.join(", ")).toBe(true);
+    expect(fsExtImporters.every((file) => ["src/lib/session/snapshot-store.ts", "src/server/mock-store-init.mts", "src/types/fs-ext.ts"].includes(file)), fsExtImporters.join(", ")).toBe(true);
+    const forbidden = [...walk(join(ROOT, "src", "app")), ...["runtime.ts", "respond.ts", "handlers.ts", "shopping.ts"].map((name) => join(ROOT, "src", "server", name))];
+    for (const file of forbidden) {
       const text = fs.readFileSync(file, "utf8");
       expect(text, file).not.toMatch(/snapshot-store/);
       expect(text, file).not.toMatch(/fs-ext/);
     }
+  });
+
+  it("the boundary scan recognises value, dynamic, re-export and type-only imports", () => {
+    const valueImport = /(?:^|\n)\s*import\s+(?!type\b)[^;]*?from\s+["'][^"']*snapshot-store["']|import\(\s*["'][^"']*snapshot-store["']\s*\)|(?:^|\n)\s*export\s+[^;]*?from\s+["'][^"']*snapshot-store["']/;
+    const typeImport = /(?:^|\n)\s*import\s+type\s+[^;]*?from\s+["'][^"']*snapshot-store["']/;
+    expect(valueImport.test('import { openFoundationStore } from "@/lib/session/snapshot-store";')).toBe(true);
+    expect(valueImport.test('const m = await import("../lib/session/snapshot-store");')).toBe(true);
+    expect(valueImport.test('export { openFoundationStore } from "./snapshot-store";')).toBe(true);
+    expect(valueImport.test('import type { PublishedBody } from "./snapshot-store";')).toBe(false);
+    expect(typeImport.test('import type { PublishedBody } from "./snapshot-store";')).toBe(true);
   });
 
   it("accepts and refuses the format-1 matrix without rewriting fixture bytes", async () => {
@@ -59,7 +83,15 @@ describe("snapshot foundation", () => {
           const published = opened.value.readPublished();
           expect(published.status, row.id).toBe("ready");
           if (published.status !== "ready") continue;
-          expect(canonicalJson(published.value), row.id).toBe(canonicalJson(JSON.parse(row.bytes.toString("utf8"))));
+          const file = JSON.parse(row.bytes.toString("utf8"));
+          // Format-1 files are served upgraded with empty conversations and selections; checksum and bytes are unchanged.
+          // Format-1 drafts gain the pending flag by the format-1 contract's definition of a pending interpretation.
+          const drafts = file.body.drafts.map((draft: Record<string, unknown>) => ({
+            ...draft,
+            interpretationPending:
+              draft.interpretationClaimVersion !== null && draft.interpretationClaimVersion === draft.version && draft.notice === null && draft.confirmedUse === null && draft.recommendationClaim === null,
+          }));
+          expect(canonicalJson(published.value), row.id).toBe(canonicalJson({ ...file, body: { ...file.body, drafts, conversations: [], selections: [] } }));
           if (row.id === "F16") expect(stalenessDetectedByChecksum).toBe(false);
         } else {
           expect(opened.status, row.id).toBe("unavailable");
@@ -84,8 +116,8 @@ describe("snapshot foundation", () => {
     expect(opened.status).toBe("ready");
     if (opened.status !== "ready") return;
     const before = opened.value.readPublished();
-    const failed = await opened.value.commit(bodyWith([session(1)], []));
-    expect(failed.status).toBe("unavailable");
+    const failed = await opened.value.commit(current(bodyWith([session(1)], [])));
+    expect(failed).toEqual({ status: "unavailable", outcome: "definite" });
     expect(canonicalJson(opened.value.readPublished())).toBe(canonicalJson(before));
     expect(fs.readFileSync(join(directory, "store.json")).equals(original)).toBe(true);
     expect(fs.readdirSync(directory).filter((name) => name.startsWith("store.json.tmp."))).toEqual([]);
@@ -110,7 +142,7 @@ describe("snapshot foundation", () => {
     expect(opened.status).toBe("ready");
     if (opened.status !== "ready") return;
     try {
-      const firstCommit = opened.value.commit(baseBody());
+      const firstCommit = opened.value.commit(current(baseBody()));
       const started = Date.now();
       while (flushes !== 1) {
         if (Date.now() - started > 2000) throw new Error("the first commit did not reach the queue barrier");
@@ -120,7 +152,7 @@ describe("snapshot foundation", () => {
       const line = item(1, { title: "nested title" });
       const advice = recommendation([line]);
       const nested = draft(record.id, 1, confirmedPatch(advice));
-      const submitted = bodyWith([record], [nested]);
+      const submitted = current(bodyWith([record], [nested]));
       const expected = canonicalJson(submitted);
       const secondCommit = opened.value.commit(submitted);
       record.id = `ses_${"c".repeat(32)}`;
@@ -192,13 +224,13 @@ describe("snapshot foundation", () => {
     try {
       vi.resetModules();
       const { openFoundationStore } = await import("../../src/lib/session/snapshot-store");
-      const previous = baseBody();
-      const candidate = bodyWith([session(1, { id: "ses_" + "a".repeat(32) })], []);
-      const third = bodyWith([session(2)], []);
+      const previous = current(baseBody());
+      const candidate = current(bodyWith([session(1, { id: "ses_" + "a".repeat(32) })], []));
+      const third = current(bodyWith([session(2)], []));
       const directory = saved.mkdirSync(join(tmpdir(), `sa-fault-${Date.now()}`), { recursive: true }) as string;
       saved.chmodSync(directory, 0o700);
       const storePath = join(directory, "store.json");
-      saved.writeFileSync(storePath, pack(previous), { mode: 0o600 });
+      saved.writeFileSync(storePath, pack2(previous), { mode: 0o600 });
       saved.chmodSync(storePath, 0o600);
       const opened = await openFoundationStore(directory, KEY, {
         directoryFsync: async () => {
@@ -208,7 +240,7 @@ describe("snapshot foundation", () => {
       expect(opened.status).toBe("ready");
       if (opened.status !== "ready") return;
       const committed = await opened.value.commit(candidate);
-      expect(committed.status).toBe("unavailable");
+      expect(committed).toEqual({ status: "unavailable", outcome: "indeterminate" });
       const baselineBytes = saved.readFileSync(storePath);
       const baseline = new Map(counts);
       const read = opened.value.readPublished();
@@ -216,7 +248,7 @@ describe("snapshot foundation", () => {
       const written = await opened.value.commit(third);
       const afterWrite = new Map(counts);
       expect(read.status).toBe("unavailable");
-      expect(written.status).toBe("unavailable");
+      expect(written).toEqual({ status: "unavailable", outcome: "indeterminate" });
       expect(sameCounts(afterRead, baseline), countDiff(baseline, afterRead)).toBe(true);
       expect(sameCounts(afterWrite, baseline), countDiff(baseline, afterWrite)).toBe(true);
       expect(saved.readFileSync(storePath).equals(baselineBytes)).toBe(true);
@@ -231,8 +263,8 @@ describe("snapshot foundation", () => {
   }, 30_000);
 
   it("reopens one whole snapshot after the writing process has exited", async () => {
-    const previous = bodyWith([session(4)], [draft(session(4).id)]);
-    const failed = fixture(pack(previous));
+    const previous = current(bodyWith([session(4)], [draft(session(4).id)]));
+    const failed = fixture(pack2(previous));
     const failedKey = writeKey(failed);
     const failedChild = spawnChild("failed-write", failed, failedKey);
     const failedHash = await failedChild.output;
@@ -240,7 +272,7 @@ describe("snapshot foundation", () => {
     expect(failedHash).toBe(checksum(previous));
     expect(await reopen(failed, checksum(previous))).toBe(checksum(previous));
 
-    const renamed = fixture(pack(previous));
+    const renamed = fixture(pack2(previous));
     const renamedKey = writeKey(renamed);
     const renamedChild = spawnChild("uncertain", renamed, renamedKey);
     const renamedHash = await renamedChild.output;
@@ -657,6 +689,16 @@ function omit(value: object, key: string): Record<string, unknown> {
   const copy = { ...(value as Record<string, unknown>) };
   delete copy[key];
   return copy;
+}
+
+/** A format-2 body: the format-1 fields plus empty (or given) conversations and selections. */
+function current(body: Record<string, unknown>, patch: Record<string, unknown> = {}) {
+  const drafts = Array.isArray(body.drafts) ? body.drafts.map((draft) => ({ interpretationPending: false, ...(draft as Record<string, unknown>) })) : body.drafts;
+  return { conversations: [], selections: [], ...body, drafts, ...patch };
+}
+
+function pack2(body: unknown): Buffer {
+  return Buffer.from(JSON.stringify({ format: 2, identity: identityFor(KEY), sha256: checksum(body), body }));
 }
 
 function pack(body: unknown): Buffer {

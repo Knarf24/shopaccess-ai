@@ -57,6 +57,38 @@ export function readConversation(store: object, sessionId: string): Conversation
   return conversationMap(store).get(sessionId) ?? null;
 }
 
+/** Conversation and needs-bound selection state of one host, as the snapshot runtime persists it. */
+export interface SessionConversationState {
+  readonly conversations: ReadonlyMap<string, ConversationState>;
+  readonly selections: ReadonlyMap<string, { readonly epoch: number; readonly closed: boolean }>;
+}
+
+export function conversationStateOf(store: object): SessionConversationState {
+  const epochs = epochMap(store);
+  const closed = closedSet(store);
+  const selections = new Map<string, { epoch: number; closed: boolean }>();
+  for (const sessionId of new Set([...epochs.keys(), ...closed])) selections.set(sessionId, { epoch: epochs.get(sessionId) ?? 0, closed: closed.has(sessionId) });
+  return { conversations: new Map(conversationMap(store)), selections };
+}
+
+/**
+ * Replaces the persisted conversation and selection state of one host. Checkout epochs per intent are not part of it:
+ * they stay process-local because checkout intents are memory-only and do not survive a restart.
+ */
+export function replaceConversationState(store: object, state: SessionConversationState): void {
+  const conversations = conversationMap(store);
+  conversations.clear();
+  for (const [sessionId, conversation] of state.conversations) conversations.set(sessionId, conversation);
+  const epochs = epochMap(store);
+  const closed = closedSet(store);
+  epochs.clear();
+  closed.clear();
+  for (const [sessionId, selection] of state.selections) {
+    if (selection.epoch !== 0) epochs.set(sessionId, selection.epoch);
+    if (selection.closed) closed.add(sessionId);
+  }
+}
+
 /** Appends one shopper line and, when present, the notice the server actually stored. */
 export function recordConversationTurn(
   store: object,

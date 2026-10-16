@@ -142,6 +142,12 @@ export interface NeedsDraft {
   readonly confirmedUse: IntendedUse | null;
   readonly confirmedBudgetDollars: string | null;
   readonly interpretationClaimVersion: number | null;
+  /**
+   * True from an interpretation or follow-up claim until its result is written. Kept separately from the claim
+   * version, which stays as duplicate protection after completion, and from the notice, which confirmation clears.
+   * Snapshot recovery releases only a draft that is still pending.
+   */
+  readonly interpretationPending: boolean;
   readonly recommendationClaim: RecommendationClaim | null;
   readonly recommendation: RetainedRecommendation | null;
   readonly notice: NeedsNotice | null;
@@ -175,6 +181,16 @@ export function needsDraftsFor(store: object): Map<string, NeedsDraft> {
   return found;
 }
 
+/**
+ * Replaces the whole draft map for one host. Used by the snapshot runtime to publish a durable state and to seed a
+ * scratch host for a queued decision. The map object stays the same, so existing readers keep their reference.
+ */
+export function replaceNeedsDrafts(store: object, drafts: Iterable<readonly [string, NeedsDraft]>): void {
+  const found = needsDraftsFor(store);
+  found.clear();
+  for (const [sessionId, draft] of drafts) found.set(sessionId, draft);
+}
+
 export function deleteNeedsDrafts(store: object, sessionIds: readonly string[]): void {
   const found = attachedDrafts(store);
   if (!found) return;
@@ -205,6 +221,7 @@ function freshDraft(input: {
     confirmedUse: null,
     confirmedBudgetDollars: null,
     interpretationClaimVersion: input.interpretationClaimVersion,
+    interpretationPending: input.interpretationClaimVersion !== null,
     recommendationClaim: null,
     recommendation: null,
     notice: input.notice,
@@ -309,7 +326,7 @@ export function applyInterpretation(
   const existing = current(store, sessionId, now);
   if (existing === "expired" || existing === "missing") return false;
   if (existing.draftId !== draftId || existing.version !== version || existing.interpretationClaimVersion !== version) return false;
-  needsDraftsFor(store).set(sessionId, { ...existing, ...patch });
+  needsDraftsFor(store).set(sessionId, { ...existing, ...patch, interpretationPending: false });
   return true;
 }
 
@@ -383,6 +400,7 @@ export function claimFollowUp(
     version: existing.version + 1,
     shopperText: text,
     interpretationClaimVersion: existing.version + 1,
+    interpretationPending: true,
     expiresAtMs: input.expiresAtMs,
   };
   needsDraftsFor(store).set(sessionId, draft);
@@ -415,6 +433,7 @@ export function commitFollowUp(
     confirmedBudgetDollars: patch.withdrawConfirmation ? null : existing.confirmedBudgetDollars,
     recommendation: patch.withdrawConfirmation ? null : existing.recommendation,
     recommendationClaim: patch.withdrawConfirmation ? null : existing.recommendationClaim,
+    interpretationPending: false,
   };
   needsDraftsFor(store).set(sessionId, draft);
   return draft;

@@ -386,10 +386,13 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
     for (const parts of [["app", "page.tsx"], ["app", "shop", "page.tsx"], ["app", "checkout", "[intentId]", "page.tsx"], ["app", "checkouts", "page.tsx"], ["app", "demo", "admission", "page.tsx"]]) {
       const text = read(...parts);
       const connection = text.indexOf("await connection();");
-      const application = text.indexOf("getApplication();");
+      // M2-1: pages reach the process application only through openApplication (runtime-access.ts), after connection().
+      const application = text.indexOf("await openApplication();");
       expect(connection, parts.join("/")).toBeGreaterThan(-1);
       expect(application, parts.join("/")).toBeGreaterThan(connection);
+      expect(text, parts.join("/")).not.toMatch(/getApplication\(|getRuntime\(/);
     }
+    expect(read("app", "shop", "needs", "page.tsx")).not.toMatch(/getApplication\(|getRuntime\(/);
     // In PostgreSQL mode the start page shows the database's catalog or the notice, never the fixture catalog.
     const home = read("app", "page.tsx");
     expect(home.match(/DEMO_MERCHANT_CATALOG/g)).toHaveLength(2);

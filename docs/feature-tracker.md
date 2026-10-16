@@ -53,3 +53,11 @@ No feature is accepted solely because code exists, tests pass, or a concept vide
 
 ## October 16 feasibility research supplement
 See [full investigation](full-feasibility-investigation-20261016.md) and [external-store matrix](external-store-feasibility-20261016.md). These refine F02–F10 prerequisites; no F-row is accepted by them. Amazon Business ordering is a distinct candidate with onboarding dependencies, not proof of ordinary personal Amazon support. Shopify's test gateway does not establish PayPal Sandbox. Bounded E1–E4 proposals are documented and not run. Model, storage and store choices remain proposals. E5 official rules were read; judge setup and final compliance remain open.
+
+## M2-1 update (October 16, 2026, uncommitted branch)
+
+F02 conversation persistence:
+- Source on `feature/m2-1-snapshot-persistence`: sessions, drafts, conversation (language, eight lines), confirmation-invalidation state, and the allocation and admission windows persist through the save-first snapshot gate when `SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE` are set.
+- Evidence: unit and behavioural tests, 41 files and 1,243 passed. Private mock-only browser restart check passed.
+- Not accepted until reviewed and committed. Device profile (the rest of F02) is not started. See `docs/m2-1-plan.md` §9–10.
+

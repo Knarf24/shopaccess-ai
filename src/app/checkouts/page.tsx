@@ -5,7 +5,8 @@ import { Suspense } from "react";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { SessionNotice } from "@/components/SessionNotice";
 import { buildPgCheckoutList, PG_STATUS_LABELS, pgCookieHeader, resolvePgPageSession } from "@/server/pg-views";
-import { getApplication } from "@/server/runtime";
+import { guardPage, openApplication } from "@/server/runtime-access";
+import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { messageFor } from "@/server/views";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -23,9 +24,11 @@ function NotAvailable() {
  * tab or an uncertain start. It is best-effort: a checkout that is listed can be opened; a checkout that is not
  * listed has not thereby been shown not to exist. Loading this page starts, changes and ends nothing.
  */
-async function CheckoutsContent({ searchParams }: { searchParams: SearchParams }) {
+async function CheckoutsContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
   await connection();
-  const application = getApplication();
+  const opened = await openApplication();
+  if (opened === "unavailable") return <StoreUnavailable />;
+  const application = opened;
   // The mock has no such list.
   if (application.mode === "mock") notFound();
   if (application.mode === "invalid") return <ConfigNotice errors={["SHOPACCESS_PERSISTENCE_MODE"]} />;
@@ -82,4 +85,9 @@ export default function CheckoutsPage({ searchParams }: { searchParams: SearchPa
       </Suspense>
     </main>
   );
+}
+
+/** A save refused while rendering shows the unavailable notice, never a partial or success view. */
+async function CheckoutsContent(props: Parameters<typeof CheckoutsContentUnguarded>[0]) {
+  return guardPage(() => CheckoutsContentUnguarded(props), () => <StoreUnavailable />);
 }

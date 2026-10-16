@@ -298,37 +298,41 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
     if (reply.length > 2000) return seeOther(needsBack(language, "TEXT_TOO_LONG"));
     const live = () => runtime.checkout.sessionIsLive(session.id);
     if (reply.length === 0) {
-      const revised = proposeStructuredRevision(
-        runtime.store,
-        session.id,
-        {
-          draftId,
-          version,
-          use: needsUse(form.get("use")),
-          budgetDollars: needsBudget(form.get("budget")),
-          expiresAtMs,
-          now: runtime.clock().getTime(),
-        },
-        live,
-      );
+      // One durable decision: the revision, any confirmation withdrawal, and the conversation line.
+      const revised = await runtime.durable.change((host) => {
+        const result = proposeStructuredRevision(
+          host,
+          session.id,
+          {
+            draftId,
+            version,
+            use: needsUse(form.get("use")),
+            budgetDollars: needsBudget(form.get("budget")),
+            expiresAtMs,
+            now: runtime.clock().getTime(),
+          },
+          live,
+        );
+        if (result.kind === "revised") {
+          if (result.withdrewConfirmation) invalidatePurchaseSelections(host, session.id);
+          rememberNeedsTurn(host, session.id, result.draft, "");
+        }
+        return result;
+      });
       if (revised.kind === "session_dead") return seeOther(needsBack(language));
       if (revised.kind === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
       if (revised.kind === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
       if (revised.kind === "missing") return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
       if (revised.kind === "invalid") return seeOther(needsBack(language, "CLARIFICATION_INVALID"));
       if (revised.kind === "unchanged") return seeOther(needsBack(language));
-      if (revised.withdrewConfirmation) invalidatePurchaseSelections(runtime.store, session.id);
-      rememberNeedsTurn(runtime.store, session.id, revised.draft, "");
       return seeOther(needsBack(language));
     }
 
     const message = ShopperMessageSchema.safeParse(reply);
     if (!message.success) return seeOther(needsBack(language, "CLARIFICATION_INVALID"));
-    const claimed = claimFollowUp(
-      runtime.store,
-      session.id,
-      { draftId, version, shopperText: message.data, expiresAtMs, now: runtime.clock().getTime() },
-      live,
+    // The claim is durable before the interpreter starts.
+    const claimed = await runtime.durable.change((host) =>
+      claimFollowUp(host, session.id, { draftId, version, shopperText: message.data, expiresAtMs, now: runtime.clock().getTime() }, live),
     );
     if (claimed.kind === "duplicate") return seeOther(needsBack(language));
     if (claimed.kind === "session_dead") return seeOther(needsBack(language));
@@ -337,7 +341,9 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
     if (claimed.kind === "invalid") return seeOther(needsBack(language, "CLARIFICATION_INVALID"));
     if (claimed.kind !== "claimed") return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
 
-    const interpreted = await interpretNeedsSafely(runtime.ai, message.data, (diagnostic) => {
+    // Provider input comes from the saved claim, not from the request.
+    const claimedText = claimed.draft.shopperText;
+    const interpreted = await interpretNeedsSafely(runtime.ai, claimedText, (diagnostic) => {
       const line = formatAdvisoryFailureDiagnostic(diagnostic);
       if (line) console.warn(line);
     });
@@ -345,7 +351,7 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
     const model = interpreted.ok ? interpreted.value : interpreted.error === "OUTPUT_INVALID" ? "malformed" : "unavailable";
     const typedUse = controlChange(needsUse(form.get("use")), claimed.draft.prefilledUse);
     const typedBudget = controlChange(needsBudget(form.get("budget")), claimed.draft.prefilledBudgetDollars);
-    const settled = mergeInterpretedNeeds(typedUse, typedBudget, settleShopperText(message.data, model));
+    const settled = mergeInterpretedNeeds(typedUse, typedBudget, settleShopperText(claimedText, model));
     const merged = mergeFollowUpCandidate(claimed.draft, settled);
     const confirmedUse = claimed.draft.confirmedUse;
     const confirmedBudget = claimed.draft.confirmedBudgetDollars;
@@ -357,16 +363,12 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
         merged.prefilledBudgetDollars &&
         (merged.prefilledUse !== confirmedUse || merged.prefilledBudgetDollars !== confirmedBudget),
     );
-    const written = commitFollowUp(
-      runtime.store,
-      session.id,
-      claimed.draft.draftId,
-      claimed.draft.version,
-      { ...merged, withdrawConfirmation },
-      runtime.clock().getTime(),
-    );
-    if (written && withdrawConfirmation) invalidatePurchaseSelections(runtime.store, session.id);
-    if (written) rememberNeedsTurn(runtime.store, session.id, written, message.data);
+    // One durable decision: the follow-up result, any confirmation withdrawal, and the conversation line.
+    await runtime.durable.change((host) => {
+      const written = commitFollowUp(host, session.id, claimed.draft.draftId, claimed.draft.version, { ...merged, withdrawConfirmation }, runtime.clock().getTime());
+      if (written && withdrawConfirmation) invalidatePurchaseSelections(host, session.id);
+      if (written) rememberNeedsTurn(host, session.id, written, claimedText);
+    });
     const failure = model === "malformed" || model === "unavailable" ? model : null;
     return seeOther(needsBack(language, undefined, failure));
   }
@@ -379,62 +381,76 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
   const now = runtime.clock().getTime();
 
   if (typedUse && typedBudget) {
-    const saved = saveStructuredNeeds(runtime.store, session.id, {
-      submittedVersion,
-      language,
-      shopperText: text,
-      use: typedUse,
-      budgetDollars: typedBudget,
-      notice: "review",
-      expiresAtMs,
-      now,
+    const saved = await runtime.durable.change((host) => {
+      const result = saveStructuredNeeds(host, session.id, {
+        submittedVersion,
+        language,
+        shopperText: text,
+        use: typedUse,
+        budgetDollars: typedBudget,
+        notice: "review",
+        expiresAtMs,
+        now,
+      });
+      if (typeof result !== "string") rememberNeedsTurn(host, session.id, result, text);
+      return result;
     });
     if (saved === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
     if (saved === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
-    if (typeof saved !== "string") rememberNeedsTurn(runtime.store, session.id, saved, text);
     return seeOther(needsBack(language));
   }
 
   const message = ShopperMessageSchema.safeParse(text);
   if (!message.success) {
-    const saved = saveStructuredNeeds(runtime.store, session.id, {
-      submittedVersion,
-      language,
-      shopperText: "",
-      use: typedUse,
-      budgetDollars: typedBudget,
-      notice: typedUse ? "missing_budget" : "missing_use",
-      expiresAtMs,
-      now,
+    const saved = await runtime.durable.change((host) => {
+      const result = saveStructuredNeeds(host, session.id, {
+        submittedVersion,
+        language,
+        shopperText: "",
+        use: typedUse,
+        budgetDollars: typedBudget,
+        notice: typedUse ? "missing_budget" : "missing_use",
+        expiresAtMs,
+        now,
+      });
+      if (typeof result !== "string") rememberNeedsTurn(host, session.id, result, "");
+      return result;
     });
     if (saved === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
     if (saved === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
-    if (typeof saved !== "string") rememberNeedsTurn(runtime.store, session.id, saved, "");
     return seeOther(needsBack(language));
   }
 
-  const claimed = beginInterpretation(runtime.store, session.id, {
-    submittedVersion,
-    language,
-    shopperText: message.data,
-    expiresAtMs,
-    now,
-  });
+  // The claim is durable before the interpreter starts.
+  const claimed = await runtime.durable.change((host) =>
+    beginInterpretation(host, session.id, {
+      submittedVersion,
+      language,
+      shopperText: message.data,
+      expiresAtMs,
+      now,
+    }),
+  );
   if (claimed.kind === "duplicate") return seeOther(needsBack(language));
   if (claimed.kind === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
   if (claimed.kind === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
   if (claimed.kind !== "claimed") return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
 
-  const interpreted = await interpretNeedsSafely(runtime.ai, message.data, (diagnostic) => {
+  // Provider input comes from the saved claim, not from the request.
+  const claimedText = claimed.draft.shopperText;
+  const interpreted = await interpretNeedsSafely(runtime.ai, claimedText, (diagnostic) => {
     const line = formatAdvisoryFailureDiagnostic(diagnostic);
     if (line) console.warn(line);
   });
   if (!runtime.checkout.sessionIsLive(session.id)) return seeOther(needsBack(language, "DRAFT_EXPIRED"));
   const model = interpreted.ok ? interpreted.value : interpreted.error === "OUTPUT_INVALID" ? "malformed" : "unavailable";
-  const settled = mergeInterpretedNeeds(typedUse, typedBudget, settleShopperText(message.data, model));
-  const wrote = applyInterpretation(runtime.store, session.id, claimed.draft.draftId, claimed.draft.version, settled, runtime.clock().getTime());
-  const drafted = needsDraftsFor(runtime.store).get(session.id);
-  if (wrote && drafted) rememberNeedsTurn(runtime.store, session.id, drafted, message.data);
+  const settled = mergeInterpretedNeeds(typedUse, typedBudget, settleShopperText(claimedText, model));
+  // One durable decision: the interpretation result (rechecked against the claim) and the conversation line.
+  await runtime.durable.change((host) => {
+    const wrote = applyInterpretation(host, session.id, claimed.draft.draftId, claimed.draft.version, settled, runtime.clock().getTime());
+    const drafted = needsDraftsFor(host).get(session.id);
+    if (wrote && drafted) rememberNeedsTurn(host, session.id, drafted, claimedText);
+  });
   const failure = model === "malformed" || model === "unavailable" ? model : null;
   return seeOther(needsBack(language, undefined, failure));
 }
@@ -456,11 +472,15 @@ export async function handleNeedsConfirm(request: Request, runtime: Runtime): Pr
   const version = needsVersion(form);
   const draftId = form.get("draftId") ?? "";
   if (version === null || !/^nd_[0-9a-f]{32}$/.test(draftId)) return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
-  const confirmed = confirmNeeds(runtime.store, session.id, { draftId, version, use, budgetDollars: budget, now: runtime.clock().getTime() });
+  // One durable decision: the confirmation and the reopening of needs-bound selections.
+  const confirmed = await runtime.durable.change((host) => {
+    const result = confirmNeeds(host, session.id, { draftId, version, use, budgetDollars: budget, now: runtime.clock().getTime() });
+    if (typeof result !== "string") reopenPurchaseSelections(host, session.id);
+    return result;
+  });
   if (confirmed === "stale" || confirmed === "conflict") return seeOther(needsBack(language, "STALE_DRAFT"));
   if (confirmed === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
   if (confirmed === "missing") return seeOther(needsBack(language, "DRAFT_NOT_FOUND"));
-  reopenPurchaseSelections(runtime.store, session.id);
   return seeOther(needsBack(language));
 }
 

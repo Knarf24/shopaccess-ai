@@ -47,9 +47,11 @@ if (mode === "uncertain") {
     admissionLogin: published.value.body.admissionLogin,
     sessions: published.value.body.sessions,
     drafts: published.value.body.drafts,
+    conversations: published.value.body.conversations,
+    selections: published.value.body.selections,
   };
   const committed = await opened.value.commit(candidate);
-  if (committed.status !== "unavailable") process.exit(1);
+  if (committed.status !== "unavailable" || committed.outcome !== "indeterminate") process.exit(1);
   process.stdout.write(createHash("sha256").update(canonicalJson(candidate), "utf8").digest("hex"));
   process.exit(0);
 }
@@ -68,8 +70,10 @@ if (mode === "failed-write") {
     admissionLogin: { windowStartedAt: null, count: 0 },
     sessions: [],
     drafts: [],
+    conversations: [],
+    selections: [],
   });
-  if (failed.status !== "unavailable") process.exit(1);
+  if (failed.status !== "unavailable" || failed.outcome !== "definite") process.exit(1);
   process.stdout.write(createHash("sha256").update(canonicalJson(published.value.body), "utf8").digest("hex"));
   process.exit(0);
 }

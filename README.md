@@ -29,6 +29,38 @@ Open http://localhost:3000 in Chrome or Firefox. All three settings are
 required; without them the shopping flow is switched off. State is held in
 memory and is lost when the server stops.
 
+### Optional: keep shopper state across a restart (local mock only)
+
+Sessions, needs drafts, the guided conversation (language and the last eight
+lines), confirmation withdrawal, and the session-allocation and admission
+windows can be kept in one local snapshot file. Checkouts, quotes, payments
+and the audit log stay in memory: a checkout started before a restart does not
+resume. Use synthetic data only.
+
+```bash
+# One private key file and one new store directory, outside the repository.
+umask 077
+openssl rand -out /path/to/private/shopaccess-store.key 32
+node --experimental-strip-types --import ./scripts/mock-store-load-hook.mjs \
+  src/server/mock-store-init.mts --directory /path/to/private/shopaccess-store \
+  --key-file /path/to/private/shopaccess-store.key
+
+# Then add both settings to the command above.
+SHOPACCESS_MOCK_STORE_DIR=/path/to/private/shopaccess-store \
+SHOPACCESS_MOCK_STORE_KEY_FILE=/path/to/private/shopaccess-store.key \
+...  npm run dev
+```
+
+With neither setting the demo is in memory, as before. With only one, or with
+a directory or key file that is not private (0700 directory, 0600 key file
+owned by you), or with `SHOPACCESS_PERSISTENCE_MODE=postgres`, the server
+refuses to start the shop rather than falling back to memory. If a save fails,
+the shop stops accepting changes and shows "not available" until it is
+restarted. A request that was interrupted by a restart is never sent again: an
+interpretation shows the existing "could not be interpreted" notice, and
+suggestions show as not available, with how to ask again. Logs name the
+storage mode and a code, never a path or key.
+
 ## PostgreSQL mode (opt-in; written, never run)
 
 The application can be pointed at PostgreSQL instead of its in-memory stores.
