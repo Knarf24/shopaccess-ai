@@ -62,8 +62,11 @@ export function createPermissionAuthority(deps: PermissionDeps): PermissionAutho
   return {
     async create(input, now) {
       if (!deps.sessionLive(input.sessionId)) return { ok: false, code: "SESSION_INVALID" };
-      const sessionExpiresAtMs = deps.sessionExpiresAt(input.sessionId)?.getTime() ?? null;
       const outcome = await deps.durable.decidePermissions<ReturnType<typeof decideCreate>>((existing) => {
+        // Recheck inside the serialized decision: a logout saved while this creation was queued must refuse it
+        // (Codex slices 1–2 review, finding 2). The session expiry is read here for the same reason.
+        if (!deps.sessionLive(input.sessionId)) return { value: { ok: false, code: "SESSION_INVALID" } };
+        const sessionExpiresAtMs = deps.sessionExpiresAt(input.sessionId)?.getTime() ?? null;
         const decided = decideCreate(existing, input, { catalog: deps.catalog, now, sessionExpiresAtMs, admissionExpiresAtMs: input.admissionExpiresAtMs, random: deps.random });
         return decided.ok ? { value: decided, permissions: decided.permissions } : { value: decided };
       });

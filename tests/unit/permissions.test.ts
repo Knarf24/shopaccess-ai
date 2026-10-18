@@ -280,12 +280,31 @@ const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, 
 
 async function snapshotRuntime() {
   let published = structuredClone(EMPTY);
+  let commits = 0;
+  // A controlled commit barrier (no timers): the next commit announces it has started and then waits to be released.
+  let barrier: { started: () => void; released: Promise<void> } | null = null;
   const store: FoundationStore = {
     readPublished: () => ({ status: "ready", value: { format: 4, identity: "0".repeat(64), sha256: "0".repeat(64), body: structuredClone(published) } }),
     async commit(body: unknown): Promise<CommitResult> {
+      if (barrier) {
+        const held = barrier;
+        barrier = null;
+        held.started();
+        await held.released;
+      }
+      commits += 1;
       published = structuredClone(body) as PublishedBody;
       return { status: "ready", value: { format: 4, identity: "0".repeat(64), sha256: "0".repeat(64), body: structuredClone(published) } };
     },
+  };
+  /** Holds the next commit before it is published. `started` resolves once that commit is waiting; `release` lets it finish. */
+  const holdNextCommit = () => {
+    let started!: () => void;
+    let release!: () => void;
+    const startedPromise = new Promise<void>((resolve) => (started = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    barrier = { started, released };
+    return { started: startedPromise, release };
   };
   const time = createTestClock("2026-10-16T12:00:00.000Z");
   const boot = async () => {
@@ -293,8 +312,13 @@ async function snapshotRuntime() {
     if (opened.status !== "ready") throw new Error("recovery");
     return createRuntime({ sessionKey: TEST_SESSION_KEY, trustedOrigins: parseTrustedOrigins([SITE]), extensionOrigins: new Set([EXT]) }, { clock: time.clock, gate: opened.gate });
   };
-  return { boot, time, published: () => published };
+  return { boot, time, published: () => published, holdNextCommit, commits: () => commits };
 }
+
+/** Lets every already-queued promise callback run, without any timer delay. */
+const drainMicrotasks = async () => {
+  for (let i = 0; i < 20; i += 1) await Promise.resolve();
+};
 
 async function shopper(runtime: Runtime) {
   const response = await handleNeedsSession(new Request(`${SITE}/session/needs`), runtime);
@@ -308,6 +332,44 @@ const create = (runtime: Runtime, sessionId: string, binding = ITEM, expiry = "1
   runtime.permissions.create({ sessionId, ...binding, maxQuantity: 1, maxTotalCents: 90_000, expiry, admissionExpiresAtMs: null }, runtime.clock());
 
 describe("permission authority on the save-first gate", () => {
+  it("Codex slices 1–2 review finding 2: a creation queued behind a logout that is still being saved is refused inside the saved decision", async () => {
+    const world = await snapshotRuntime();
+    const runtime = await world.boot();
+    const a = await shopper(runtime);
+    const commitsBefore = world.commits();
+    const barrier = world.holdNextCommit();
+    let creating: ReturnType<typeof create> | undefined;
+    let settled = false;
+    let logout: Promise<void> | undefined;
+    try {
+      // 1. Logout's decision runs and its commit is held: computed, not yet saved or published.
+      logout = runtime.sessions.revoke(a.sessionId);
+      await barrier.started;
+      expect(world.commits()).toBe(commitsBefore);
+      expect(world.published().sessions.find((s) => s.id === a.sessionId)?.revokedAt).toBeNull();
+      expect(runtime.checkout.sessionIsLive(a.sessionId)).toBe(true);
+      // 2. Creation starts now. Its pre-queue check sees the session still live, so it queues behind the held logout.
+      creating = create(runtime, a.sessionId);
+      void creating.then(() => (settled = true));
+      await drainMicrotasks();
+      // Negative control for the interleaving: had the pre-queue check refused, or had creation not queued behind
+      // logout, it would already have settled. Nothing can have been saved while logout's commit is held.
+      expect(settled).toBe(false);
+      expect(world.commits()).toBe(commitsBefore);
+      expect(world.published().permissions).toEqual([]);
+    } finally {
+      barrier.release();
+    }
+    await logout;
+    const result = await creating!;
+    // 3. Logout is saved first; creation's decision then sees the revoked session and refuses.
+    expect(world.published().sessions.find((s) => s.id === a.sessionId)?.revokedAt).not.toBeNull();
+    expect(result).toEqual({ ok: false, code: "SESSION_INVALID" });
+    expect(world.published().permissions.filter((p) => p.sessionId === a.sessionId)).toEqual([]);
+    expect(runtime.permissions.list(a.sessionId, runtime.clock())).toEqual([]);
+  });
+
+
   it("a created permission is saved before it is reported and survives a restart; sessions cannot see or revoke each other's", async () => {
     const world = await snapshotRuntime();
     const runtime = await world.boot();

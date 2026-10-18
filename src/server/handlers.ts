@@ -14,6 +14,9 @@ import {
   recordBuyerReturn,
   verifyApproval,
 } from "@/lib/payment/orchestrator";
+import type { PaymentOperation } from "@/lib/payment/operations";
+import { transition, type PaymentSnapshot, type PaymentState } from "@/lib/payment/state-machine";
+import { journeyCopy } from "@/lib/i18n/demo-copy";
 import { toPublicError, type PublicErrorCode } from "@/lib/security/errors";
 import { readLimitedForm } from "@/lib/security/limits";
 import { PROPOSED_RATE_LIMIT_POLICIES, type RateLimitPolicy } from "@/lib/security/rate-limit";
@@ -732,7 +735,55 @@ function escapeHtml(value: string): string {
   });
 }
 
-/** GET /checkout/:intentId/paypal-cancel. Renders a same-origin cancel form and does not cancel. */
+/** What the saved payment state proves about capture, for the PayPal cancel-return page. */
+export type CancelReturnStatus = "captured" | "captured_observed" | "no_capture" | "canceled" | "uncertain";
+
+/** States in which no capture can have happened, provided the saved context and ledger agree. */
+const NO_CAPTURE_STATES: readonly PaymentState[] = [
+  "DRAFT",
+  "QUOTED",
+  "USER_CONFIRMED",
+  "ORDER_CREATE_IN_FLIGHT",
+  "ORDER_CREATE_UNKNOWN",
+  "AWAITING_APPROVAL",
+  "APPROVAL_CHECK_PENDING",
+  "APPROVED_VERIFIED",
+  "DECLINED_RETRYABLE",
+  "EXPIRED",
+  "SUPERSEDED",
+  "FAILED_TERMINAL",
+];
+
+/**
+ * Classify the saved payment state for the cancel-return page (Codex slices 1–2 review, finding 1).
+ * "No capture" needs the state, the capture context and every saved CAPTURE operation to agree that nothing
+ * can have been captured; a false or absent dispatch flag alone is not enough. Anything else is uncertain.
+ */
+export function cancelReturnStatus(snapshot: PaymentSnapshot, captures: readonly PaymentOperation[]): CancelReturnStatus {
+  if (snapshot.state === "CAPTURED_VERIFIED") return "captured";
+  if (["PARTIALLY_REFUNDED_OBSERVED", "REFUNDED_OBSERVED", "REVERSED_OR_DISPUTED_OBSERVED"].includes(snapshot.state)) return "captured_observed";
+  const { captureDispatched, captureOperationId, providerCaptureId } = snapshot.context;
+  const nothingCaptured =
+    captureDispatched === false &&
+    captureOperationId === null &&
+    providerCaptureId === null &&
+    captures.every((operation) => operation.state === "DECLINED" || operation.state === "REJECTED");
+  if (!nothingCaptured) return "uncertain";
+  if (snapshot.state === "CANCELED_LOCAL") return "canceled";
+  return NO_CAPTURE_STATES.includes(snapshot.state) ? "no_capture" : "uncertain";
+}
+
+const CANCEL_RETURN_TEXT: Record<Exclude<CancelReturnStatus, "canceled">, string> = {
+  captured: `${journeyCopy("en").sandboxCheckout.captured} It can't be canceled here.`,
+  captured_observed: "A payment was captured for this checkout, and a refund, reversal or dispute was later observed. It can't be canceled here.",
+  no_capture: "No payment has been captured.",
+  uncertain: `${journeyCopy("en").sandboxCheckout.unknown} It can't be canceled here.`,
+};
+
+/**
+ * GET /checkout/:intentId/paypal-cancel. Describes the saved payment state and offers the same-origin cancel form
+ * only where the state machine still allows a shopper cancel. It does not cancel and changes no payment or permission.
+ */
 export async function handleSandboxPaypalCancel(request: Request, runtime: Runtime, intentId: string): Promise<Response> {
   const refused = admissionRefusal(request, runtime);
   if (refused) return refused;
@@ -742,8 +793,17 @@ export async function handleSandboxPaypalCancel(request: Request, runtime: Runti
   if (!resolved.ok) return seeOther("/");
   const intent = await ownedIntent(runtime, resolved.value, intentId);
   if (!intent) return refuse("NOT_FOUND", runtime);
+  const status = cancelReturnStatus(intent.snapshot, await runtime.ledger.listForIntent(intent.id, "CAPTURE"));
+  const cancelable =
+    status === "no_capture" &&
+    transition(intent.snapshot, { type: "SHOPPER_CANCELED", eventId: "cancel-return-preview", occurredAt: runtime.clock().toISOString(), actor: "shopper" }).ok;
+  const message = status === "canceled" ? journeyCopy("en").sandboxCheckout.canceled : status === "no_capture" && !cancelable ? `${CANCEL_RETURN_TEXT.no_capture} It can't be canceled here.` : CANCEL_RETURN_TEXT[status];
   const action = `/checkout/${intent.id}/cancel`;
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cancel checkout</title></head><body><main><h1>Cancel this checkout</h1><p>No payment has been captured.</p><form method="post" action="${escapeHtml(action)}"><input type="hidden" name="csrfToken" value="${escapeHtml(resolved.value.csrfToken)}"><button type="submit">Cancel this checkout</button></form></main></body></html>`;
+  const form = cancelable
+    ? `<form method="post" action="${escapeHtml(action)}"><input type="hidden" name="csrfToken" value="${escapeHtml(resolved.value.csrfToken)}"><button type="submit">Cancel this checkout</button></form>`
+    : "";
+  const back = `<p><a href="${escapeHtml(`/checkout/${intent.id}`)}">Back to the checkout</a></p>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cancel checkout</title></head><body><main><h1>Cancel this checkout</h1><p>${escapeHtml(message)}</p>${form}${back}</main></body></html>`;
   return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 }
 

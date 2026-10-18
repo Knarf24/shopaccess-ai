@@ -12,6 +12,7 @@ This supersedes the publication-status labels in the October 17 reconciliations 
   - **Owner-operated VoiceOver on the owner's Mac (plan §10 amended):** limited English observations; validation-error speech inconclusive; other speech unverified.
   - **Checkout language-marker correction (r5):** Codex's focused review found no concrete defect and no demonstrated commit blocker, with source-inspection and test-coverage qualifications.
   - **Implementer-run gate:** 55 files, 1,413 passed; typecheck 0; lint 0 errors.
+  - **Codex review of slices 1–2 (frozen baseline `a142e95`):** two findings, both corrected in the working tree (owner-approved, uncommitted): the sandbox cancel-return page now follows the saved payment state (finding 1), and permission creation rechecks the session inside its serialized decision (finding 2). Implementer-run gate after the fixes: 55 files, 1,423 passed; typecheck 0; lint 0 errors. Codex's focused review of the fixes (source and saved evidence; it did not rerun tests) found both findings resolved, with no demonstrated blocker. Acceptance is unchanged.
 - **Still open:**
   - finding 7 (proposal) and finding 8 (tracked);
   - per-item VoiceOver speech;

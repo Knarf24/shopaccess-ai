@@ -190,6 +190,12 @@ Checkout language-marker correction (owner-approved, October 18):
 - suite 55 files, 1,413 passed; typecheck 0; lint 0 errors, 9 warnings;
 - a mock-only browser check (markup only, no pronunciation inferred) confirmed the Spanish and English markers.
 Handoff r5 prepared for Codex. Codex's focused review of r5 found no concrete defect and no demonstrated commit blocker, with its source-inspection and test-coverage qualifications.
+Codex slices 1–2 review corrections (owner-approved, October 18; working tree, uncommitted):
+- finding 1: the sandbox cancel-return page derived "No payment has been captured" and its Cancel form from nothing. It now classifies the saved payment state, capture context and capture operations, offers Cancel only where the state machine allows it, and links back to the checkout. The classifier adds no payment or permission mutation. Correction to the first handoff, which called the remaining housekeeping unrelated to payments and permissions: the existing `runtime.maintain()` cleanup of revoked and expired sessions can remove those sessions' permissions (snapshot mode) and local mock checkout data, and session resolution updates session activity;
+- finding 2: a permission creation queued behind a logout whose save was still pending could be created for the revoked session. Creation now rechecks session liveness and reads the session expiry inside its serialized decision;
+- 10 regression tests (implementer-run): written first, 4 failing as intended before the fixes; 7 finding-1 and the full finding-2 reversal caught; a negative control (logout released before creation) fails the interleaving assertion. Removing only one of the two finding-2 parts is not caught, because the other still refuses (defence in depth);
+- suite 55 files, 1,423 passed; typecheck 0; lint 0 errors, 9 warnings. Focused handoff prepared for Codex;
+- Codex's focused review (owner-reported, October 18): it inspected the source and the saved evidence and did not rerun tests. Both findings are resolved, with no demonstrated blocker. F07, F11 and A35 acceptance is unchanged.
 Unmet acceptance criteria / blockers: the remaining VoiceOver speech items (unverified); owner approval to commit and push.
 Estimate and assumptions: see the reconciliation forecast reported to the owner on October 17 (proposed, not approved).
 Next action: owner source review, then the slice 3 commit on approval.

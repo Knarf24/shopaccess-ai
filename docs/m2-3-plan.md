@@ -232,7 +232,8 @@ Reusable permissions with a cumulative budget are recorded as deferred.
   - two checkout starts for one permission;
   - revoke against capture;
   - two captures for one checkout;
-  - logout against capture.
+  - logout against capture;
+  - a creation queued behind a logout whose save is still pending: creation rechecks session liveness and reads the session expiry inside its serialized decision, so it is refused (Codex slices 1–2 review, finding 2; October 18).
 - **Restart:** see §4. A restart never leaves a usable `reserved` bound to a checkout that no longer exists, and never turns `executing` back into authority.
 - **Session isolation:**
   - permissions belong to one session; another session can neither see, use nor revoke them;
@@ -274,6 +275,7 @@ Superseded during the browser check (defect D1, October 17): no permission label
 - The checkout page derives its F07 refusal from saved state (`buildCheckoutView`'s `permissionRefusal`), never from the URL: from preparing the confirmation while `QUOTED`, and afterwards from the gate's read-only `display` check (the gate ignores the phase) in the confirmed, pre-capture states including an unknown order (and `CONFIRMATION_REQUIRED` once a capture was declined). While a refusal applies, no payment step is offered: simulation keeps Cancel and Reconcile (which only reads back; a resend stays gated), and sandbox shows its existing protected Cancel form while cancelling is valid.
 - The current refusal replaces any message carried in the URL, so the page never also says "review the summary below" with no summary.
 - A permission code in the URL is shown only once a capture's outcome is unproven, and then as manual review; otherwise it is ignored, so "nothing was charged" is never inferred from the URL.
+- The sandbox PayPal cancel-return page (`GET /checkout/:id/paypal-cancel`) states only what the saved payment state supports: captured, captured with a refund, reversal or dispute observed, canceled, no capture, or an unknown outcome. "No payment has been captured" requires a no-capture state, a capture context with no dispatch, capture operation or provider capture, and every saved capture operation declined or rejected; anything else is an unknown outcome. Its Cancel form appears only where the payment state machine allows a shopper cancel. The new classifier and the page add no payment or permission mutation. The request still runs the existing housekeeping, as before: `runtime.maintain()` (at most once per maintenance interval) removes revoked and expired sessions, and with them, in snapshot mode, their permissions, and the local mock checkout data they owned; and session resolution updates the shopper's session activity. (Codex slices 1–2 review, finding 1; October 18.)
 - "Payment may already have gone through" is a full, accessible HTML page with no form, button, link or script, with the same non-sensitive reference the earlier JSON carried (also in the audit record), and is audited best effort in both simulation and sandbox (the in-memory audit log is separate from the blocked state store; a failure to audit never changes the page). A resubmission is refused by the blocked store before anything runs.
 - Not changed: expiry rules, save-first ordering, every gate check and the payment state machine.
 
