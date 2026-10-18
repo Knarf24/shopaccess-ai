@@ -16,7 +16,7 @@ import {
 } from "@/lib/payment/orchestrator";
 import type { PaymentOperation } from "@/lib/payment/operations";
 import { transition, type PaymentSnapshot, type PaymentState } from "@/lib/payment/state-machine";
-import { journeyCopy } from "@/lib/i18n/demo-copy";
+import { journeyCopy, type JourneyCopy } from "@/lib/i18n/demo-copy";
 import { toPublicError, type PublicErrorCode } from "@/lib/security/errors";
 import { readLimitedForm } from "@/lib/security/limits";
 import { PROPOSED_RATE_LIMIT_POLICIES, type RateLimitPolicy } from "@/lib/security/rate-limit";
@@ -773,12 +773,22 @@ export function cancelReturnStatus(snapshot: PaymentSnapshot, captures: readonly
   return NO_CAPTURE_STATES.includes(snapshot.state) ? "no_capture" : "uncertain";
 }
 
-const CANCEL_RETURN_TEXT: Record<Exclude<CancelReturnStatus, "canceled">, string> = {
-  captured: `${journeyCopy("en").sandboxCheckout.captured} It can't be canceled here.`,
-  captured_observed: "A payment was captured for this checkout, and a refund, reversal or dispute was later observed. It can't be canceled here.",
-  no_capture: "No payment has been captured.",
-  uncertain: `${journeyCopy("en").sandboxCheckout.unknown} It can't be canceled here.`,
-};
+/** The cancel-return page's statement for a status, in the checkout's language (finding 8). Wording only: `cancelable` is decided by the caller. */
+function cancelReturnMessage(status: CancelReturnStatus, cancelable: boolean, copy: JourneyCopy): string {
+  const page = copy.checkoutPage.cancelReturn;
+  switch (status) {
+    case "canceled":
+      return copy.sandboxCheckout.canceled;
+    case "no_capture":
+      return cancelable ? page.noCapture : `${page.noCapture} ${page.notHere}`;
+    case "captured":
+      return `${copy.sandboxCheckout.captured} ${page.notHere}`;
+    case "captured_observed":
+      return `${page.capturedObserved} ${page.notHere}`;
+    case "uncertain":
+      return `${copy.sandboxCheckout.unknown} ${page.notHere}`;
+  }
+}
 
 /**
  * GET /checkout/:intentId/paypal-cancel. Describes the saved payment state and offers the same-origin cancel form
@@ -797,13 +807,17 @@ export async function handleSandboxPaypalCancel(request: Request, runtime: Runti
   const cancelable =
     status === "no_capture" &&
     transition(intent.snapshot, { type: "SHOPPER_CANCELED", eventId: "cancel-return-preview", occurredAt: runtime.clock().toISOString(), actor: "shopper" }).ok;
-  const message = status === "canceled" ? journeyCopy("en").sandboxCheckout.canceled : status === "no_capture" && !cancelable ? `${CANCEL_RETURN_TEXT.no_capture} It can't be canceled here.` : CANCEL_RETURN_TEXT[status];
+  // Language comes only from the saved checkout (finding 8); it changes the wording, never what is offered.
+  const language = intent.interfaceLanguage ?? "en";
+  const copy = journeyCopy(language);
+  const page = copy.checkoutPage.cancelReturn;
+  const message = cancelReturnMessage(status, cancelable, copy);
   const action = `/checkout/${intent.id}/cancel`;
   const form = cancelable
-    ? `<form method="post" action="${escapeHtml(action)}"><input type="hidden" name="csrfToken" value="${escapeHtml(resolved.value.csrfToken)}"><button type="submit">Cancel this checkout</button></form>`
+    ? `<form method="post" action="${escapeHtml(action)}"><input type="hidden" name="csrfToken" value="${escapeHtml(resolved.value.csrfToken)}"><button type="submit">${escapeHtml(copy.sandboxCheckout.cancel)}</button></form>`
     : "";
-  const back = `<p><a href="${escapeHtml(`/checkout/${intent.id}`)}">Back to the checkout</a></p>`;
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cancel checkout</title></head><body><main><h1>Cancel this checkout</h1><p>${escapeHtml(message)}</p>${form}${back}</main></body></html>`;
+  const back = `<p><a href="${escapeHtml(`/checkout/${intent.id}`)}">${escapeHtml(page.back)}</a></p>`;
+  const html = `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${escapeHtml(page.title)}</title></head><body><main><h1>${escapeHtml(page.heading)}</h1><p>${escapeHtml(message)}</p>${form}${back}</main></body></html>`;
   return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 }
 

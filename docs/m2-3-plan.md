@@ -283,6 +283,10 @@ Superseded during the browser check (defect D1, October 17): no permission label
 
 **Proposal, not implemented (review finding 7):** give revoke its own per-session rate-limit bucket (for example `permission_revoke`, 20 per minute per session, same guard), so checkout confirmation and permission creation cannot exhaust it; keep create in the shared `confirmation` bucket. Abuse protection stays: revoke is still per-session limited, CSRF- and origin-guarded, and changes only the caller's own permissions.
 
+**Finding 8, checkout part (October 18, after the Sandbox rehearsal):** implemented after owner approval and reviewed by Codex twice (r2: both corrections resolved, no demonstrated commit blocker). The checkout heading, quote lines, notices and errors, start link and PayPal cancel-return page now follow the checkout's saved language; the language-of-parts note above is superseded for those parts (only the simulated-payment panel, English catalog names and messages with no Spanish wording stay marked English). English product names on the Spanish permissions page are marked in the review step and the list; native `<option>` choices are not. Finding 8's focus items remain open.
+
+**Tracked, not changed (finding 9, Codex r2):** `messageFor` resolves inherited property names (`__proto__`, `constructor`, `toString`) for URL `error`/`notice` codes. Affected: `/shop` (mock and PostgreSQL), `/checkouts` and the PostgreSQL checkout branch. Fix proposal: own-key lookup with the generic fallback, plus rendered regressions per caller.
+
 **Tracked, not changed (review finding 8):** focus can move again on a reload or bookmark of a result address, and after the shopper has started tabbing if hydration is slow (needs the VM check and keyboard observation); English product names on the Spanish permissions page lack `lang="en"`; Spanish checkouts still show some English `messageFor` errors (pre-existing).
 
 ## 10. Testing and validation

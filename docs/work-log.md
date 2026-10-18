@@ -1,6 +1,16 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 18, 2026 — Spanish checkout cleanup and Codex reviews r1–r2 (uncommitted when written)
+
+- **Base:** `d277b27e5c60d382bed80731d4c3398b4d3211e5`. Owner-approved implementation of finding 8's checkout part; see the feature tracker entry of the same date for scope.
+- **Implementer-run (Claude), r1:** new regressions red before the change (10 failed | 53 passed); after it, focused 63 passed, full suite 56 files and 1,433 passed, typecheck 0, lint 0 errors. Mock-only browser check (server run 11): Spanish permissions review and list markers, Spanish checkout heading, notice, quote, total and start link; simulated panel English; `&lang=en` changed nothing.
+- **Codex r1 (source review):** two findings — inherited property names in `checkoutMessage`'s English branch; no decline explanation after a provider-proven capture decline.
+- **Implementer-run (Claude), r2:** new regressions red against r1 (4 failed | 21 passed: English prototype codes threw "Objects are not valid as a React child"; decline explanation missing in English and Spanish; unit lookup returned an object). After the fix: focused 67 passed, full suite 56 files and 1,437 passed, typecheck 0, lint 0 errors. No browser or Sandbox run for r2.
+- **Codex r2 (source and saved evidence; tests not rerun):** both corrections resolved, no demonstrated commit blocker. Optional decline-wording refinement not adopted. Residual tracked as finding 9 (`messageFor` inherited properties in `/shop` mock and PostgreSQL, `/checkouts` and the PostgreSQL checkout).
+- **Language evidence limits:** Spanish wording is source-reviewed only (no native-speaker or VoiceOver pronunciation acceptance). Native `<option>` choices are not language-marked.
+- **Private records:** frozen patches and evidence in the r1 and r2 handoffs outside Git, both unchanged after review. F07, F08, F11 and A35 remain unaccepted.
+
 ## October 18, 2026 — PayPal Sandbox rehearsal on `401556a` (owner-authorized; documentation only)
 
 - **Source check (each attempt):** HEAD `f6140065e7ae6b54bd59c2cc127dbd089d861b6d`, application tree `1f2b49e1bb26e13ce475069f78d0369ae9acf75b`, equal to `main` `401556a`; only the README and the runbook differed (uncommitted documentation). Store backed up first; no `.env` in the repository; port 3000 free.

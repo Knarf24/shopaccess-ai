@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { confirmPurchaseSummary, prepareConfirmation } from "@/lib/confirmation/confirmation";
 import { startCheckoutWithQuote } from "@/lib/checkout/service";
+import { journeyCopy } from "@/lib/i18n/demo-copy";
 import { permissionCopy } from "@/lib/i18n/permission-copy";
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
 import { parseTrustedOrigins } from "@/lib/session/request-guard";
@@ -319,8 +320,8 @@ const orderBody = (quoteId: string, totalCents: number, status: string) =>
     links: [{ rel: "payer-action", href: `https://www.sandbox.paypal.com/checkoutnow?token=${ORDER_ID}` }],
   });
 
-async function sandboxApproved(runtime: Runtime, queue: Array<{ status: number; body: string }>, buyer: Buyer) {
-  const { intent, quote } = await start(runtime, buyer);
+async function sandboxApproved(runtime: Runtime, queue: Array<{ status: number; body: string }>, buyer: Buyer, language?: "en" | "es") {
+  const { intent, quote } = await start(runtime, buyer, language);
   await confirm(runtime, buyer, quote.quoteId);
   queue.push({ status: 201, body: orderBody(quote.quoteId, quote.totalCents, "CREATED") });
   expect((await handleSandboxApprove(post(`/checkout/${intent.id}/approve`, {}, buyer), runtime, intent.id)).status).toBe(303);
@@ -439,13 +440,14 @@ describe("checkout page: language of parts (language-marker correction)", () => 
     expect(html).toContain(permissionCopy("es").refusals.PERMISSION_REVOKED);
     expect(langAt(html, /class="skip-link"/)).toBe("es");
     expect(langAt(html, /<ol\b/)).toBe("es");
-    // English whatever the language: the page heading, the quote lines, a generic notice, the simulated payment panel, the start link.
-    expect(langAt(html, /<h1\b/)).toBe("en");
-    expect(langAt(html, /id="quote-heading"/)).toBe("en");
-    expect(langAt(html, /id="checkout-notice"/)).toBe("en");
+    // Spanish since the finding 8 checkout cleanup: the page heading, the quote lines, the notice and the start link.
+    expect(langAt(html, /<h1\b/)).toBe("es");
+    expect(langAt(html, /id="quote-heading"/)).toBe("es");
+    expect(langAt(html, /id="checkout-notice"/)).toBe("es");
+    expect(langAt(html, /<a\b[^>]*href="\/"/)).toBe("es");
+    // English whatever the language: the simulated payment panel and its controls.
     expect(langAt(html, /aria-labelledby="sim-heading"/)).toBe("en");
     expect(langAt(html, /<button\b/)).toBe("en");
-    expect(langAt(html, /<a\b[^>]*href="\/"/)).toBe("en");
   });
 
   it("a Spanish confirmation summary and a Spanish manual-review message are marked Spanish", async () => {
@@ -482,4 +484,167 @@ describe("checkout page: language of parts (language-marker correction)", () => 
     // No per-part markers are added to an English page: only <main> carries lang.
     expect(html.match(/\slang="/g)).toHaveLength(1);
   });
+});
+
+// Finding 8, checkout part (owner-approved October 18): the heading, quote lines, notices, errors and start link follow
+// the language saved on the checkout, never the URL. English wording is unchanged. The simulated panel stays English.
+describe("checkout page: wording follows the saved checkout language (finding 8)", () => {
+  const ITEM_TITLE = "Acer Aspire Go 15 — 8 GB LPDDR5, 256 GB PCIe NVMe SSD";
+  const ENGLISH = {
+    heading: "Demo checkout",
+    quoteHeading: "Quote",
+    quoteLine: `${ITEM_TITLE}, quantity 1, sold by ShopAccess Demo Store (simulated).`,
+    total: "Total $579.99 USD. Tax and shipping are $0.00 as an assumption of this Sandbox demonstration; nothing is shipped.",
+    confirmed: "Your confirmation of this purchase summary was recorded. No payment has been taken.",
+    back: "Back to the start",
+  };
+  const SPANISH = {
+    heading: "Compra de demostración",
+    quoteHeading: "Cotización",
+    quoteLine: `${ITEM_TITLE}, cantidad 1, vendido por ShopAccess Demo Store (simulada).`,
+    total: "Total $579.99 USD. Los impuestos y el envío son 0,00 USD como supuesto de esta demostración del entorno de pruebas; no se envía nada.",
+    confirmed: "Se registró su confirmación de este resumen de compra. No se ha cobrado ningún pago.",
+    back: "Volver al inicio",
+  };
+
+  async function confirmedCheckout(language?: "es") {
+    const { runtime } = world();
+    const buyer = await shopper(runtime);
+    await permit(runtime, buyer);
+    const { intent, quote } = await start(runtime, buyer, language);
+    await confirm(runtime, buyer, quote.quoteId);
+    return intent;
+  }
+  const headingText = (html: string, pattern: RegExp) => text(html.match(pattern)?.[1] ?? "");
+
+  it("a Spanish checkout: heading, quote, notice and start link in Spanish; the English product name and simulated panel marked English", async () => {
+    const intent = await confirmedCheckout("es");
+    const html = await render(intent.id, { notice: "CONFIRMED" });
+    const visible = text(html);
+    expect(headingText(html, /<h1\b[^>]*>([\s\S]*?)<\/h1>/)).toBe(SPANISH.heading);
+    expect(headingText(html, /id="quote-heading"[^>]*>([\s\S]*?)<\/h2>/)).toBe(SPANISH.quoteHeading);
+    for (const line of [SPANISH.quoteLine, SPANISH.total, SPANISH.confirmed, SPANISH.back]) expect(visible, line).toContain(line);
+    for (const line of [ENGLISH.heading, ENGLISH.quoteLine, ENGLISH.total, ENGLISH.confirmed, ENGLISH.back]) expect(visible, line).not.toContain(line);
+    expect(langAt(html, /<h1\b/)).toBe("es");
+    expect(langAt(html, /id="quote-heading"/)).toBe("es");
+    expect(langAt(html, /id="checkout-notice"/)).toBe("es");
+    expect(langAt(html, /<a\b[^>]*href="\/"/)).toBe("es");
+    expect(html).toContain(`<span lang="en">${ITEM_TITLE}</span>, cantidad`);
+    expect(langAt(html, /aria-labelledby="sim-heading"/)).toBe("en");
+  });
+
+  it("an English checkout keeps today's wording and markup: only <main> carries lang", async () => {
+    const intent = await confirmedCheckout();
+    const html = await render(intent.id, { notice: "CONFIRMED" });
+    const visible = text(html);
+    expect(html).toContain('<h1 class="text-3xl font-semibold">Demo checkout</h1>');
+    expect(headingText(html, /id="quote-heading"[^>]*>([\s\S]*?)<\/h2>/)).toBe(ENGLISH.quoteHeading);
+    for (const line of [ENGLISH.quoteLine, ENGLISH.total, ENGLISH.confirmed, ENGLISH.back]) expect(visible, line).toContain(line);
+    expect(html.match(/\slang="/g)).toHaveLength(1);
+  });
+
+  it("the URL cannot change the language: ?lang on either checkout renders the same page", async () => {
+    const spanish = await confirmedCheckout("es");
+    const asSpanish = await render(spanish.id, { notice: "CONFIRMED" });
+    expect(text(asSpanish)).toContain(SPANISH.heading);
+    expect(await render(spanish.id, { notice: "CONFIRMED", lang: "en" })).toBe(asSpanish);
+    const english = await confirmedCheckout();
+    const asEnglish = await render(english.id, { notice: "CONFIRMED" });
+    expect(await render(english.id, { notice: "CONFIRMED", lang: "es" })).toBe(asEnglish);
+    expect(asEnglish).not.toContain('lang="es"');
+  });
+
+  it("errors: Spanish where translated, English text marked English otherwise, and a Spanish generic message for unknown codes", async () => {
+    const spanish = await confirmedCheckout("es");
+    const acknowledgement = await render(spanish.id, { error: "ACKNOWLEDGEMENT_REQUIRED" });
+    expect(alerts(acknowledgement)).toEqual(["Marque la casilla para indicar que revisó el resumen antes de confirmar."]);
+    expect(langAt(acknowledgement, /id="checkout-alert"/)).toBe("es");
+    const simulationOnly = await render(spanish.id, { error: "STEP_NOT_AVAILABLE" });
+    expect(alerts(simulationOnly)).toEqual(["That simulation step is not available in the current state."]);
+    expect(langAt(simulationOnly, /id="checkout-alert"/)).toBe("en");
+    const unknown = await render(spanish.id, { error: "NOT_A_REAL_CODE" });
+    expect(alerts(unknown)).toEqual(["No se pudo completar esa acción."]);
+    expect(langAt(unknown, /id="checkout-alert"/)).toBe("es");
+
+    const english = await confirmedCheckout();
+    expect(alerts(await render(english.id, { error: "ACKNOWLEDGEMENT_REQUIRED" }))).toEqual(["Tick the box to show you reviewed the summary before confirming."]);
+    expect(alerts(await render(english.id, { error: "NOT_A_REAL_CODE" }))).toEqual(["That action could not be completed."]);
+  });
+});
+
+// Codex review of the Spanish checkout patch, finding 1: a code that is not one of the checkout's own messages, including
+// Object.prototype names, renders the generic message in either language, never an inherited property.
+describe("checkout page: unknown and prototype-named message codes (Codex finding 1)", () => {
+  const GENERIC = { en: "That action could not be completed.", es: "No se pudo completar esa acción." };
+  for (const language of ["en", "es"] as const) {
+    it(`${language}: __proto__, constructor, toString and hasOwnProperty give the generic message as an error and as a notice`, async () => {
+      const { runtime } = world();
+      const buyer = await shopper(runtime);
+      await permit(runtime, buyer);
+      const { intent, quote } = await start(runtime, buyer, language === "es" ? "es" : undefined);
+      await confirm(runtime, buyer, quote.quoteId);
+      for (const code of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+        const asError = await render(intent.id, { error: code });
+        expect(alerts(asError), code).toEqual([GENERIC[language]]);
+        expect(langAt(asError, /id="checkout-alert"/), code).toBe(language);
+        const asNotice = await render(intent.id, { notice: code });
+        expect(text(asNotice.match(/id="checkout-notice"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? ""), code).toBe(GENERIC[language]);
+      }
+    });
+  }
+});
+
+// Codex review of the Spanish checkout patch, finding 2: after a provider-proven capture decline the page explains the
+// decline from the saved DECLINED_RETRYABLE state. The capture handler's URL code (APPROVAL_NOT_CONFIRMED) would say the
+// buyer's approval is missing, which is false here, so it is not shown. Mocked transport; nothing leaves the test.
+describe("checkout page in sandbox mode: a provider-proven capture decline is explained from saved state (Codex finding 2)", () => {
+  const DECLINED = {
+    en: "PayPal Sandbox declined the payment when it was captured, after the order was approved. No payment was captured.",
+    es: "El entorno de pruebas de PayPal rechazó el pago al capturarlo, después de aprobarse el pedido. No se capturó ningún pago.",
+  };
+  for (const language of ["en", "es"] as const) {
+    it(`${language}: the real capture handler and page show the decline, not missing approval, and keep the existing controls`, async () => {
+      const { runtime, queue } = sandboxWorld();
+      const buyer = await shopper(runtime);
+      await permit(runtime, buyer);
+      const { intent, quote } = await sandboxApproved(runtime, queue, buyer, language === "es" ? "es" : undefined);
+      const sandboxCopy = journeyCopy(language).sandboxCheckout;
+      const refusalCopy = permissionCopy(language);
+      // Before the capture, no decline wording.
+      expect(text(await render(intent.id))).not.toContain(DECLINED[language]);
+
+      queue.push({
+        status: 201,
+        body: JSON.stringify({
+          id: "8AA12345BC678901C",
+          status: "DECLINED",
+          amount: { currency_code: "USD", value: centsToPaypalAmount(quote.totalCents) },
+          custom_id: sandboxCorrelationId(quote.quoteId),
+          payee: { merchant_id: PAYEE },
+          supplementary_data: { related_ids: { order_id: ORDER_ID } },
+        }),
+      });
+      const response = await handleSandboxCapture(post(`/checkout/${intent.id}/capture`, {}, buyer), runtime, intent.id);
+      expect(await stateOf(runtime, intent.id)).toBe("DECLINED_RETRYABLE");
+      expect(captureCalls(runtime)).toBe(1);
+
+      // The page the browser lands on, with whatever the handler put in the URL; then the URL codes a visitor could add.
+      const landing = Object.fromEntries(new URL(response.headers.get("location")!, SITE).searchParams);
+      for (const query of [landing, {}, { error: "APPROVAL_NOT_CONFIRMED" }, { error: "PAYEE_MISMATCH" }, { notice: "CAPTURED" }]) {
+        const html = await render(intent.id, query);
+        const visible = text(html);
+        const label = `${language} ${JSON.stringify(query)}`;
+        expect(visible, label).toContain(DECLINED[language]);
+        expect(langAt(html, /aria-labelledby="sandbox-heading"/), label).toBe(language);
+        expect(visible, label).not.toContain(sandboxCopy.approvalNotConfirmed);
+        expect(visible, label).not.toContain(sandboxCopy.unknown);
+        expect(visible, label).not.toContain(sandboxCopy.captured);
+        // Existing controls are unchanged: the spent-confirmation refusal and the protected Cancel only.
+        expect(alerts(html), label).toEqual([`${refusalCopy.refusals.CONFIRMATION_REQUIRED} ${refusalCopy.managePermissions}`]);
+        expect(formActions(html), label).toEqual([`/checkout/${intent.id}/cancel`]);
+        expect(buttons(html), label).toEqual([sandboxCopy.cancel]);
+      }
+      expect(captureCalls(runtime)).toBe(1);
+    });
+  }
 });

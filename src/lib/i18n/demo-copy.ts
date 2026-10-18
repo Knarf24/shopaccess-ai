@@ -104,8 +104,28 @@ export interface JourneyCopy {
     readonly payeeMismatch: string;
     readonly canceled: string;
     readonly unknown: string;
+    /** A provider-proven capture decline (saved DECLINED_RETRYABLE): the order was approved, the capture was declined. */
+    readonly declined: string;
     /** The cancel button shown while a purchase-permission refusal applies (M2-3). */
     readonly cancel: string;
+  };
+  /** The mock and Sandbox checkout page and the PayPal cancel-return page, in the checkout's saved language (finding 8). */
+  readonly checkoutPage: {
+    readonly heading: string;
+    readonly quoteHeading: string;
+    readonly quantityWord: string;
+    readonly soldBy: string;
+    readonly missingItem: string;
+    readonly totalLabel: string;
+    readonly taxNote: string;
+    readonly cancelReturn: {
+      readonly title: string;
+      readonly heading: string;
+      readonly noCapture: string;
+      readonly capturedObserved: string;
+      readonly notHere: string;
+      readonly back: string;
+    };
   };
   readonly purchaseGuidanceTitle: string;
   readonly reviewGuidance: string;
@@ -223,7 +243,25 @@ const ENGLISH: JourneyCopy = {
     payeeMismatch: "The seller on the PayPal order does not match this checkout. No payment was captured.",
     canceled: "This checkout was canceled before any capture. No payment was taken.",
     unknown: "The payment outcome is unknown. Nothing here confirms that a payment was captured.",
+    declined: "PayPal Sandbox declined the payment when it was captured, after the order was approved. No payment was captured.",
     cancel: "Cancel this checkout",
+  },
+  checkoutPage: {
+    heading: "Demo checkout",
+    quoteHeading: "Quote",
+    quantityWord: "quantity",
+    soldBy: "sold by",
+    missingItem: "Item no longer in the demo catalog",
+    totalLabel: "Total",
+    taxNote: "Tax and shipping are $0.00 as an assumption of this Sandbox demonstration; nothing is shipped.",
+    cancelReturn: {
+      title: "Cancel checkout",
+      heading: "Cancel this checkout",
+      noCapture: "No payment has been captured.",
+      capturedObserved: "A payment was captured for this checkout, and a refund, reversal or dispute was later observed.",
+      notHere: "It can't be canceled here.",
+      back: "Back to the checkout",
+    },
   },
   purchaseGuidanceTitle: "Review this purchase",
   reviewGuidance: "Review the seller, item, quantity, and total. The total is calculated by the server. Confirming does not take payment.",
@@ -341,7 +379,25 @@ const SPANISH: JourneyCopy = {
     payeeMismatch: "El vendedor del pedido de PayPal no coincide con esta compra. No se capturó ningún pago.",
     canceled: "Esta compra se canceló antes de cualquier captura. No se cobró ningún pago.",
     unknown: "El resultado del pago es desconocido. Nada aquí confirma que se haya capturado un pago.",
+    declined: "El entorno de pruebas de PayPal rechazó el pago al capturarlo, después de aprobarse el pedido. No se capturó ningún pago.",
     cancel: "Cancelar esta compra",
+  },
+  checkoutPage: {
+    heading: "Compra de demostración",
+    quoteHeading: "Cotización",
+    quantityWord: "cantidad",
+    soldBy: "vendido por",
+    missingItem: "El artículo ya no está en el catálogo de demostración",
+    totalLabel: "Total",
+    taxNote: "Los impuestos y el envío son 0,00 USD como supuesto de esta demostración del entorno de pruebas; no se envía nada.",
+    cancelReturn: {
+      title: "Cancelar la compra",
+      heading: "Cancelar esta compra",
+      noCapture: "No se ha capturado ningún pago.",
+      capturedObserved: "Se capturó un pago para esta compra y después se observó un reembolso, una reversión o una disputa.",
+      notHere: "No se puede cancelar aquí.",
+      back: "Volver a la compra",
+    },
   },
   purchaseGuidanceTitle: "Revise esta compra",
   reviewGuidance: "Revise el vendedor, el artículo, la cantidad y el total. El total lo calcula el servidor. Confirmar no cobra un pago.",
@@ -418,3 +474,28 @@ export function recommendationSentence(language: JourneyLanguage, message: strin
   if (message === "No suggestion matched a catalog item that meets this use and budget.") return copy.noSuggestion;
   return null;
 }
+
+/**
+ * Spanish wording for the checkout messages a mock or Sandbox checkout can show (finding 8). The English originals stay in
+ * `MESSAGES` (src/server/views.ts). A code missing here keeps its English text, marked English on a Spanish page.
+ */
+export const CHECKOUT_MESSAGES_ES: Readonly<Record<string, string>> = {
+  CONFIRMED: "Se registró su confirmación de este resumen de compra. No se ha cobrado ningún pago.",
+  ACKNOWLEDGEMENT_REQUIRED: "Marque la casilla para indicar que revisó el resumen antes de confirmar.",
+  CONFIRMATION_ALREADY_USED: "Este resumen ya se confirmó. Confirmarlo de nuevo no cambia nada.",
+  CONFIRMATION_SUPERSEDED:
+    "Este resumen se volvió a abrir en otra pestaña o se actualizó, así que la copia que envió está desactualizada. No se confirmó nada. Revise el resumen de abajo y vuelva a confirmar.",
+  CONFIRMATION_NOT_FOUND: "Ese resumen ya no está disponible. No se confirmó nada. Revise el resumen de abajo y vuelva a confirmar.",
+  CONFIRMATION_EXPIRED: "Este resumen caducó antes de confirmarse. Revise el nuevo resumen de abajo.",
+  CONFIRMATION_MISMATCH: "La confirmación no coincidía con este resumen. Revise el resumen de abajo e inténtelo de nuevo.",
+  QUOTE_EXPIRED: "Esta cotización caducó. Vuelva atrás y pida una nueva cotización.",
+  QUOTE_STALE_CATALOG: "El artículo cambió desde que se hizo esta cotización. Vuelva atrás y pida una nueva cotización.",
+  QUOTE_NO_LONGER_VALID: "La cotización ya no era válida, así que no se envió nada. Vuelva atrás y pida una nueva cotización.",
+  VARIANT_UNAVAILABLE: "Ese portátil no está disponible.",
+  QUANTITY_EXCEEDS_LIMIT: "Esa cantidad supera el límite para este portátil.",
+  CAPTURE_ALREADY_DISPATCHED: "Esta compra no se puede cancelar porque es posible que ya se haya enviado una solicitud de captura.",
+  NOT_CANCELABLE: "Esta compra no se puede cancelar en su estado actual.",
+};
+
+/** Spanish counterpart of the generic "That action could not be completed." */
+export const CHECKOUT_GENERIC_ES = "No se pudo completar esa acción.";

@@ -80,6 +80,9 @@ export function PurchasePermissions({
   readonly entered: { readonly item: string; readonly quantity: string; readonly total: string; readonly expiry: string };
 }) {
   const copy = permissionCopy(language);
+  // Catalog names are English. On a Spanish page they are marked English where the markup allows (finding 8); a native
+  // <option> holds plain text mixing the name with the Spanish seller label, so the item choices are left unmarked.
+  const englishName = (name: string) => (language === "en" ? name : <span lang="en">{name}</span>);
   const fieldError = (field: "item" | "quantity" | "total" | "expiry") => (result?.kind === "error" && result.field === field ? result.code : null);
   const describedBy = (...ids: (string | null)[]) => ids.filter(Boolean).join(" ") || undefined;
   const maxQuantity = Math.max(1, ...choices.map((choice) => choice.maxQuantity));
@@ -116,9 +119,9 @@ export function PurchasePermissions({
             <dt>{copy.field.seller}</dt>
             <dd>{review.seller}</dd>
             <dt>{copy.field.product}</dt>
-            <dd>{review.product}</dd>
+            <dd>{englishName(review.product)}</dd>
             <dt>{copy.field.variant}</dt>
-            <dd>{review.variant}</dd>
+            <dd>{englishName(review.variant)}</dd>
             <dt>{copy.field.quantity}</dt>
             <dd>{review.maxQuantity}</dd>
             <dt>{copy.field.total}</dt>
@@ -216,7 +219,7 @@ export function PurchasePermissions({
             <li key={permission.permissionId}>
               <p id={`permission-item-name-${index}`}>
                 <strong>
-                  {permission.product} — {permission.variant}
+                  {englishName(permission.product)} — {englishName(permission.variant)}
                 </strong>
               </p>
               <p>
