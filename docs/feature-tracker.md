@@ -1,6 +1,19 @@
 # ShopAccess AI feature and evidence tracker
 Updated October 16, 2026. Target: October 24. Initial status reflects published governance and owner-supplied reports, not a fresh implementation audit.
 
+## Current reconciliation — October 17, 2026
+
+Read the [dated progress report](progress-report-2026-10-17.md) before interpreting the historical tables below. Marker: `SHOPACCESS-PROGRESS-20261017-R4`.
+
+- GitHub confirms M2-1 merged in PR #1 and M2-2 in PR #2, now in main at `e6bb69dbac7127786425c299667a45a3930a833b`. Their earlier “uncommitted” labels below describe pre-merge records.
+- F02 persistence and F05 continuity have published implementation; optional device profiles and full acceptance remain open.
+- F07/M2-3 corrections and Codex's r4 source re-review are owner-reported from an unpublished local worktree. The report records source identity, test provenance and limitations. The monitor cannot inspect that private source from main.
+- The latest correction browser recheck and VM screen-reader verification remain pending. No feature is accepted by this reconciliation.
+- The existing Cursor-to-Slack report for e6bb69d was supplied by the owner. Ingestion of this new progress report is not verified until a subsequent monitor run identifies its publication commit and marker.
+
+The dated report supersedes publication-status labels only. Preserve all historical results, failures and scope limits below.
+
+
 | ID | Requirement | Initial state / gap | Acceptance evidence needed |
 | --- | --- | --- | --- |
 | F01 | Conversational clarification through selection and purchase review | Initial 8-turn use/budget correction increment reported; full shopping dialogue open | Multi-turn browser journey with corrections and tool results |

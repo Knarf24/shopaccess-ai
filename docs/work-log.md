@@ -1,6 +1,25 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 17, 2026 — published/local progress reconciliation
+
+Goal: make current progress visible to the existing read-only monitor without publishing unfinished M2-3 source.
+
+Source inspected through GitHub: main `e6bb69dbac7127786425c299667a45a3930a833b`. PR #1 and PR #2 are confirmed merged. Earlier M2-1/M2-2 entries below remain the historical pre-merge records; this entry corrects their current publication status.
+
+Changes: added the [dated progress report](progress-report-2026-10-17.md), marker `SHOPACCESS-PROGRESS-20261017-R4`; linked it from the tracker and milestone plan; added publication-status notes to the M2 plans and monitor verification instructions. Application source is unchanged.
+
+Evidence: direct read-only GitHub metadata for the published state; owner-supplied Claude and Codex reports for private M2-3 r4. Reported local HEAD is `42e9b7e9b51db179bd10d5a0822a946a1b48d4a9`; source is uncommitted and unpublished. Codex reports no confirmed blocker remaining from the two prior SEC-01 findings, subject to the documented parser/unresolved-path limitations. Saved 1,410-test/typecheck/lint results are implementer-generated, not independently rerun by the publishing session.
+
+Checks: documentation, links, changed paths and GitHub diff inspection only. No application tests, builds, browsers, services, databases, payments or live-provider calls were run by this publishing session.
+
+Monitoring: the owner's 20:04 EDT Cursor report inspected main e6bb69d and reached the owner's Slack. That does not establish access to unpublished work or ingestion of this new record. Existing schedule/settings were not inspected or changed.
+
+Remaining: latest-correction browser recheck, separate VM screen-reader verification, owner commit/integration decision; finding 7 proposed and finding 8 tracked. October 24 and the expanded scope are unchanged. No acceptance status changes.
+
+Next: review/merge the documentation-only PR through the approved workflow, then run the existing monitor once and verify the publication commit, marker and Slack receipt. This entry does not itself authorize merge, a monitor run, source execution or a stage change.
+
+
 ## October 16, 2026 — owner-directed planning update
 - Owner selected October 24 for ShopAccess AI completion, replacing Sunday October 18. Wild Link work begins October 24 and continues through November 12.
 - Full expanded scope remains planned: conversational website, extension, persistent state/profiles, compatibility, external-store assistance, scoped delegated purchasing, voice, English/Spanish and accessible operation.
