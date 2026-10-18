@@ -1,6 +1,16 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 18, 2026 — optional device profile (documentation uncommitted when written)
+
+- **Source:** `feature/device-profile` `8059280bfb33558000477ef7cc2545b092109839`, parent and current `main` `e3c582967adb4897b144c2c4c7436eb137ffa035`. Pushed to `origin` without force. Not merged into `main`.
+- **Implementation (Cursor):** one optional brand and one optional model on the live website session. Each field has its own consent, and withdrawing consent discards that field. Format 6 keeps a revision marker of session id and version, with no brand or model, so a retained form cannot match a profile created after deletion. Logout, expiry, and recovery of a dead session drop the marker. Recommendations and the extension do not read the profile.
+- **Codex, source only:** r1 identified that deletion and recreation reused version 1. r2 assessed the marker correction and found no demonstrated defect in r2-era deletion and recreation. A format-5 file stores no deleted-profile history, so protection for a form issued before the upgrade remains limited.
+- **r2 checks, recorded before r3 and not rerun:** 58 files and 1,456 tests passed; typecheck exited 0; lint exited 0 with nine warnings.
+- **r3:** tests only. Focused `tests/unit/device-profile.test.ts`, 25 tests passed. The full suite, typecheck, and lint were not rerun.
+- **Rollback:** a reader that accepts only an older format rejects a format-6 file. Restoring an earlier `store.json` loses subsequent writes, including permission outcomes. No real-store migration is authorized.
+- **Outstanding:** no browser check and no screen-reader check have occurred. F02 remains unaccepted. October 24 and the full scope are unchanged.
+
 ## October 18, 2026 — Spanish checkout cleanup and Codex reviews r1–r2 (uncommitted when written)
 
 - **Base:** `d277b27e5c60d382bed80731d4c3398b4d3211e5`. Owner-approved implementation of finding 8's checkout part; see the feature tracker entry of the same date for scope.
