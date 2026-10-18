@@ -3,10 +3,10 @@ Updated October 16, 2026. Target: October 24. Initial status reflects published 
 
 ## Current status — October 18, 2026
 
-This supersedes the publication-status labels in the October 17 reconciliation below. That reconciliation and all older entries remain dated history.
+This supersedes the publication-status labels in the October 17 reconciliations below. Those reconciliations and all older entries remain dated history. Updated October 18, after the push and the draft PR.
 
 - **Published:** `main` at `21871db078790e97cf10d8b62b35214bada768eb` (documentation PR #3 on top of `e6bb69d`). It includes M2-1 (PR #1) and M2-2 (PR #2).
-- **M2-3 / F07:** committed locally on `feature/m2-3-purchase-permissions`. The commits are plan `ac95a17`, slice 1 `bb33781`, slice 2 `42e9b7e` and slice 3 `e2c1b05ee16198f43a3009bc94c41aa45fdeb11d`. They are **unpublished**: not pushed, and in no PR. This entry reaches `main` only through the approved workflow.
+- **M2-3 / F07:** committed on `feature/m2-3-purchase-permissions`: plan `ac95a17`, slice 1 `bb33781`, slice 2 `42e9b7e`, slice 3 `e2c1b05ee16198f43a3009bc94c41aa45fdeb11d`, and merge `a142e959b743eff95b1899dd4dedbe8ea205351f`, by which **`main` (`21871db`) was merged into the feature branch** (documentation only). The branch is **pushed** to `origin` and is open as **draft PR #4** (https://github.com/Knarf24/shopaccess-ai/pull/4): base `main` `21871db`, head `a142e95`. **M2-3 is not merged into `main`**, so the monitor, which reads `main` only, does not see it. GitHub reports no checks, because no CI is configured; that means unverified, not passing.
 - **Since the October 17 report:**
   - **Automated mock browser recheck R1–R8 (Claude in Chrome):** R1–R7 passed. R8 partly passed: permission recovery and the not-found page passed, but the HTTP status was 200, not 404. Browser-profile isolation was incomplete.
   - **Owner-operated VoiceOver on the owner's Mac (plan §10 amended):** limited English observations; validation-error speech inconclusive; other speech unverified.
@@ -20,6 +20,8 @@ This supersedes the publication-status labels in the October 17 reconciliation b
 - **Unchanged:** the October 24 target and the full scope. The likely-miss forecast is unresolved.
 
 ## Current reconciliation — October 17, 2026
+
+*Historical since October 18: superseded for status by the October 18 status above. Its text is kept as published in PR #3.*
 
 Read the [dated progress report](progress-report-2026-10-17.md) before interpreting the historical tables below. Marker: `SHOPACCESS-PROGRESS-20261017-R4`.
 
@@ -100,6 +102,8 @@ F05 (October 16): M2-2 integrates pairing, a shared conversation and per-grant r
 
 ## Reconciliation (October 17, 2026)
 
+**Historical record.** "Uncommitted", "not pushed" and "current" in this section describe the worktree before slice 3 was committed (`e2c1b05`, October 18). For the current state, see the October 18 status at the top.
+
 Written in the M2-3 worktree; unpublished until the owner approves a commit. The monitor reads `main` only and cannot see this branch, its uncommitted work or the private evidence.
 
 **Merged `main` at `e6bb69d`** (M2-2 merge, PR #2; its tree is identical to `cb09a94`). It contains M2-1 (`08e6e6a`, merged as `b86a41b`, PR #1) and M2-2 (`cb09a94`). No CI is configured, so no check results exist on GitHub.
@@ -116,16 +120,16 @@ Suite counts belong to different revisions, not conflicting results:
 | `cb09a94` / `e6bb69d` | 49 files, 1,306 | after review corrections; rerun on merged `e6bb69d` |
 | `bb33781` (slice 1) | 51 files, 1,325 | slice gate |
 | `42e9b7e` (slice 2) | 52 files, 1,354 | slice gate |
-| uncommitted slice 3 | 53 files, 1,373 → 1,374 (D1) | slice gate, D1 fix |
-| uncommitted | 54 files, 1,389 → 1,390 (D2) | accessibility corrections, D2 fix |
-| uncommitted | 55 files, 1,401 | review findings 1–6 fixed |
-| uncommitted | 55 files, 1,406 | second-review corrections (SEC-01 pin, sandbox cancel and unsaved-capture page, unknown-order refusal) |
-| uncommitted | 55 files, 1,410 | Codex review: SEC-01 collector covers `.mts`/`.cts`; parser-based import policy refuses computed specifiers |
-| uncommitted, current | 55 files, 1,413 | checkout language-marker correction (r5) |
+| uncommitted slice 3 (historical) | 53 files, 1,373 → 1,374 (D1) | slice gate, D1 fix |
+| uncommitted (historical) | 54 files, 1,389 → 1,390 (D2) | accessibility corrections, D2 fix |
+| uncommitted (historical) | 55 files, 1,401 | review findings 1–6 fixed |
+| uncommitted (historical) | 55 files, 1,406 | second-review corrections (SEC-01 pin, sandbox cancel and unsaved-capture page, unknown-order refusal) |
+| uncommitted (historical) | 55 files, 1,410 | Codex review: SEC-01 collector covers `.mts`/`.cts`; parser-based import policy refuses computed specifiers |
+| uncommitted then (historical); the same tree was committed as `e2c1b05` | 55 files, 1,413 | checkout language-marker correction (r5) |
 
 Typecheck 0 and lint 0 errors with the same 9 pre-existing warnings at every row. Runs are the implementer's no-network recipe; no separate party has rerun them.
 
-**F07 (M2-3), not accepted.** Evidence for the current uncommitted tree:
+**F07 (M2-3), not accepted.** Evidence for the slice 3 tree (uncommitted when written; committed as `e2c1b05`):
 - source and unit: the counts above, with red checks for each enforcement point and each fix (private evidence);
 - manual browser (owner, mock only, 127.0.0.1): scenarios 1–8 with retries, the Spanish and keyboard recheck, and the revocation focus checks;
 - automated browser (Claude in Chrome, October 17 22:22–22:25Z): revoke before confirm, the refusal and its link, QUOTED and unconfirmed, focus targets and outlines, and D2 after a reload. It predates the review corrections, which have unit and page-render evidence only;

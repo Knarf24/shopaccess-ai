@@ -5,7 +5,17 @@ Prepared October 16, 2026 (America/New_York) by Claude. Planned against `main` a
 **Status:**
 - **Approved by the owner on October 16,** with decisions D-M23-1 to D-M23-6 and the clarifications in §15.
 - **Work happens on `feature/m2-3-purchase-permissions`,** created from that exact commit. `main` stays at the verified M2-2 merge.
-- **One slice at a time:** each slice is authorized separately. Slice 1 is authorized; the rest are not yet.
+- **One slice at a time:** each slice is authorized separately. *As written on October 16:* "Slice 1 is authorized; the rest are not yet."
+- **Authorization record (updated October 18, from the recorded owner approvals; America/New_York):**
+  - Plan: approved October 16, committed as `ac95a17` (17:36).
+  - Slice 1: authorized October 16. Its commit was approved with three plan corrections and the live-session invariant: `bb33781` (17:48).
+  - Slice 2: implementation approved October 16. Its commit was approved after the definitive-decline correction and the red-check incident record: `42e9b7e` (18:19).
+  - Slice 3:
+    - implementation approved October 16; mock browser verification, and fixes D1 and D2, approved October 16–17;
+    - review corrections (findings 1–6, the second review, Codex r3) approved October 17–18;
+    - the §10 owner-operated VoiceOver amendment and the checkout language-marker correction approved October 18;
+    - the local commit approved October 18: `e2c1b05`.
+  - Integration and publication, October 18: the merge with `main` at `21871db` (`a142e95`), the push to `origin`, and draft PR #4 were each separately approved. **Merging to `main` is not approved.** F07, F11 and A35 are not accepted.
 
 **Owner decisions already given (October 16):**
 - **Option A:** M2-3 is F07, scoped revocable purchase permissions. It completes M2's "revocable scoped permissions" outcome (`docs/milestone-plan.md`) and is the F07 dependency of F06 (`docs/m1-assessment.md`).

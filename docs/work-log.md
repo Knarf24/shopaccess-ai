@@ -4,7 +4,7 @@ All dates use America/New_York. Claude maintains this log after each work sessio
 ## October 18, 2026 — current status, and integration of published main (documentation only)
 
 - **Published:** `main` at `21871db078790e97cf10d8b62b35214bada768eb` (documentation PR #3 on top of `e6bb69d`). It includes M2-1 (PR #1) and M2-2 (PR #2).
-- **M2-3 / F07:** committed locally on `feature/m2-3-purchase-permissions`. The commits are plan `ac95a17`, slice 1 `bb33781`, slice 2 `42e9b7e` and slice 3 `e2c1b05ee16198f43a3009bc94c41aa45fdeb11d`. They are **unpublished**: not pushed, and in no PR. This entry reaches `main` only through the approved workflow.
+- **M2-3 / F07:** committed on `feature/m2-3-purchase-permissions`: plan `ac95a17`, slice 1 `bb33781`, slice 2 `42e9b7e`, slice 3 `e2c1b05ee16198f43a3009bc94c41aa45fdeb11d`, and merge `a142e959b743eff95b1899dd4dedbe8ea205351f`, by which **`main` (`21871db`) was merged into the feature branch** (documentation only). The branch is **pushed** to `origin` and is open as **draft PR #4** (https://github.com/Knarf24/shopaccess-ai/pull/4): base `main` `21871db`, head `a142e95`. **M2-3 is not merged into `main`**, so the monitor, which reads `main` only, does not see it. GitHub reports no checks, because no CI is configured; that means unverified, not passing.
 - **Since the October 17 report:**
   - **Automated mock browser recheck R1–R8 (Claude in Chrome):** R1–R7 passed. R8 partly passed: permission recovery and the not-found page passed, but the HTTP status was 200, not 404. Browser-profile isolation was incomplete.
   - **Owner-operated VoiceOver on the owner's Mac (plan §10 amended):** limited English observations; validation-error speech inconclusive; other speech unverified.
@@ -17,7 +17,7 @@ All dates use America/New_York. Claude maintains this log after each work sessio
   - F07, F11 and A35 acceptance.
 - **Unchanged:** the October 24 target and the full scope. The likely-miss forecast is unresolved.
 
-**Integration.** A non-rebasing merge of `main` at `21871db` (PR #3) into the local branch. Git merged it with no conflicts. The October 18 status entries were added; the October 17 and older entries remain dated history. Relative to `e2c1b05`, only documentation changes. Not committed or pushed until the owner approves.
+**Integration.** A non-rebasing merge of `main` at `21871db` (PR #3) into the local branch. Git merged it with no conflicts. The October 18 status entries were added; the October 17 and older entries remain dated history. Relative to `e2c1b05`, only documentation changes. Not committed or pushed until the owner approves. *(Later on October 18, each step was separately owner-approved: committed as merge `a142e959b743eff95b1899dd4dedbe8ea205351f`, pushed without force to `origin/feature/m2-3-purchase-permissions`, and opened as draft PR #4. `main` was merged into the feature branch; M2-3 is not merged into `main`.)*
 
 **Correction to the slice 3 commit message** (the commit is not amended):
 - "The reviewers did not rerun the tests" is accurate only for Codex.
@@ -117,7 +117,7 @@ Unmet acceptance criteria / blockers: review and commit pending.
 Next action: owner review.
 Owner decision needed, if any: approve the commit.
 
-## October 16, 2026 — M2-3 F07 purchase permissions (in progress)
+## October 16, 2026 — M2-3 F07 purchase permissions (in progress when written; slices since committed as `bb33781`, `42e9b7e` and `e2c1b05`; draft PR #4)
 Goal: website-only, single-use purchase permissions enforced on the mock checkout (`docs/m2-3-plan.md`); local and mock only.
 Source branch / starting commit: feature/m2-3-purchase-permissions from main e6bb69d. Plan ac95a17; slice 1 bb33781 (model, snapshot format 4).
 Changes and resulting commit: slice 2 enforces permissions at checkout start (reserve), confirmation, order creation and capture (`executing` saved before any capture), records consumed or outcome unknown, limits reconciliation to the same operation, and fails PostgreSQL checkout closed. After owner review: a definitive decline spends the checkout's confirmation (`CONFIRMATION_REQUIRED`).
@@ -164,7 +164,7 @@ Codex investigated E1–E5 dependencies and recorded [full findings and bounded 
 ## October 16 — E1 isolated implementation, browser acceptance open
 Role: Codex implementer; owner approved design and plan. Prototype published only on branch design/shared-session-e1-20261016, commit e0be4b26f75e69a746aa91d3abfabf948f48a15c. Forty new files under experiments/e1-shared-session/; application source/payment/SQL/dependencies unchanged. Evidence: [results](https://github.com/Knarf24/shopaccess-ai/blob/e0be4b26f75e69a746aa91d3abfabf948f48a15c/experiments/e1-shared-session/evidence/RESULTS.md), [review ledger](https://github.com/Knarf24/shopaccess-ai/blob/e0be4b26f75e69a746aa91d3abfabf948f48a15c/experiments/e1-shared-session/evidence/LEDGER.md). Final PATH-only verification: 27 unit/client checks and 13 loopback checks, all exit 0, Node 24.19.0. No application suite/build, pinned-Node validation, installed-extension browser observation or screen-reader acceptance. Cloud browser failed loopback reachability. One independent review produced seven addressed findings; fixes covered by regression tests. Owned server stopped and port 3764 free. No credentials/live provider/payment calls. E1 is partial, not accepted. Next: local unpacked Chrome acceptance using the branch README, then separately reviewed application integration. Product target October 24 unchanged; no unattended coding scheduled.
 
-## October 16–17, 2026 — M2-3 slice 3, browser check and corrections (uncommitted when written; since committed locally as e2c1b05, unpublished)
+## October 16–17, 2026 — M2-3 slice 3, browser check and corrections (uncommitted when written; since committed as `e2c1b05`, pushed, draft PR #4)
 Date/time (UTC, recorded): slice 3 22:23–22:35Z Oct 16. Owner-assisted browser check: server run 1 from 22:37Z Oct 16 to 18:40Z Oct 17, then run 2 to 21:17Z. These spans include idle periods; active time was not recorded. Accessibility, language and D2 corrections: evidence runs 21:24–22:20Z Oct 17. Automated browser recheck 22:22–22:25Z.
 Goal and agreed session limit: slice 3 and its mock browser verification; then owner-directed accessibility and language corrections and the D2 fix. No Slice 4, no voice work.
 Source branch / starting commit: feature/m2-3-purchase-permissions at 42e9b7e (base e6bb69d). Not pushed.

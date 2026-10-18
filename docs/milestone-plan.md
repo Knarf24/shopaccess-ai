@@ -3,7 +3,7 @@ Updated October 16, 2026. Owner decision: Frank Ncube. Dates use America/New_Yor
 
 ## Current evidence note — October 18, 2026
 
-M2-3/F07 is now committed locally as `e2c1b05` on `feature/m2-3-purchase-permissions`. It is unpublished; published `main` is `21871db`. The browser recheck and owner-operated VoiceOver results, with their limits, are in the feature tracker's October 18 status. October 24 remains the owner target. No scope, date or acceptance changes, and the forecast has not been recalculated. The October 17 note below is dated history.
+M2-3/F07 is committed on `feature/m2-3-purchase-permissions`: slice 3 is `e2c1b05`, and in merge `a142e95` `main` (`21871db`) was merged into the feature branch. The branch is pushed and open as draft PR #4. M2-3 is not merged into `main`, and published `main` is still `21871db`. The browser recheck and owner-operated VoiceOver results, with their limits, are in the feature tracker's October 18 status. October 24 remains the owner target. No scope, date or acceptance changes, and the forecast has not been recalculated. The October 17 note below is dated history.
 
 ## Current evidence note — October 17, 2026
 
