@@ -1,6 +1,13 @@
 # ShopAccess AI milestone plan
 Updated October 16, 2026. Owner decision: Frank Ncube. Dates use America/New_York.
 
+## Current evidence note — October 17, 2026
+
+Read the [dated progress report](progress-report-2026-10-17.md), marker `SHOPACCESS-PROGRESS-20261017-R4`, alongside the historical plan below. M2-1 and M2-2 are merged in published main; M2-3/F07 r4 is reported locally and remains uncommitted/unpublished, with the latest browser recheck and VM screen-reader verification pending.
+
+October 24 remains the owner target. No intermediate date, scope reduction or acceptance is approved by this note. The October 16 estimates and likely-miss forecast below have not been recalculated against the reported r4 work. A current remaining-work assessment is needed; unaccepted does not mean unstarted.
+
+
 ## Delivery targets
 ShopAccess AI completion target: October 24, 2026, replacing Sunday October 18. No cutoff hour has been set. Wild Link begins October 24 and continues through November 12, including submission preparation. Confirm the event's exact submission cutoff before submission day. These are owner-selected targets, not validated effort estimates.
 
