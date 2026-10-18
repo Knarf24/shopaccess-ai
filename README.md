@@ -71,6 +71,61 @@ conversation of the session that approved it, never confirm, check out or pay.
 Grants are kept in the snapshot file as a keyed digest only. See
 `extension/README.md`.
 
+### Optional: PayPal Sandbox mode (owner-authorized runs only)
+
+The checkout can use PayPal Sandbox instead of the simulated payment panel.
+This contacts PayPal Sandbox, so it needs the project owner's separate
+authorization. The procedure, budget, evidence and stop conditions are in
+`docs/paypal-sandbox-rehearsal-runbook.md`. On October 18, 2026 one supervised
+rehearsal on this source (`401556a`) ended with the app reporting a verified
+USD 579.99 capture; the results and their limits are in section 13 of that
+runbook. That is not acceptance of F07, F08, F11 or A35.
+
+You need a PayPal developer account with a Sandbox REST app (client ID and
+secret), the Sandbox business account's 13-character PayPal Merchant ID and a
+Sandbox personal (buyer) account. Keep the values in a private file outside the
+repository (never a `.env*` file inside it), and never print them:
+
+```bash
+PAYMENT_PROVIDER_MODE=sandbox
+PAYPAL_API_BASE_URL=https://api-m.sandbox.paypal.com
+PAYPAL_CLIENT_ID=<sandbox app client ID>
+PAYPAL_CLIENT_SECRET=<sandbox app secret>
+PAYPAL_SANDBOX_MERCHANT_ID=<13-character sandbox business merchant ID>
+```
+
+```bash
+(
+  set -a; . /path/to/private/paypal-sandbox.env; set +a
+  SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
+  SHOPACCESS_TRUSTED_ORIGINS=http://127.0.0.1:3000 \
+  exec npm run dev -- -H 127.0.0.1 -p 3000
+)
+```
+
+Open http://127.0.0.1:3000.
+- **Payment settings:** any other base URL, a `live` or `production` mode, or a
+  missing or malformed setting switches the shop off. With
+  `PAYMENT_PROVIDER_MODE=mock`, any `PAYPAL_*` setting is refused.
+- **Other providers:** leave the `SHOPACCESS_AI_*` settings unset (local
+  assistant). Channel3 stays disabled in source.
+- **Storage:** Sandbox mode works with or without the local snapshot store,
+  which keeps only sessions and permissions. PostgreSQL mode refuses it.
+- **Payment steps:**
+  - The shopper creates the order with **Continue to PayPal Sandbox**, then
+    approves on `https://www.sandbox.paypal.com`.
+  - Returning to the checkout only checks the approval; nothing is captured
+    automatically.
+  - The shopper captures with **Capture the approved payment**. Success is
+    shown only after the capture evidence (order, amount, currency, payee and
+    correlation ID) has been checked.
+- **Restarts:** checkouts and payment records are held in memory, so the server
+  must keep running for the whole journey.
+- **Return address:** in the October 18 rehearsal, PayPal Sandbox returned the
+  browser to the plain-HTTP `http://127.0.0.1:3000/checkout/<id>/return`
+  address with the session intact. That is one observation in one Chrome
+  profile, not a guarantee.
+
 ## PostgreSQL mode (opt-in; written, never run)
 
 The application can be pointed at PostgreSQL instead of its in-memory stores.

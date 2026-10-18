@@ -1,6 +1,29 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 18, 2026 — Spanish checkout cleanup and Codex reviews r1–r2 (uncommitted when written)
+
+- **Base:** `d277b27e5c60d382bed80731d4c3398b4d3211e5`. Owner-approved implementation of finding 8's checkout part; see the feature tracker entry of the same date for scope.
+- **Implementer-run (Claude), r1:** new regressions red before the change (10 failed | 53 passed); after it, focused 63 passed, full suite 56 files and 1,433 passed, typecheck 0, lint 0 errors. Mock-only browser check (server run 11): Spanish permissions review and list markers, Spanish checkout heading, notice, quote, total and start link; simulated panel English; `&lang=en` changed nothing.
+- **Codex r1 (source review):** two findings — inherited property names in `checkoutMessage`'s English branch; no decline explanation after a provider-proven capture decline.
+- **Implementer-run (Claude), r2:** new regressions red against r1 (4 failed | 21 passed: English prototype codes threw "Objects are not valid as a React child"; decline explanation missing in English and Spanish; unit lookup returned an object). After the fix: focused 67 passed, full suite 56 files and 1,437 passed, typecheck 0, lint 0 errors. No browser or Sandbox run for r2.
+- **Codex r2 (source and saved evidence; tests not rerun):** both corrections resolved, no demonstrated commit blocker. Optional decline-wording refinement not adopted. Residual tracked as finding 9 (`messageFor` inherited properties in `/shop` mock and PostgreSQL, `/checkouts` and the PostgreSQL checkout).
+- **Language evidence limits:** Spanish wording is source-reviewed only (no native-speaker or VoiceOver pronunciation acceptance). Native `<option>` choices are not language-marked.
+- **Private records:** frozen patches and evidence in the r1 and r2 handoffs outside Git, both unchanged after review. F07, F08, F11 and A35 remain unaccepted.
+
+## October 18, 2026 — PayPal Sandbox rehearsal on `401556a` (owner-authorized; documentation only)
+
+- **Source check (each attempt):** HEAD `f6140065e7ae6b54bd59c2cc127dbd089d861b6d`, application tree `1f2b49e1bb26e13ce475069f78d0369ae9acf75b`, equal to `main` `401556a`; only the README and the runbook differed (uncommitted documentation). Store backed up first; no `.env` in the repository; port 3000 free.
+- **Attempt 1, 10:30–11:30 window (incomplete, history):** permission, quote and confirmation; one order-creation press at 10:33:45; the browser reached the PayPal Sandbox sign-in page. No return or capture request reached the app. The window expired; the owner stopped the run at about 13:48 and the server, which had run past the cutoff, was stopped at 13:48:59 with no payment action logged or reported after 10:33:45. PayPal's state of that order was not queried and is unknown.
+- **Attempt 2, supervised, 13:51:46–14:21:46 (app-reported success):**
+  - Automatic shutdown at the cutoff, with a five-minute warning, was tested on a dummy process and armed before any PayPal call.
+  - Observed: fresh permission (Acer Aspire Go 15, 8 GB / 256 GB, quantity 1, up to USD 579.99, one hour), fresh quote and checkout, confirmation; one order-creation press (13:53:51); owner signed in and approved on PayPal Sandbox after checking USD 579.99 (owner-reported); one return request; one capture press (14:05:11).
+  - App-reported: "PayPal Sandbox confirmed approval of this order. No payment has been captured.", then "The payment was captured and the capture evidence was checked."; permission "Used".
+  - Not observed: actual outbound PayPal request counts or 401 resends (ceilings are source-derived). Not corroborated: PayPal dashboard and capture ID.
+  - Server stopped by hand at 14:05:41, 16 minutes before the cutoff; watchdog exited; port 3000 free; tab closed.
+- **Also recorded:** PayPal's sign-in page showed "Something went wrong. Try again later." before sign-in in attempt 2 (cause unknown); two read-only permissions-page loads not made by the automation appeared in each attempt's log.
+- **Evidence:** private, outside Git (logs, result screenshot, checksums). No credential value appears in any log. No source change, install, commit, push or deployment. F07, F08, F11 and A35 remain unaccepted.
+
 ## October 18, 2026 — current status, and integration of published main (documentation only)
 
 - **Published:** `main` at `21871db078790e97cf10d8b62b35214bada768eb` (documentation PR #3 on top of `e6bb69d`). It includes M2-1 (PR #1) and M2-2 (PR #2).

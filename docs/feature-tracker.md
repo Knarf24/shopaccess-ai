@@ -1,6 +1,32 @@
 # ShopAccess AI feature and evidence tracker
 Updated October 16, 2026. Target: October 24. Initial status reflects published governance and owner-supplied reports, not a fresh implementation audit.
 
+## Spanish checkout cleanup (finding 8, checkout part) — October 18, 2026 (uncommitted when written)
+
+- **Scope:** the mock and Sandbox checkout page (heading, quote lines, notices and errors, start link), the PayPal cancel-return page and the Spanish permissions page's product-name `lang` markers follow the language saved on the checkout, never the URL. English wording is unchanged. The simulated payment panel stays English. Not F09 (explicit language switching) and not external-site multilingual assistance.
+- **Codex r1 review** found two defects; both were corrected in r2:
+  1. `checkoutMessage` resolved inherited property names (`__proto__`, `constructor`, `toString`) in English; it now recognises only its own keys in both languages.
+  2. A provider-proven capture decline had no explanation and the handler's URL code described missing approval; the Sandbox section now explains the decline from the saved `DECLINED_RETRYABLE` state.
+- **Codex r2 review:** both corrections resolved; no demonstrated commit blocker. Codex inspected source and saved evidence; it did not rerun tests. Its optional decline-wording refinement is not adopted for this commit.
+- **Implementer-run checks (Claude, network-blocked runner):** red-checked new regressions; full suite 56 files, 1,437 passed; typecheck 0; lint 0 errors (9 warnings in untouched files). One mock-only browser check of the Spanish checkout and permissions page (r1 code; r2 not browser-checked). No Sandbox run.
+- **Language evidence:** Spanish wording has source-review support only; no native-speaker review and no VoiceOver pronunciation check. Native `<option>` item choices on the Spanish permissions page are not language-marked (mixed English name and Spanish seller label).
+- **Finding 9 (tracked, not fixed):** `messageFor` (`src/server/views.ts`) looks up `MESSAGES[code]` without an own-key check, so a URL `error` or `notice` of `__proto__`, `constructor` or `toString` resolves an inherited property instead of a message (Codex r2). Affected callers: `/shop` in mock mode (`src/app/shop/page.tsx:133`) and PostgreSQL mode (`:68`); `/checkouts` (PostgreSQL, `src/app/checkouts/page.tsx:47-48`); the PostgreSQL checkout branch (`src/app/checkout/[intentId]/page.tsx:121-122`). The mock and Sandbox checkout no longer use it for URL codes.
+- **No acceptance change:** F07, F08, F11 and A35 remain unaccepted; the October 24 target and full scope are unchanged.
+
+## PayPal Sandbox rehearsal — October 18, 2026 (evening)
+
+Adds to the October 18 status below; that status predates the merge of PR #4 into `main` as `401556aabfb52191917ff8bd92d90a0d1e72dd35`.
+
+- **Source:** `main` `401556a`, run from the feature worktree at `f614006` (identical application tree). Procedure: `docs/paypal-sandbox-rehearsal-runbook.md`; results in its section 13.
+- **Attempt 1 (10:30–11:30 EDT window): incomplete, history.** One order creation reached the PayPal Sandbox sign-in page; no return or capture reached the app. The server ran past the cutoff (no payment action logged or reported). PayPal's final state of that order is unknown.
+- **Attempt 2 (supervised, 13:51:46–14:21:46 EDT):**
+  - *Observed:* fresh permission, quote and checkout; one order-creation press, one return request, one capture press.
+  - *App-reported:* approval verified, then "The payment was captured and the capture evidence was checked." for USD 579.99; the permission then showed "Used".
+  - *Source-derived only:* PayPal request ceilings (token, order, order read, capture, plus at most one 401 resend each). Actual outbound counts were not observed.
+  - *Not corroborated:* no PayPal dashboard read; capture ID not recorded.
+  - *Shutdown:* automatic cutoff shutdown armed beforehand; server stopped by hand 16 minutes before the cutoff; port 3000 free.
+- **F08 effect:** first current-source Sandbox approval and app-verified capture through the F07 permission gate. Still open for F08: decline, cancel and unknown-outcome paths against Sandbox, PayPal-side corroboration, duplicate prevention and repeat-order revalidation. **No acceptance change:** F07, F08, F11 and A35 remain unaccepted.
+
 ## Current status — October 18, 2026
 
 This supersedes the publication-status labels in the October 17 reconciliations below. Those reconciliations and all older entries remain dated history. Updated October 18, after the push and the draft PR.

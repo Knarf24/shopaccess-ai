@@ -36,6 +36,8 @@ export function SandboxCheckoutActions({
       ) : null}
       {view.state === "AWAITING_APPROVAL" || view.state === "APPROVAL_CHECK_PENDING" ? <p>{copy.awaiting}</p> : null}
       {view.state === "CANCELED_LOCAL" ? <p>{copy.canceled}</p> : null}
+      {/* Codex finding 2: a provider-proven decline is explained from the saved state, never from a URL code. */}
+      {view.state === "DECLINED_RETRYABLE" ? <p>{copy.declined}</p> : null}
       {view.state === "MANUAL_REVIEW" || view.state === "ORDER_CREATE_UNKNOWN" || view.state === "CAPTURE_UNKNOWN" ? <p>{copy.unknown}</p> : null}
       {/*
         A refusal tells the shopper to cancel (M2-3, second review finding 2). The existing protected cancel route, offered

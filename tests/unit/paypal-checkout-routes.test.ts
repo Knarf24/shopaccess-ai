@@ -98,9 +98,9 @@ function post(path: string, fields: Record<string, string>, current: Shopper | n
   });
 }
 
-async function confirmed(runtime: Runtime, current: Shopper): Promise<{ intentId: string; totalCents: number; quoteId: string }> {
+async function confirmed(runtime: Runtime, current: Shopper, lang?: "es"): Promise<{ intentId: string; totalCents: number; quoteId: string }> {
   const started = await handleCheckoutStart(
-    post("/checkout/start", { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: "1", use: "programming", budget: "900", csrfToken: current.csrfToken }, current),
+    post("/checkout/start", { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: "1", use: "programming", budget: "900", csrfToken: current.csrfToken, ...(lang ? { lang } : {}) }, current),
     runtime,
   );
   const intentId = new URL(started.headers.get("location")!, ORIGIN).pathname.split("/").pop()!;
@@ -418,9 +418,9 @@ describe("sandbox cancel-return page follows the saved payment state", () => {
     return { runtime, replies };
   }
 
-  async function approved(runtime: Runtime, replies: Array<{ status: number; body: string }>) {
+  async function approved(runtime: Runtime, replies: Array<{ status: number; body: string }>, lang?: "es") {
     const current = await shopper(runtime);
-    const { intentId, totalCents, quoteId } = await confirmed(runtime, current);
+    const { intentId, totalCents, quoteId } = await confirmed(runtime, current, lang);
     replies.push({ status: 201, body: orderBody(quoteId, totalCents, "CREATED") });
     await handleSandboxApprove(post(`/checkout/${intentId}/approve`, { csrfToken: current.csrfToken }, current), runtime, intentId);
     replies.push({ status: 200, body: orderBody(quoteId, totalCents, "APPROVED") });
@@ -454,9 +454,9 @@ describe("sandbox cancel-return page follows the saved payment state", () => {
     });
   }
 
-  async function cancelPage(runtime: Runtime, current: Shopper, intentId: string) {
+  async function cancelPage(runtime: Runtime, current: Shopper, intentId: string, query = "") {
     const before = await recorded(runtime, intentId);
-    const response = await handleSandboxPaypalCancel(new Request(`${ORIGIN}/checkout/${intentId}/paypal-cancel`, { headers: { cookie: current.cookie } }), runtime, intentId);
+    const response = await handleSandboxPaypalCancel(new Request(`${ORIGIN}/checkout/${intentId}/paypal-cancel${query}`, { headers: { cookie: current.cookie } }), runtime, intentId);
     expect(response.status).toBe(200);
     expect(await recorded(runtime, intentId)).toEqual(before);
     const html = await response.text();
@@ -524,6 +524,87 @@ describe("sandbox cancel-return page follows the saved payment state", () => {
     const closed = await cancelPage(runtime, current, intentId);
     expect(closed.html).toContain(copy.canceled);
     expect(closed.forms).toEqual([]);
+  });
+
+  // Finding 8, checkout part: the page speaks the checkout's saved language. What it offers must not depend on language.
+  type Lang = "en" | "es";
+  const PAGE_TEXT = {
+    en: { title: "Cancel checkout", heading: "Cancel this checkout", noCapture: NO_CAPTURE, notHere: "It can&#39;t be canceled here.", button: "Cancel this checkout", back: "Back to the checkout" },
+    es: { title: "Cancelar la compra", heading: "Cancelar esta compra", noCapture: "No se ha capturado ningún pago.", notHere: "No se puede cancelar aquí.", button: "Cancelar esta compra", back: "Volver a la compra" },
+  };
+  /** Each saved state the page distinguishes, reached through the real handlers with a mocked transport. */
+  const SCENARIOS: Record<string, (lang: Lang) => Promise<{ runtime: Runtime; current: Shopper; intentId: string }>> = {
+    no_capture_cancelable: async (lang) => {
+      const { runtime, replies } = world();
+      const { current, intentId } = await approved(runtime, replies, lang === "es" ? "es" : undefined);
+      return { runtime, current, intentId };
+    },
+    no_capture_not_cancelable: async (lang) => {
+      const { runtime } = world({ status: 500, body: "{}" });
+      const current = await shopper(runtime);
+      const { intentId } = await confirmed(runtime, current, lang === "es" ? "es" : undefined);
+      await handleSandboxApprove(post(`/checkout/${intentId}/approve`, { csrfToken: current.csrfToken }, current), runtime, intentId);
+      return { runtime, current, intentId };
+    },
+    captured: async (lang) => {
+      const { runtime, replies } = world();
+      const { current, intentId, totalCents, quoteId } = await approved(runtime, replies, lang === "es" ? "es" : undefined);
+      replies.push(captureReply(quoteId, totalCents, "COMPLETED"));
+      await handleSandboxCapture(post(`/checkout/${intentId}/capture`, { csrfToken: current.csrfToken }, current), runtime, intentId);
+      return { runtime, current, intentId };
+    },
+    uncertain: async (lang) => {
+      const { runtime, replies } = world({ status: 500, body: "{}" });
+      const { current, intentId } = await approved(runtime, replies, lang === "es" ? "es" : undefined);
+      await handleSandboxCapture(post(`/checkout/${intentId}/capture`, { csrfToken: current.csrfToken }, current), runtime, intentId);
+      return { runtime, current, intentId };
+    },
+    canceled: async (lang) => {
+      const { runtime, replies } = world();
+      const { current, intentId } = await approved(runtime, replies, lang === "es" ? "es" : undefined);
+      await handleSandboxCancel(post(`/checkout/${intentId}/cancel`, { csrfToken: current.csrfToken }, current), runtime, intentId);
+      return { runtime, current, intentId };
+    },
+  };
+  const expectedMessage = (lang: Lang, scenario: string) => {
+    const t = PAGE_TEXT[lang];
+    const sandbox = journeyCopy(lang).sandboxCheckout;
+    if (scenario === "no_capture_cancelable") return t.noCapture;
+    if (scenario === "no_capture_not_cancelable") return `${t.noCapture} ${t.notHere}`;
+    if (scenario === "captured") return `${sandbox.captured} ${t.notHere}`;
+    if (scenario === "uncertain") return `${sandbox.unknown} ${t.notHere}`;
+    return sandbox.canceled;
+  };
+
+  it("offers the same thing in English and Spanish for every saved state; only the wording and page language differ", async () => {
+    for (const scenario of Object.keys(SCENARIOS)) {
+      const offered: Record<Lang, { state: string | undefined; forms: string[]; buttons: string[] }> = { en: { state: undefined, forms: [], buttons: [] }, es: { state: undefined, forms: [], buttons: [] } };
+      for (const lang of ["en", "es"] as const) {
+        const { runtime, current, intentId } = await SCENARIOS[scenario]!(lang);
+        const page = await cancelPage(runtime, current, intentId);
+        const t = PAGE_TEXT[lang];
+        expect(page.html, `${scenario} ${lang}`).toMatch(new RegExp(`^<!doctype html><html lang="${lang}">`));
+        expect(page.html, `${scenario} ${lang}`).toContain(`<title>${t.title}</title>`);
+        expect(page.html, `${scenario} ${lang}`).toContain(`<h1>${t.heading}</h1>`);
+        expect(page.html, `${scenario} ${lang}`).toContain(`<p>${expectedMessage(lang, scenario)}</p>`);
+        expect(page.html, `${scenario} ${lang}`).toContain(`<a href="/checkout/${intentId}">${t.back}</a>`);
+        const buttons = [...page.html.matchAll(/<button\b[^>]*>([^<]*)<\/button>/g)].map((match) => match[1]!);
+        for (const button of buttons) expect(button).toBe(t.button);
+        if (page.forms.length) expect(page.html).toContain(`name="csrfToken" value="${current.csrfToken}"`);
+        offered[lang] = { state: (await runtime.store.findIntent(intentId))?.snapshot.state, forms: page.forms.map((form) => form!.replace(intentId, "<id>")), buttons: buttons.map(() => "button") };
+      }
+      expect(offered.es, scenario).toEqual(offered.en);
+    }
+  });
+
+  it("the URL cannot change the cancel-return page's language", async () => {
+    const spanish = await SCENARIOS.no_capture_cancelable!("es");
+    const plain = await cancelPage(spanish.runtime, spanish.current, spanish.intentId);
+    const tampered = await cancelPage(spanish.runtime, spanish.current, spanish.intentId, "?lang=en");
+    expect(tampered.html).toBe(plain.html);
+    expect(plain.html).toMatch(/^<!doctype html><html lang="es">/);
+    const english = await SCENARIOS.no_capture_cancelable!("en");
+    expect((await cancelPage(english.runtime, english.current, english.intentId, "?lang=es")).html).toMatch(/^<!doctype html><html lang="en">/);
   });
 });
 

@@ -388,6 +388,26 @@ describe("permissions page", () => {
     const visible = html.replace(/<[^>]+>/g, " ");
     expect(visible).not.toMatch(/prm_|outcome_unknown|executing\b/);
   });
+
+  // Finding 8 (permissions part): English catalog names on the Spanish page are marked English where the markup allows.
+  // A native <option> holds plain text only and mixes the English name with the Spanish seller label, so it is not marked.
+  it("Spanish page: English product and variant names in the review and the list are marked English; options stay plain text", () => {
+    const review = { item: ITEM, seller: "ShopAccess Demo Store (simulada)", product: "Acer Aspire 14 AI", variant: "16 GB LPDDR5X", maxQuantity: 2, maxTotalCents: 179_998, total: "1799.98", quantity: "2", expiry: "session", endsAt: new Date("2026-10-17T12:00:00.000Z") };
+    const spanish = page({ language: "es", review, permissions: [shown("active", true, 1)] });
+    expect(spanish).toContain('<dd><span lang="en">Acer Aspire 14 AI</span></dd>');
+    expect(spanish).toContain('<dd><span lang="en">16 GB LPDDR5X</span></dd>');
+    expect(spanish).toContain('<strong><span lang="en">Acer Aspire 14 AI</span> — <span lang="en">16 GB LPDDR5X, 512 GB PCIe NVMe SSD</span></strong>');
+    const options = [...spanish.matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/g)];
+    expect(options.length).toBeGreaterThan(0);
+    for (const [, attributes, content] of options) {
+      expect(content).not.toMatch(/</);
+      expect(attributes).not.toMatch(/\slang=/);
+    }
+    // The English page is unchanged: no per-name markers.
+    const english = page({ language: "en", review, permissions: [shown("active", true, 1)] });
+    expect(english).not.toContain('<span lang="en">');
+    expect(english).toContain("<dd>Acer Aspire 14 AI</dd>");
+  });
 });
 
 describe("refusal and uncertainty wording", () => {

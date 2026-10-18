@@ -12,6 +12,7 @@ import { SessionNotice } from "@/components/SessionNotice";
 import { SandboxCheckoutActions, SimulatedPaymentPanel } from "@/components/SimulatedPaymentPanel";
 import { formatUsd } from "@/lib/catalog/merchant-catalog";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
+import { sellerName } from "@/lib/i18n/seller-name";
 import { isPermissionRefusal, type PermissionRefusalCode } from "@/lib/i18n/permission-copy";
 import { PermissionRefusal } from "@/components/PermissionRefusal";
 import "../../guided-presentation.css";
@@ -21,7 +22,7 @@ import { protectedAdmissionLocation } from "@/server/demo-admission";
 import { runtimeOf } from "@/server/runtime";
 import { guardPage, openApplication } from "@/server/runtime-access";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
-import { buildCheckoutView, messageFor, resolvePageSession } from "@/server/views";
+import { buildCheckoutView, checkoutMessage, messageFor, resolvePageSession } from "@/server/views";
 
 interface PageProps {
   params: Promise<{ intentId: string }>;
@@ -223,26 +224,28 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
   const view = await buildCheckoutView(runtime.value, session, intentId);
   if (!view) notFound();
 
-  // The checkout's resolved interface language (none recorded means English). The page is marked with it, and the parts
-  // that are English whatever the language (heading, quote lines, generic messages, the simulated-payment panel) are
-  // marked English on a Spanish checkout, so assistive technology is told the language of each part (M2-3).
+  // The checkout's saved interface language (none recorded means English); the URL never changes it. The page is marked
+  // with it. Its own wording follows it (finding 8); the parts that stay English (the simulated-payment panel, English
+  // catalog names, messages with no Spanish wording) are marked English on a Spanish checkout (M2-3).
   const language = view.interfaceLanguage ?? "en";
   const fixedEnglish = language === "en" ? undefined : "en";
   const copy = journeyCopy(language);
+  const pageCopy = copy.checkoutPage;
+  const markLang = (lang: "en" | "es") => (lang === language ? undefined : lang);
+  const englishName = (name: string) => (language === "en" ? name : <span lang="en">{name}</span>);
   const errorCode = typeof query.error === "string" ? query.error : undefined;
   // F07 refusals (M2-3) are shown in the checkout's language, from the current state (checkoutMessages).
   const { refusal: permissionRefusal, underReview, showUrlError } = checkoutMessages(view, errorCode);
-  const quoteProblem = view.challengeProblem;
-  const errorLocalized = errorCode === "APPROVAL_NOT_CONFIRMED" || errorCode === "PAYEE_MISMATCH";
+  const quoteProblem = checkoutMessage(view.challengeProblem ?? undefined, language);
   const error = !showUrlError
     ? null
     : errorCode === "APPROVAL_NOT_CONFIRMED"
-      ? copy.sandboxCheckout.approvalNotConfirmed
+      ? { text: copy.sandboxCheckout.approvalNotConfirmed, lang: language }
       : errorCode === "PAYEE_MISMATCH"
-        ? copy.sandboxCheckout.payeeMismatch
-        : messageFor(errorCode);
+        ? { text: copy.sandboxCheckout.payeeMismatch, lang: language }
+        : checkoutMessage(errorCode, language);
   const noticeCode = typeof query.notice === "string" ? query.notice : undefined;
-  const notice = noticeCode === "CAPTURED" ? null : messageFor(noticeCode);
+  const notice = noticeCode === "CAPTURED" ? null : checkoutMessage(noticeCode, language);
   const sandbox = runtime.value.paymentMode === "sandbox";
   const skipTarget = checkoutCurrentTargetId({
     alert: Boolean(error || permissionRefusal),
@@ -257,10 +260,10 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
     <main className="guided-presentation" lang={language}>
       <div className="presentation-column presentation-column-narrow">
       <SkipToCurrentStep label={copy.skipToCurrentStep} targetId={skipTarget} />
-      <h1 lang={fixedEnglish} className="text-3xl font-semibold">Demo checkout</h1>
-      {error ? <p id={CHECKOUT_ALERT_ID} tabIndex={-1} role="alert" lang={errorLocalized ? undefined : fixedEnglish} className="rounded border-2 border-red-700 p-3">{error}</p> : null}
+      <h1 className="text-3xl font-semibold">{pageCopy.heading}</h1>
+      {error ? <p id={CHECKOUT_ALERT_ID} tabIndex={-1} role="alert" lang={markLang(error.lang)} className="rounded border-2 border-red-700 p-3">{error.text}</p> : null}
       {permissionRefusal ? <PermissionRefusal language={language} code={permissionRefusal} underReview={underReview} id={CHECKOUT_ALERT_ID} /> : null}
-      {notice ? <p id={CHECKOUT_NOTICE_ID} tabIndex={-1} role="status" lang={fixedEnglish} className="rounded border-2 border-green-800 p-3">{notice}</p> : null}
+      {notice ? <p id={CHECKOUT_NOTICE_ID} tabIndex={-1} role="status" lang={markLang(notice.lang)} className="rounded border-2 border-green-800 p-3">{notice.text}</p> : null}
       <GuidedProgress copy={copy} current="purchase" />
       {view.interfaceLanguage ? <MockReviewGuidance language={view.interfaceLanguage} /> : null}
 
@@ -274,18 +277,18 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
         />
       ) : view.quote ? (
         <section aria-labelledby="quote-heading" className="rounded-lg border border-zinc-400 p-4">
-          <h2 id={CHECKOUT_QUOTE_HEADING_ID} tabIndex={-1} lang={fixedEnglish} className="text-xl font-semibold">
-            Quote
+          <h2 id={CHECKOUT_QUOTE_HEADING_ID} tabIndex={-1} className="text-xl font-semibold">
+            {pageCopy.quoteHeading}
           </h2>
-          <p lang={fixedEnglish}>
-            {view.itemTitle ?? "Item no longer in the demo catalog"}, quantity {view.quote.quantity}, sold by {view.merchantName}.
+          <p>
+            {view.itemTitle ? englishName(view.itemTitle) : pageCopy.missingItem}, {pageCopy.quantityWord} {view.quote.quantity}, {pageCopy.soldBy}{" "}
+            {sellerName(view.merchantName, language)}.
           </p>
-          <p lang={fixedEnglish}>
-            Total {formatUsd(view.quote.totalCents)} {view.quote.currency}. Tax and shipping are $0.00 as an assumption of this Sandbox
-            demonstration; nothing is shipped.
+          <p>
+            {pageCopy.totalLabel} {formatUsd(view.quote.totalCents)} {view.quote.currency}. {pageCopy.taxNote}
           </p>
           <p>{copy.catalogNotice}</p>
-          {quoteProblem ? <p id={CHECKOUT_QUOTE_PROBLEM_ID} tabIndex={-1} role="alert" lang={fixedEnglish}>{messageFor(quoteProblem)}</p> : null}
+          {quoteProblem ? <p id={CHECKOUT_QUOTE_PROBLEM_ID} tabIndex={-1} role="alert" lang={markLang(quoteProblem.lang)}>{quoteProblem.text}</p> : null}
         </section>
       ) : null}
 
@@ -294,9 +297,9 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
       ) : (
         <SimulatedPaymentPanel view={view} csrfToken={session.csrfToken} lang={fixedEnglish} />
       )}
-      <p lang={fixedEnglish}>
+      <p>
         <Link href="/" prefetch={false} className="underline">
-          Back to the start
+          {copy.navigationHome}
         </Link>
       </p>
       </div>

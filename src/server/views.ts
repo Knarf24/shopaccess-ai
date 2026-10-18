@@ -2,6 +2,8 @@ import { headers } from "next/headers";
 import { findMerchantVariant } from "@/lib/catalog/merchant-catalog";
 import type { ProviderObservation } from "@/lib/checkout/store";
 import { prepareConfirmation, type ConfirmationChallenge } from "@/lib/confirmation/confirmation";
+import { CHECKOUT_GENERIC_ES, CHECKOUT_MESSAGES_ES } from "@/lib/i18n/demo-copy";
+import type { JourneyLanguage } from "@/lib/i18n/language";
 import { isPermissionRefusal, type PermissionRefusalCode } from "@/lib/i18n/permission-copy";
 import type { PaymentOperation } from "@/lib/payment/operations";
 import { captureDeclinedBefore } from "@/lib/payment/orchestrator";
@@ -147,4 +149,18 @@ const MESSAGES: Record<string, string> = {
 export function messageFor(code: string | undefined): string | null {
   if (!code) return null;
   return MESSAGES[code] ?? "That action could not be completed.";
+}
+
+/**
+ * A checkout message in the checkout's saved language (finding 8). English matches `messageFor` for every own key. In Spanish, a known
+ * code without Spanish wording keeps its English text and is reported as English, so the page can mark it; an unknown
+ * code gets the Spanish generic message.
+ */
+export function checkoutMessage(code: string | undefined, language: JourneyLanguage): { readonly text: string; readonly lang: JourneyLanguage } | null {
+  if (!code) return null;
+  // Only own keys are messages: an inherited name (__proto__, constructor, toString…) is an unknown code (Codex finding 1).
+  if (language === "en") return { text: Object.hasOwn(MESSAGES, code) ? MESSAGES[code]! : "That action could not be completed.", lang: "en" };
+  if (Object.hasOwn(CHECKOUT_MESSAGES_ES, code)) return { text: CHECKOUT_MESSAGES_ES[code]!, lang: "es" };
+  if (Object.hasOwn(MESSAGES, code)) return { text: MESSAGES[code]!, lang: "en" };
+  return { text: CHECKOUT_GENERIC_ES, lang: "es" };
 }
