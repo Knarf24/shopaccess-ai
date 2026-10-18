@@ -7,13 +7,16 @@ import {
   authorityOf,
   beginExecution,
   decideCreate,
+  decideRevoke,
   isLive,
   MAX_LIVE_PERMISSIONS_PER_SESSION,
   release,
   reserve,
   resolveExpiry,
   restorePermissions,
+  revokeSessionPermissions,
   settleExecution,
+  settleExpired,
 } from "@/lib/permissions/model";
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
 import { parseTrustedOrigins } from "@/lib/session/request-guard";
@@ -222,6 +225,33 @@ describe("restart", () => {
     ]);
     const late = new Date(T0.getTime() + 2 * 60 * MIN);
     expect(restorePermissions([p("active"), p("reserved"), p("executing")], late).map((r) => r.state)).toEqual(["expired", "expired", "outcome_unknown"]);
+    // Review finding 4: an ended permission's link to its (memory-only, now gone) checkout is dropped on restart.
+    expect(restorePermissions([p("revoked", { checkoutIntentId: CI(2) }), p("expired", { checkoutIntentId: CI(3) })], now).map((r) => [r.state, r.checkoutIntentId])).toEqual([
+      ["revoked", null],
+      ["expired", null],
+    ]);
+    expect(restorePermissions([p("reserved")], late).map((r) => [r.state, r.checkoutIntentId])).toEqual([["expired", null]]);
+  });
+
+  it("review finding 4: a reserved permission that is revoked, or lapses, keeps the checkout that held it; an active one has none", () => {
+    const now = new Date(T0.getTime() + 10 * MIN);
+    const reserved = p("reserved");
+    const revokedReserved = decideRevoke([reserved], reserved.sessionId, reserved.permissionId, now);
+    expect(revokedReserved.result === "revoked" && revokedReserved.permissions.map((r) => [r.state, r.checkoutIntentId])).toEqual([["revoked", CI(1)]]);
+    const active = p("active");
+    const revokedActive = decideRevoke([active], active.sessionId, active.permissionId, now);
+    expect(revokedActive.result === "revoked" && revokedActive.permissions.map((r) => [r.state, r.checkoutIntentId])).toEqual([["revoked", null]]);
+    const late = new Date(T0.getTime() + 2 * 60 * MIN);
+    expect(settleExpired([reserved, active], late).map((r) => [r.state, r.checkoutIntentId])).toEqual([
+      ["expired", CI(1)],
+      ["expired", null],
+    ]);
+    expect(revokeSessionPermissions([reserved], reserved.sessionId, now).map((r) => [r.state, r.checkoutIntentId])).toEqual([["revoked", CI(1)]]);
+    // The link authorizes nothing.
+    for (const ended of [revokedReserved.result === "revoked" ? revokedReserved.permissions[0] : reserved, settleExpired([reserved], late)[0]]) {
+      expect(authorityOf(ended, ended.sessionId, now).ok).toBe(false);
+      expect(isLive(ended, now)).toBe(false);
+    }
   });
 
   it("through the saved body: only live sessions keep permissions, and the restored list obeys the rules above", () => {

@@ -340,6 +340,9 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
         join("src", "app", "shop", "needs", "confirm", "route.ts"),
         join("src", "app", "shop", "needs", "listings", "route.ts"),
         join("src", "app", "shop", "needs", "submit", "route.ts"),
+        // M2-3: purchase permissions, mock only; PostgreSQL refuses them (503).
+        join("src", "app", "shop", "permissions", "create", "route.ts"),
+        join("src", "app", "shop", "permissions", "revoke", "route.ts"),
       ].sort(),
     );
     const mockOnly: Record<string, string> = {
@@ -366,6 +369,11 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
     const shared: Record<string, [string, string]> = {
       [join("src", "app", "session", "start", "route.ts")]: ["handleSessionStart(request, runtime)", "handlePgSessionStart(request, services)"],
     };
+    // M2-3: purchase permissions exist only in the mock; PostgreSQL mode answers 503, not 404.
+    const pgPermissionsRefused: Record<string, string> = {
+      [join("src", "app", "shop", "permissions", "create", "route.ts")]: "handlePermissionCreate(request, runtime)",
+      [join("src", "app", "shop", "permissions", "revoke", "route.ts")]: "handlePermissionRevoke(request, runtime)",
+    };
     // M2-3: PostgreSQL mode has no F07 purchase-permission enforcement, so its checkout steps are refused (fail closed).
     const pgCheckoutRefused: Record<string, string> = {
       [join("src", "app", "checkout", "start", "route.ts")]: "handleCheckoutStart(request, runtime)",
@@ -377,7 +385,10 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
       expect(text, route).toMatch(/withApplication\(\{/);
       const pair = shared[route];
       if (route.startsWith(join("src", "app", "checkout"))) expect(text, route).not.toMatch(/handlePg|pg-handlers/);
-      if (pgCheckoutRefused[route]) {
+      if (pgPermissionsRefused[route]) {
+        expect(text, route).toContain(`mock: (runtime) => ${pgPermissionsRefused[route]}`);
+        expect(text, route).toContain("postgres: async () => pgPermissionsUnavailable()");
+      } else if (pgCheckoutRefused[route]) {
         expect(text, route).toContain(`mock: (runtime) => ${pgCheckoutRefused[route]}`);
         expect(text, route).toContain("postgres: async () => pgCheckoutWithoutPermissions()");
       } else if (pair) {

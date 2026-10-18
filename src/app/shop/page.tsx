@@ -2,7 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import { AdvisoryRecommendations } from "@/components/AdvisoryRecommendations";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { ExternalProductCard } from "@/components/ExternalProductCard";
@@ -11,6 +11,8 @@ import { ReadinessPanel } from "@/components/ReadinessPanel";
 import { SessionNotice } from "@/components/SessionNotice";
 import { formatUsd } from "@/lib/catalog/merchant-catalog";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
+import { isPermissionRefusal, type PermissionRefusalCode } from "@/lib/i18n/permission-copy";
+import { PermissionRefusal } from "@/components/PermissionRefusal";
 import type { PgRuntime } from "@/server/pg-runtime";
 import { buildPgShoppingView, pgCookieHeader, resolvePgPageSession } from "@/server/pg-views";
 import { protectedAdmissionLocation } from "@/server/demo-admission";
@@ -66,8 +68,14 @@ async function PgShopContent({ query, runtime }: { query: Query; runtime: PgRunt
   const error = messageFor(typeof query.error === "string" ? query.error : undefined);
   return (
     <>
-      {session.context.session.keyStatus === "VERIFY_ONLY" ? <SessionNotice kind="rotate" csrfToken={session.context.session.csrfToken} /> : null}
-      <ShopListing view={page.value} preferences={preferences} csrfToken={session.context.session.csrfToken} error={error} />
+      <ShopListing
+        view={page.value}
+        preferences={preferences}
+        csrfToken={session.context.session.csrfToken}
+        error={error}
+        refusal={null}
+        sessionNotice={session.context.session.keyStatus === "VERIFY_ONLY" ? <SessionNotice kind="rotate" csrfToken={session.context.session.csrfToken} /> : null}
+      />
       <p>
         <Link href="/checkouts" prefetch={false} className="underline">
           Your checkouts
@@ -119,16 +127,49 @@ async function ShopContentUnguarded({ searchParams }: { searchParams: SearchPara
   }
 
   const view = await buildShoppingView(runtime.value, preferences);
-  const error = messageFor(typeof query.error === "string" ? query.error : undefined);
+  const errorCode = typeof query.error === "string" ? query.error : undefined;
+  // F07 refusals (M2-3) get their own message and a link to purchase permissions. This page is English only.
+  const refusal = isPermissionRefusal(errorCode) ? errorCode : null;
+  const error = refusal ? null : messageFor(errorCode);
 
-  return <ShopListing view={view} preferences={preferences} csrfToken={session.csrfToken} error={error} />;
+  return <ShopListing view={view} preferences={preferences} csrfToken={session.csrfToken} error={error} refusal={refusal} />;
 }
 
-/** The recommendations as shown in both modes: the same markup, whichever catalog the view was built on. */
-function ShopListing({ view, preferences, csrfToken, error }: { view: ShoppingView; preferences: ShopperPreferences; csrfToken: string; error: string | null }) {
+export const SHOP_ALERT_ID = "shop-alert";
+export const SHOP_STEP_HEADING_ID = "demo-heading";
+
+/** The skip link's target: a refusal or error when one is shown, otherwise the demo-store list, where a quote is requested. */
+export function shopCurrentTargetId(state: { readonly error: string | null; readonly refusal: PermissionRefusalCode | null }): string {
+  return state.refusal || state.error ? SHOP_ALERT_ID : SHOP_STEP_HEADING_ID;
+}
+
+/**
+ * The recommendations as shown in both modes: the same markup, whichever catalog the view was built on. The skip link
+ * (M2-3) is its first focusable element; a session notice, when there is one, follows it.
+ */
+export function ShopListing({
+  view,
+  preferences,
+  csrfToken,
+  error,
+  refusal,
+  sessionNotice = null,
+}: {
+  view: ShoppingView;
+  preferences: ShopperPreferences;
+  csrfToken: string;
+  error: string | null;
+  refusal: PermissionRefusalCode | null;
+  sessionNotice?: ReactNode;
+}) {
   return (
     <>
-      {error ? <p role="alert" className="rounded border-2 border-red-700 p-3">{error}</p> : null}
+      <a className="skip-link" href={`#${shopCurrentTargetId({ error, refusal })}`}>
+        {journeyCopy("en").skipToCurrentStep}
+      </a>
+      {sessionNotice}
+      {refusal ? <PermissionRefusal language="en" code={refusal} id={SHOP_ALERT_ID} /> : null}
+      {error ? <p id={SHOP_ALERT_ID} tabIndex={-1} role="alert" className="rounded border-2 border-red-700 p-3">{error}</p> : null}
       <p>
         Showing demo laptops for <strong>{USE_LABELS[preferences.use]}</strong> with a budget of{" "}
         <strong>{formatUsd(preferences.budgetCents)}</strong>.
@@ -143,8 +184,8 @@ function ShopListing({ view, preferences, csrfToken, error }: { view: ShoppingVi
         </p>
       ) : null}
 
-      <section aria-labelledby="demo-heading" className="flex flex-col gap-4">
-        <h2 id="demo-heading" className="text-2xl font-semibold">
+      <section aria-labelledby={SHOP_STEP_HEADING_ID} className="flex flex-col gap-4">
+        <h2 id={SHOP_STEP_HEADING_ID} tabIndex={-1} className="text-2xl font-semibold">
           Demo store laptops (simulated Sandbox catalog)
         </h2>
         <p className="text-sm">

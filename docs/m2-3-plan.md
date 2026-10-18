@@ -90,7 +90,7 @@ Prepared October 16, 2026 (America/New_York) by Claude. Planned against `main` a
 | `currency` | `"USD"`; a quote in any other currency never matches |
 | `createdAt`, `expiresAt` | ISO times. `expiresAt` is always a concrete timestamp, computed once at creation: the earliest of the shopper's choice (15 minutes, 1 hour, or "until this session ends"), the session's absolute expiry and, when admission is on, the admission cookie's expiry. "Until this session ends" is stored as that earliest deadline, never as an open-ended value, so expiry is the same after a restart |
 | `state` | `active`, `reserved`, `executing`, `consumed`, `revoked`, `expired` or `outcome_unknown` |
-| `checkoutIntentId` | the checkout holding the permission (`reserved`, `executing`, `consumed`), and kept on `outcome_unknown` for tracing and reconciling the uncertain checkout; else `null`. `outcome_unknown` never has purchase authority |
+| `checkoutIntentId` | the checkout holding the permission (`reserved`, `executing`, `consumed`), and kept on `outcome_unknown` for tracing and reconciling the uncertain checkout. A `revoked` or `expired` permission keeps the checkout that held it when it ended, so that checkout reports the true reason (review finding 4, October 17); it is dropped on restart. Otherwise `null`. Only the state carries authority: `outcome_unknown`, `revoked` and `expired` never authorize anything |
 | `changedAt` | time of the last state change |
 
 **Expiry:**
@@ -243,18 +243,35 @@ Reusable permissions with a cumulative budget are recorded as deferred.
 - explanation: the permission allows one purchase of this item within these limits; you still confirm each purchase;
 - each refusal code above;
 - each state name;
-- "Revoke permission {label}" / "Revocar el permiso {label}";
-- the revocation result, with the number of remaining active permissions.
+- "Revoke permission" / "Revocar permiso", described by the item's name;
+- the creation and revocation results as plain sentences.
 
-The label is the 8 characters after `prm_`. Amounts use the existing USD formatter.
+Superseded during the browser check (defect D1, October 17): no permission label or identifier is shown, in text, button names or URLs. Amounts use the existing USD formatter.
 
-**Accessibility (site patterns, no automatic focus moves):**
+**Accessibility (site patterns):**
 - every field has a visible `<label>`; errors are listed in an alert and linked from the field with `aria-describedby`;
 - results of create, revoke and refusals are the "Skip to the current step" target, as for B5 in M2-2;
+- **focus on arrival (owner decision, October 17, after the browser check):** after Review, focus moves to the review heading; after Create, Revoke or a form error, to the result message. This deliberately departs from the site's "no automatic focus" pattern, on this page only. It needs one small client component (`FocusOnArrival`, React import only), added to the SEC-01 client-code allowlist with that restriction. Targets have `tabIndex={-1}` and a visible outline however focus arrived. Whether a screen reader announces the target on arrival is unverified until the VM check;
+- **skip links on `/shop` and the checkout (same decision):** "Skip to the current step" is the first focusable element. It targets a refusal or error when one is shown; otherwise `/shop` targets the demo-store list, and the checkout targets a notice, then the confirmation summary, a quote problem, the quote, or the payment section. Both modes (mock and PostgreSQL) get it. The confirmation heading takes `tabIndex={-1}` only while it is the target, as in the needs review;
+- **SEC-01 exception, tightened after review finding 1 and the second review:** `FocusOnArrival.tsx` must match its reviewed SHA-256, stored separately in `tests/unit/sec01-pins.ts` (any change needs a reviewed update of that value), and may contain only an allowlisted vocabulary (the directive, one import of React's `useEffect`, `getElementById`, `focus`), read in one pass so a `"//"` string cannot hide code. Every script file under `src`, `.mts` and `.cts` included, is collected (the same collector feeds the repository assertion) and scanned for a client directive anywhere in its prologue (exactly two allowed). Module references are read with the TypeScript parser (an existing dependency) and resolved as the project resolves them (`@/` alias, relative paths, with or without an explicit supported suffix): only `PurchasePermissions` may import `FocusOnArrival`, and only the permissions page may import `PurchasePermissions`; a barrel or re-export is itself an importer. Any `import()` or `require()` whose specifier is not a literal is refused anywhere in `src` (none exists today). This is a source policy: a refusal does not depend on whether a bundler would include the module. Not covered: module loading that is not an import or require call (for example `new Function`, or a URL passed to a worker); the pin and vocabulary checks guard the excepted module itself. Negative controls, on a temporary source tree through the same collector and checker, cover each bypass the reviews demonstrated (Codex review findings 1–2);
+- **seller descriptor (same decision):** the seller's proper name is kept; the catalog's "(simulated)" is shown as "(simulada)" on Spanish pages (permissions page and Spanish confirmation summary). Display only: the catalog and saved confirmation summaries are unchanged. English pages, including the English-only parts of a Spanish checkout, are unchanged;
 - the list is a real list, each Revoke a button with the permission's label in its name;
 - visible focus, logical tab order, no keyboard traps;
 - amounts and dates in text, not only visually;
 - `lang` is set per page language.
+
+**Checkout messages and actions after the slice 3 source review (owner-approved findings 2–6, October 17):**
+- The checkout page derives its F07 refusal from saved state (`buildCheckoutView`'s `permissionRefusal`), never from the URL: from preparing the confirmation while `QUOTED`, and afterwards from the gate's read-only `display` check (the gate ignores the phase) in the confirmed, pre-capture states including an unknown order (and `CONFIRMATION_REQUIRED` once a capture was declined). While a refusal applies, no payment step is offered: simulation keeps Cancel and Reconcile (which only reads back; a resend stays gated), and sandbox shows its existing protected Cancel form while cancelling is valid.
+- The current refusal replaces any message carried in the URL, so the page never also says "review the summary below" with no summary.
+- A permission code in the URL is shown only once a capture's outcome is unproven, and then as manual review; otherwise it is ignored, so "nothing was charged" is never inferred from the URL.
+- "Payment may already have gone through" is a full, accessible HTML page with no form, button, link or script, with the same non-sensitive reference the earlier JSON carried (also in the audit record), and is audited best effort in both simulation and sandbox (the in-memory audit log is separate from the blocked state store; a failure to audit never changes the page). A resubmission is refused by the blocked store before anything runs.
+- Not changed: expiry rules, save-first ordering, every gate check and the payment state machine.
+
+**Checkout language of parts (owner-approved correction, October 18):** a check found the mock checkout page had no `lang` at all, so Spanish checkout content (the refusal, skip link and progress steps) inherited `<html lang="en">`. This gap predates M2-3. The page is now marked with the checkout's resolved interface language (none recorded means English). On a Spanish checkout, the parts that are English whatever the language are marked English: the page heading, the quote lines, generic `messageFor` notices and errors, the simulated-payment panel and "Back to the start". The localised sandbox errors stay unmarked and inherit Spanish. Copy, values, permission authority, payment behaviour and the language-selection rules are unchanged; mixed-language copy stays tracked under finding 8.
+
+**Proposal, not implemented (review finding 7):** give revoke its own per-session rate-limit bucket (for example `permission_revoke`, 20 per minute per session, same guard), so checkout confirmation and permission creation cannot exhaust it; keep create in the shared `confirmation` bucket. Abuse protection stays: revoke is still per-session limited, CSRF- and origin-guarded, and changes only the caller's own permissions.
+
+**Tracked, not changed (review finding 8):** focus can move again on a reload or bookmark of a result address, and after the shopper has started tabbing if hydration is slow (needs the VM check and keyboard observation); English product names on the Spanish permissions page lack `lang="en"`; Spanish checkouts still show some English `messageFor` errors (pre-existing).
 
 ## 10. Testing and validation
 
@@ -290,6 +307,8 @@ The label is the 8 characters after `prm_`. Amounts use the existing USD formatt
 7. Visible focus and tab order on the permissions page and the checkout refusal.
 
 **Screen readers:** not run on the owner's normal desktop. Any VoiceOver check uses the disposable-VM setup from the E1 handoff, and results are claimed only if observed.
+
+**Amendment (owner-approved, October 18):** an owner-operated, manual VoiceOver check may run on the owner's normal Mac. The owner operates VoiceOver and the browser; Claude gives one step at a time, manages the existing mock-only server on 127.0.0.1, and records the observations. It does **not** permit automated desktop navigation, VoiceOver AppleScript control, new macOS Accessibility or Automation permission grants, software installation, or VM or account provisioning. Spoken observations are recorded separately from DOM, browser and unit evidence. They don't grant F11 or A35 acceptance.
 
 ## 11. Failure and rollback
 

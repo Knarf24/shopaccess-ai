@@ -60,7 +60,11 @@ export interface PersistedPermission {
   readonly createdAt: Date;
   readonly expiresAt: Date;
   readonly state: PermissionState;
-  /** The checkout holding it: set exactly for `reserved`, `executing`, `consumed` and `outcome_unknown`. */
+  /**
+   * The checkout holding it: set exactly for `reserved`, `executing`, `consumed` and `outcome_unknown`. A `revoked` or
+   * `expired` permission may keep the checkout that held it when it ended (so that checkout reports why); `active` never
+   * has one. Only the state decides authority.
+   */
   readonly checkoutIntentId: string | null;
   readonly changedAt: Date;
 }

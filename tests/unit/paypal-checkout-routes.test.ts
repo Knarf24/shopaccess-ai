@@ -255,7 +255,7 @@ describe("PayPal sandbox checkout handlers", () => {
 
   it("shows capture success only after the capture is verified", () => {
     const copy = journeyCopy("en").sandboxCheckout;
-    const markup = (state: PaymentState) =>
+    const markup = (state: PaymentState, permissionRefusal: CheckoutView["permissionRefusal"] = null, steps: CheckoutView["steps"] = []) =>
       renderToStaticMarkup(
         SandboxCheckoutActions({
           view: {
@@ -266,7 +266,8 @@ describe("PayPal sandbox checkout handlers", () => {
             merchantName: "ShopAccess Demo Store (simulated)",
             challenge: null,
             challengeProblem: null,
-            steps: [],
+            permissionRefusal,
+            steps,
             transitions: [],
             observations: [],
             operations: [],
@@ -281,6 +282,20 @@ describe("PayPal sandbox checkout handlers", () => {
     expect(markup("CAPTURED_VERIFIED")).toContain(copy.captured);
     expect(markup("USER_CONFIRMED")).toContain(copy.approve);
     expect(markup("USER_CONFIRMED")).not.toContain(copy.captured);
+    // M2-3 review finding 3: while a permission refusal applies, neither approval nor capture is offered.
+    for (const refusal of ["PERMISSION_REVOKED", "CONFIRMATION_REQUIRED"] as const) {
+      expect(markup("USER_CONFIRMED", refusal), refusal).not.toMatch(/<form|<button/);
+      expect(markup("APPROVED_VERIFIED", refusal), refusal).not.toMatch(/<form|<button/);
+      // Second review finding 2: while cancelling is valid, the protected cancel form is the only control.
+      for (const state of ["USER_CONFIRMED", "APPROVED_VERIFIED"] as const) {
+        const html = markup(state, refusal, ["cancel"]);
+        expect([...html.matchAll(/<form\b[^>]*action="([^"]+)"/g)].map((match) => match[1]), `${state} ${refusal}`).toEqual([`/checkout/ci_${"ab".repeat(16)}/cancel`]);
+        expect(html).toContain('<input type="hidden" name="csrfToken" value="csrf"/>');
+        expect([...html.matchAll(/<button\b[^>]*>([^<]*)<\/button>/g)].map((match) => match[1])).toEqual([copy.cancel]);
+      }
+    }
+    // No refusal: no cancel form here (unchanged behaviour).
+    expect(markup("APPROVED_VERIFIED", null, ["cancel"])).not.toContain("/cancel");
   });
 
   it("refuses approve, return, and capture for mock mode, a missing provider, an inconsistent runtime, and PostgreSQL routes", async () => {

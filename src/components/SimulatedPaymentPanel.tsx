@@ -14,11 +14,12 @@ export function SandboxCheckoutActions({
 }) {
   return (
     <section aria-labelledby="sandbox-heading" className="flex flex-col gap-4 rounded-lg border border-zinc-400 p-4">
-      <h2 id="sandbox-heading" className="text-xl font-semibold">
+      <h2 id="sandbox-heading" tabIndex={-1} className="text-xl font-semibold">
         {copy.heading}
       </h2>
       {view.state === "CAPTURED_VERIFIED" ? <p role="status">{copy.captured}</p> : null}
-      {view.state === "APPROVED_VERIFIED" ? (
+      {/* While a purchase-permission refusal applies (M2-3), approval and capture are not offered: the gate would refuse. */}
+      {view.state === "APPROVED_VERIFIED" && !view.permissionRefusal ? (
         <>
           <p>{copy.approved}</p>
           <form method="post" action={`/checkout/${view.intentId}/capture`}>
@@ -27,7 +28,7 @@ export function SandboxCheckoutActions({
           </form>
         </>
       ) : null}
-      {view.state === "USER_CONFIRMED" ? (
+      {view.state === "USER_CONFIRMED" && !view.permissionRefusal ? (
         <form method="post" action={`/checkout/${view.intentId}/approve`}>
           <input type="hidden" name="csrfToken" value={csrfToken} />
           <button type="submit" className="rounded border border-zinc-600 px-3 py-2">{copy.approve}</button>
@@ -36,15 +37,26 @@ export function SandboxCheckoutActions({
       {view.state === "AWAITING_APPROVAL" || view.state === "APPROVAL_CHECK_PENDING" ? <p>{copy.awaiting}</p> : null}
       {view.state === "CANCELED_LOCAL" ? <p>{copy.canceled}</p> : null}
       {view.state === "MANUAL_REVIEW" || view.state === "ORDER_CREATE_UNKNOWN" || view.state === "CAPTURE_UNKNOWN" ? <p>{copy.unknown}</p> : null}
+      {/*
+        A refusal tells the shopper to cancel (M2-3, second review finding 2). The existing protected cancel route, offered
+        only while a refusal applies and cancelling is still valid (before any capture; `steps` keeps "cancel" exactly then).
+      */}
+      {view.permissionRefusal && view.steps.includes("cancel") ? (
+        <form method="post" action={`/checkout/${view.intentId}/cancel`}>
+          <input type="hidden" name="csrfToken" value={csrfToken} />
+          <button type="submit" className="rounded border border-zinc-600 px-3 py-2">{copy.cancel}</button>
+        </form>
+      ) : null}
     </section>
   );
 }
 
 /** Shows the SIMULATED payment lifecycle: local state, what the mock provider reported, and the controls that drive the mock. */
-export function SimulatedPaymentPanel({ view, csrfToken }: { view: CheckoutView; csrfToken: string }) {
+export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: CheckoutView; csrfToken: string; lang?: "en" }) {
+  // The panel is English only; `lang` marks it so on a page in another language.
   return (
-    <section aria-labelledby="sim-heading" className="flex flex-col gap-4 rounded-lg border-2 border-amber-600 p-4">
-      <h2 id="sim-heading" className="text-xl font-semibold">
+    <section aria-labelledby="sim-heading" lang={lang} className="flex flex-col gap-4 rounded-lg border-2 border-amber-600 p-4">
+      <h2 id="sim-heading" tabIndex={-1} className="text-xl font-semibold">
         Simulated payment (no real payment)
       </h2>
       <p className="text-sm">

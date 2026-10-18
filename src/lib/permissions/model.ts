@@ -58,12 +58,14 @@ export function authorityOf(p: PersistedPermission, sessionId: string, now: Date
   return { ok: true };
 }
 
-/** Records lapsed authority: `active` or `reserved` past expiry becomes `expired` (as of its expiry). Others unchanged. */
+/**
+ * Records lapsed authority: `active` or `reserved` past expiry becomes `expired` (as of its expiry). Others unchanged.
+ * A reserved permission keeps the ID of the checkout that held it, so that checkout can still say why it ended (review
+ * finding 4); an ended permission authorizes nothing, whatever it records.
+ */
 export function settleExpired(permissions: readonly PersistedPermission[], now: Date): PersistedPermission[] {
   return permissions.map((p) =>
-    (p.state === "active" || p.state === "reserved") && now.getTime() >= p.expiresAt.getTime()
-      ? { ...p, state: "expired", checkoutIntentId: null, changedAt: p.expiresAt }
-      : p,
+    (p.state === "active" || p.state === "reserved") && now.getTime() >= p.expiresAt.getTime() ? { ...p, state: "expired", changedAt: p.expiresAt } : p,
   );
 }
 
@@ -156,14 +158,15 @@ export function decideRevoke(
   const target = settled.find((p) => p.permissionId === permissionId && p.sessionId === sessionId);
   if (!target || FINAL.has(target.state)) return { result: "unknown" };
   if (target.state === "executing") return { result: "in_progress" };
-  return { result: "revoked", permissions: settled.map((p) => (p === target ? { ...p, state: "revoked", checkoutIntentId: null, changedAt: now } : p)) };
+  // A reserved permission keeps its checkout's ID (finding 4): that checkout then reports "revoked", not a newer permission.
+  return { result: "revoked", permissions: settled.map((p) => (p === target ? { ...p, state: "revoked", changedAt: now } : p)) };
 }
 
 /** Logout: every `active` or `reserved` permission of the session is revoked in the same decision. `executing` is kept. */
 export function revokeSessionPermissions(existing: readonly PersistedPermission[], sessionId: string, at: Date): PersistedPermission[] {
   return existing.map((p) =>
     p.sessionId === sessionId && (p.state === "active" || p.state === "reserved")
-      ? { ...p, state: "revoked", checkoutIntentId: null, changedAt: new Date(Math.max(at.getTime(), p.createdAt.getTime())) }
+      ? { ...p, state: "revoked", changedAt: new Date(Math.max(at.getTime(), p.createdAt.getTime())) }
       : p,
   );
 }
@@ -171,12 +174,13 @@ export function revokeSessionPermissions(existing: readonly PersistedPermission[
 /**
  * After a restart. Checkouts are memory-only, so no reservation can still be in use: `reserved` returns to `active`.
  * A capture that may have been sent cannot be proven either way: `executing` becomes `outcome_unknown`, never `active`.
- * Lapsed `active`/`reserved` become `expired`.
+ * Lapsed `active`/`reserved` become `expired`. Revoked and expired permissions drop the ID of the (now gone) checkout.
  */
 export function restorePermissions(saved: readonly PersistedPermission[], now: Date): PersistedPermission[] {
   return settleExpired(saved, now).map((p) => {
     if (p.state === "reserved") return { ...p, state: "active", checkoutIntentId: null, changedAt: now };
     if (p.state === "executing") return { ...p, state: "outcome_unknown", changedAt: now };
+    if ((p.state === "revoked" || p.state === "expired") && p.checkoutIntentId !== null) return { ...p, checkoutIntentId: null };
     return p;
   });
 }

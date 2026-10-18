@@ -38,6 +38,8 @@ const CHECKOUT_INTENT_ID = /^ci_[0-9a-f]{32}$/;
 const PERMISSION_STATES = new Set(["active", "reserved", "executing", "consumed", "revoked", "expired", "outcome_unknown"]);
 /** States that carry a checkout: set exactly for these. */
 const BOUND_STATES = new Set(["reserved", "executing", "consumed", "outcome_unknown"]);
+/** Ended permissions may record the checkout that held them when they ended (M2-3 review finding 4). */
+const ENDED_STATES = new Set(["revoked", "expired"]);
 /** States that can hold authority (before expiry): at most one per binding and five per session. */
 const LIVE_STATES = new Set(["active", "reserved", "executing"]);
 const MAX_LIVE_PERMISSIONS_PER_SESSION = 5;
@@ -591,8 +593,8 @@ function permissionIdentity(
   if (!createdAt || !expiresAt || !changedAt) return null;
   if (expiresAt.getTime() <= createdAt.getTime() || expiresAt.getTime() - createdAt.getTime() > MAX_PERMISSION_LIFETIME_MS) return null;
   if (changedAt.getTime() < createdAt.getTime()) return null;
-  const bound = BOUND_STATES.has(value.state);
-  if (bound ? typeof value.checkoutIntentId !== "string" || !CHECKOUT_INTENT_ID.test(value.checkoutIntentId) : value.checkoutIntentId !== null) return null;
+  const linked = typeof value.checkoutIntentId === "string" && CHECKOUT_INTENT_ID.test(value.checkoutIntentId);
+  if (BOUND_STATES.has(value.state) ? !linked : ENDED_STATES.has(value.state) ? !linked && value.checkoutIntentId !== null : value.checkoutIntentId !== null) return null;
   return {
     permissionId: value.permissionId,
     sessionId: value.sessionId,

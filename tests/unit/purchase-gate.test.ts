@@ -127,11 +127,11 @@ describe("checkout start", () => {
     const { runtime } = memoryWorld();
     const sid = await shopper(runtime);
     await grant(runtime, sid, { maxQuantity: 1, maxTotalCents: PRICE - 1 });
-    expect(await startCheckoutWithQuote(runtime.checkout, sid, ITEM)).toEqual({ ok: false, error: "PERMISSION_MISMATCH" });
+    expect(await startCheckoutWithQuote(runtime.checkout, sid, ITEM)).toEqual({ ok: false, error: "PERMISSION_TOTAL_EXCEEDED" });
     const { runtime: other } = memoryWorld();
     const sid2 = await shopper(other);
     await grant(other, sid2, { maxQuantity: 1, maxTotalCents: 200_000 });
-    expect(await startCheckoutWithQuote(other.checkout, sid2, { ...ITEM, quantity: 2 })).toEqual({ ok: false, error: "PERMISSION_MISMATCH" });
+    expect(await startCheckoutWithQuote(other.checkout, sid2, { ...ITEM, quantity: 2 })).toEqual({ ok: false, error: "PERMISSION_QUANTITY_EXCEEDED" });
     expect(await startCheckoutWithQuote(other.checkout, sid2, { productId: "dmp_aspirego15", variantId: "dmv_aspirego15", quantity: 1 })).toEqual({ ok: false, error: "PERMISSION_REQUIRED" });
   });
 
@@ -229,7 +229,7 @@ describe("re-checks at confirmation and order creation", () => {
     expect(await prepareConfirmation(runtime.checkout, sid, otherItem.value.quoteId)).toEqual({ ok: false, error: "PERMISSION_MISMATCH" });
     const moreUnits = await requestQuote(runtime.checkout, sid, intent.id, { ...ITEM, quantity: 2 });
     if (!moreUnits.ok) throw new Error(moreUnits.error);
-    expect(await prepareConfirmation(runtime.checkout, sid, moreUnits.value.quoteId)).toEqual({ ok: false, error: "PERMISSION_MISMATCH" });
+    expect(await prepareConfirmation(runtime.checkout, sid, moreUnits.value.quoteId)).toEqual({ ok: false, error: "PERMISSION_QUANTITY_EXCEEDED" });
   });
 
   it("price changes are checked against the current total: lower or equal to the maximum passes, above it refuses", () => {
@@ -256,10 +256,10 @@ describe("re-checks at confirmation and order creation", () => {
     const quote = { merchantId: runtime.catalog.merchant.merchantId, productId: ITEM.productId, variantId: ITEM.variantId, quantity: 1, totalCents: PRICE, currency: "USD" };
     expect(gate.check("ses_live", { ...quote, totalCents: 50_000 }, "ci_held", "confirm_submit")).toEqual({ ok: true });
     expect(gate.check("ses_live", { ...quote, totalCents: 90_000 }, "ci_held", "order_create")).toEqual({ ok: true });
-    expect(gate.check("ses_live", { ...quote, totalCents: 90_001 }, "ci_held", "order_create")).toEqual({ ok: false, code: "PERMISSION_MISMATCH" });
+    expect(gate.check("ses_live", { ...quote, totalCents: 90_001 }, "ci_held", "order_create")).toEqual({ ok: false, code: "PERMISSION_TOTAL_EXCEEDED" });
     expect(gate.check("ses_live", { ...quote, currency: "EUR" }, "ci_held", "order_create")).toEqual({ ok: false, code: "PERMISSION_MISMATCH" });
     expect(gate.check("ses_live", { ...quote, merchantId: "dmm_othershop1" }, "ci_held", "order_create").ok).toBe(false);
-    expect(gate.check("ses_live", { ...quote, quantity: 2 }, "ci_held", "order_create")).toEqual({ ok: false, code: "PERMISSION_MISMATCH" });
+    expect(gate.check("ses_live", { ...quote, quantity: 2 }, "ci_held", "order_create")).toEqual({ ok: false, code: "PERMISSION_QUANTITY_EXCEEDED" });
     expect(gate.check("ses_live", quote, "ci_other", "order_create")).toEqual({ ok: false, code: "PERMISSION_UNAVAILABLE" });
     expect(gate.check("ses_dead", quote, "ci_held", "order_create")).toEqual({ ok: false, code: "PERMISSION_UNAVAILABLE" });
   });

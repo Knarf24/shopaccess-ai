@@ -20,6 +20,12 @@
   outline-offset: 3px;
 }
 
+/* Skip-link and focus-on-arrival targets (tabIndex -1) show where focus went, however it got there (M2-3). */
+.guided-presentation [tabindex="-1"]:focus {
+  outline: 3px solid var(--gp-focus);
+  outline-offset: 3px;
+}
+
 .guided-presentation .skip-link {
   position: absolute;
   width: 1px;

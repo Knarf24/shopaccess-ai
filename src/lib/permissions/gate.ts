@@ -16,7 +16,10 @@ import { authorityOf, bindingKey, isLive, release, reserve, settleExpired } from
 
 export type PurchaseRefusal =
   | "PERMISSION_REQUIRED"
+  /** Another seller, product or variant, or another currency. */
   | "PERMISSION_MISMATCH"
+  | "PERMISSION_QUANTITY_EXCEEDED"
+  | "PERMISSION_TOTAL_EXCEEDED"
   | "PERMISSION_EXPIRED"
   | "PERMISSION_REVOKED"
   | "PERMISSION_IN_USE"
@@ -36,7 +39,8 @@ export interface QuoteTerms {
   readonly currency: string;
 }
 
-export type CheckPhase = "confirm_prepare" | "confirm_submit" | "order_create" | "order_resend";
+/** `display`: read-only, to show a checkout page that agrees with the saved permission (M2-3 review finding 3). */
+export type CheckPhase = "confirm_prepare" | "confirm_submit" | "order_create" | "order_resend" | "display";
 
 export interface PurchaseGate {
   /** Checkout start: the one matching live permission is reserved for `checkoutIntentId`, saved before success. */
@@ -79,8 +83,16 @@ const OK: GateResult = { ok: true };
 const sameBinding = (p: PersistedPermission, sessionId: string, quote: QuoteTerms) =>
   bindingKey(p) === bindingKey({ sessionId, merchantId: quote.merchantId, productId: quote.productId, variantId: quote.variantId });
 
-/** Quantity, final payable total and currency within the permission. A lower price is fine; a higher one only up to the maximum. */
-const withinBounds = (p: PersistedPermission, quote: QuoteTerms) => quote.quantity <= p.maxQuantity && quote.totalCents <= p.maxTotalCents && quote.currency === p.currency;
+/**
+ * Quantity, final payable total and currency within the permission, or the refusal. A lower price is fine; a higher
+ * one only up to the maximum.
+ */
+function boundsRefusal(p: PersistedPermission, quote: QuoteTerms): PurchaseRefusal | null {
+  if (quote.currency !== p.currency) return "PERMISSION_MISMATCH";
+  if (quote.quantity > p.maxQuantity) return "PERMISSION_QUANTITY_EXCEEDED";
+  if (quote.totalCents > p.maxTotalCents) return "PERMISSION_TOTAL_EXCEEDED";
+  return null;
+}
 
 /** The shopper-facing reason when no live permission for the binding exists. */
 function absentReason(permissions: readonly PersistedPermission[], sessionId: string, quote: QuoteTerms, now: Date): PurchaseRefusal {
@@ -115,7 +127,9 @@ function heldBy(
   }
   if (permission.state === "revoked") return { ok: false, code: "PERMISSION_REVOKED" };
   if (!states.has(permission.state)) return { ok: false, code: "PERMISSION_UNAVAILABLE" };
-  if (!sameBinding(permission, sessionId, quote) || !withinBounds(permission, quote)) return { ok: false, code: "PERMISSION_MISMATCH" };
+  if (!sameBinding(permission, sessionId, quote)) return { ok: false, code: "PERMISSION_MISMATCH" };
+  const outside = boundsRefusal(permission, quote);
+  if (outside) return { ok: false, code: outside };
   return { ok: true, permission };
 }
 
@@ -142,7 +156,8 @@ export function createPurchaseGate(deps: GateDeps): PurchaseGate {
         if (live.length > 1) return { value: refused("PERMISSION_UNAVAILABLE") };
         const permission = live[0];
         if (!permission) return { value: refused(absentReason(permissions, sessionId, quote, now)) };
-        if (!withinBounds(permission, quote)) return { value: refused("PERMISSION_MISMATCH") };
+        const outside = boundsRefusal(permission, quote);
+        if (outside) return { value: refused(outside) };
         if (permission.state === "executing") return { value: refused("PERMISSION_IN_USE") };
         let available = permission;
         if (permission.state === "reserved") {

@@ -1,5 +1,8 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import {
   appendAuditEvent,
@@ -18,6 +21,7 @@ import { PUBLIC_ERROR_CODES, publicErrorFromUnknown, toPublicError } from "@/lib
 import { createFixedWindowRateLimiter, InMemoryRateLimitStore, PROPOSED_RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit";
 import { generateSessionToken } from "@/lib/session/token";
 import { PAYMENT_STATES } from "@/lib/payment/state-machine";
+import { FOCUS_ON_ARRIVAL_SHA256 } from "./sec01-pins";
 import { createTestClock, MINUTE } from "./helpers";
 
 const ROOT = process.cwd();
@@ -29,6 +33,150 @@ function filesUnder(dir: string, pattern: RegExp): string[] {
     if (statSync(path).isDirectory()) return filesUnder(path, pattern);
     return pattern.test(name) ? [path] : [];
   });
+}
+
+/**
+ * SEC-01 client-code exception for FocusOnArrival.tsx (M2-3, owner decision October 17; tightened after review finding 1
+ * and the second review's finding 1). Two layers:
+ * - the file's bytes must match the approved SHA-256 in sec01-pins.ts, so any change at all needs a reviewed update;
+ * - its vocabulary is limited to the directive, one import of React's useEffect, getElementById and focus. Any other
+ *   identifier or string (a second import, require, import(), a re-export, network, storage, cookie, location or HTML
+ *   APIs, JSX) is a violation. Comments and strings are read in one left-to-right pass, so "//" inside a string cannot
+ *   hide the rest of a line. Code with no identifiers or strings at all is caught only by the pin.
+ */
+const FOCUS_ON_ARRIVAL_IDENTIFIERS = new Set([
+  "Document", "FocusOnArrival", "Pick", "boolean", "const", "doc", "document", "export", "false", "focus", "focusArrivalTarget",
+  "from", "function", "getElementById", "if", "import", "null", "readonly", "return", "string", "target", "targetId", "true", "useEffect",
+]);
+const FOCUS_ON_ARRIVAL_STRINGS = new Set(["use client", "react", "getElementById"]);
+
+export function focusOnArrivalViolations(source: string): string[] {
+  const violations: string[] = [];
+  // One pass: whichever of a comment or a string starts first wins, as in the language itself.
+  const strings: string[] = [];
+  const bare = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g, (token) => {
+    if (token[0] === "/") return " ";
+    strings.push(token);
+    return " ";
+  });
+  const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)/g, (_match: string, literal?: string) => literal ?? " ");
+  if (!/^"use client";\s*import \{ useEffect \} from "react";\s/.test(code)) violations.push("must start with the directive and its one React import");
+  for (const literal of strings) {
+    if (literal[0] !== '"' || !FOCUS_ON_ARRIVAL_STRINGS.has(literal.slice(1, -1))) violations.push(`string ${literal}`);
+  }
+  for (const identifier of new Set(bare.match(/[A-Za-z_$][\w$]*/g) ?? [])) {
+    if (!FOCUS_ON_ARRIVAL_IDENTIFIERS.has(identifier)) violations.push(`identifier ${identifier}`);
+  }
+  if ((bare.match(/\bimport\b/g) ?? []).length !== 1) violations.push("exactly one import");
+  if ((bare.match(/\bfrom\b/g) ?? []).length !== 1) violations.push("no re-export");
+  return violations;
+}
+
+/** The approved-contents check for an excepted client module: null when its bytes match the reviewed pin. */
+export function pinViolation(bytes: Buffer | string, expectedSha256: string): string | null {
+  const actual = createHash("sha256").update(bytes).digest("hex");
+  return actual === expectedSha256 ? null : `contents differ from the reviewed pin (sha256 ${actual})`;
+}
+
+const SCRIPT_FILE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+
+/** True when the file's directive prologue (after comments and any other directives) contains "use client". */
+function declaresClient(text: string): boolean {
+  if (/^\s*["']use client["']/m.test(text)) return true;
+  let rest = text;
+  for (;;) {
+    rest = rest.replace(/^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)+/, "");
+    const directive = rest.match(/^(["'])([^"'\n]*)\1\s*;?/);
+    if (!directive) return false;
+    if (directive[2] === "use client") return true;
+    rest = rest.slice(directive[0].length);
+  }
+}
+
+/** Every source file (any script extension, anywhere under src) that declares itself client code. */
+export function clientDirectiveFiles(files: readonly { readonly path: string; readonly text: string }[]): string[] {
+  return files.filter((file) => SCRIPT_FILE.test(file.path) && declaresClient(file.text)).map((file) => file.path);
+}
+
+type Source = { readonly path: string; readonly text: string };
+
+/** Every source file SEC-01 inspects under `dir`: all supported script extensions (Codex review finding 1). */
+export function collectSec01Sources(dir: string): Source[] {
+  return filesUnder(dir, SCRIPT_FILE).map((path) => ({ path, text: readFileSync(path, "utf8") }));
+}
+
+const SCRIPT_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"] as const;
+
+function scriptKind(path: string): ts.ScriptKind {
+  if (/\.tsx$/.test(path)) return ts.ScriptKind.TSX;
+  if (/\.(?:ts|mts|cts)$/.test(path)) return ts.ScriptKind.TS;
+  if (/\.jsx$/.test(path)) return ts.ScriptKind.JSX;
+  return ts.ScriptKind.JS;
+}
+
+/**
+ * The module references in one file, read with the TypeScript parser (an existing dependency): import and export
+ * declarations, `import x = require()`, `import()` types, and `import()` and `require()` calls. A call whose specifier is
+ * not a literal string (a variable, a concatenation, a template with substitutions) cannot be resolved by reading the
+ * source, so it is reported as computed and the policy refuses it (Codex review finding 2). This is a source policy: it
+ * does not depend on whether a bundler would include the module.
+ */
+function moduleReferences(source: Source): { readonly literals: string[]; readonly computed: string[] } {
+  const file = ts.createSourceFile(source.path, source.text, ts.ScriptTarget.Latest, true, scriptKind(source.path));
+  const literals: string[] = [];
+  const computed: string[] = [];
+  const literalText = (node: ts.Node | undefined) => (node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null);
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
+      const text = literalText(node.moduleSpecifier);
+      if (text !== null) literals.push(text);
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      const text = literalText(node.moduleReference.expression);
+      if (text !== null) literals.push(text);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      const text = literalText(node.argument.literal);
+      if (text !== null) literals.push(text);
+    } else if (ts.isCallExpression(node)) {
+      const dynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const requireCall = ts.isIdentifier(node.expression) && node.expression.text === "require";
+      if (dynamicImport || requireCall) {
+        const text = literalText(node.arguments[0]);
+        if (text !== null) literals.push(text);
+        else computed.push(`${source.path}:${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1} ${dynamicImport ? "import()" : "require()"}`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return { literals, computed };
+}
+
+/**
+ * Resolves a literal specifier to a collected source file, as the project resolves it: `@/` is `src/` (tsconfig paths;
+ * there is no baseUrl, so any other bare specifier is a package), relative paths from the importer, with an explicit
+ * supported suffix or none. Directory index files are not resolved: both policy targets are fixed files, never an index,
+ * so a barrel or alias path can reach them only through a file that imports them directly, and that file is reported.
+ */
+function resolveModule(specifier: string, importer: string, root: string, known: ReadonlySet<string>): string | null {
+  const base = specifier.slice(0, 2) === "@/" ? join(root, "src", specifier.slice(2)) : specifier[0] === "." ? join(dirname(importer), specifier) : null;
+  if (base === null) return null;
+  const stem = base.replace(/\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/, "");
+  const candidates = [base, ...SCRIPT_EXTENSIONS.map((extension) => stem + extension)];
+  return candidates.find((candidate) => known.has(candidate)) ?? null;
+}
+
+/** The SEC-01 client-module and import policy over collected sources (`root` is the repository root they live under). */
+export function sec01Report(sources: readonly Source[], root: string) {
+  const known = new Set(sources.map((source) => source.path));
+  const references = sources.map((source) => ({ path: source.path, ...moduleReferences(source) }));
+  const importersOfFile = (target: string) =>
+    references.filter((entry) => entry.literals.some((specifier) => resolveModule(specifier, entry.path, root, known) === target)).map((entry) => entry.path).sort();
+  return {
+    clientModules: clientDirectiveFiles(sources).sort(),
+    focusOnArrivalImporters: importersOfFile(join(root, "src", "components", "FocusOnArrival.tsx")),
+    purchasePermissionsImporters: importersOfFile(join(root, "src", "components", "PurchasePermissions.tsx")),
+    computedSpecifiers: references.flatMap((entry) => entry.computed).sort(),
+  };
 }
 
 const migrationFiles = readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(".sql")).sort();
@@ -382,6 +530,8 @@ describe("SEC-01: no sensitive credentials in client output or logs", () => {
 
   it("UI code reads no environment variables and imports no server-only modules", () => {
     const listingSearchForm = join(ROOT, "src", "components", "mock-journey", "ListingSearchForm.tsx");
+    // M2-3 (owner decision, October 17): moves focus after a full-page form result. See focusOnArrivalViolations.
+    const focusOnArrival = join(ROOT, "src", "components", "FocusOnArrival.tsx");
     for (const file of [...filesUnder(join(ROOT, "src", "components"), /\.tsx$/), ...filesUnder(join(ROOT, "src", "app"), /\.tsx$/)]) {
       const text = readFileSync(file, "utf8");
       expect(text, file).not.toMatch(/process\.env/);
@@ -389,6 +539,9 @@ describe("SEC-01: no sensitive credentials in client output or logs", () => {
       if (file === listingSearchForm) {
         expect(text).toContain('"use client"');
         expect(text).not.toMatch(/\bfetch\s*\(|@\/lib\/(?:session|db|payment|security|providers)|@\/server\//);
+      } else if (file === focusOnArrival) {
+        expect(focusOnArrivalViolations(text)).toEqual([]);
+        expect(pinViolation(readFileSync(file), FOCUS_ON_ARRIVAL_SHA256)).toBeNull();
       } else {
         expect(text, file).not.toMatch(/["']use client["']/);
       }
@@ -397,6 +550,175 @@ describe("SEC-01: no sensitive credentials in client output or logs", () => {
     const readers = filesUnder(join(ROOT, "src"), /\.(ts|tsx)$/).filter((file) => /process\.env/.test(readFileSync(file, "utf8")));
     expect(readers).toEqual([join(ROOT, "src", "server", "runtime.ts")]);
     expect(readFileSync(readers[0], "utf8").match(/process\.env/g)).toHaveLength(2);
+  });
+
+  it("SEC-01: exactly two client modules in all of src, and FocusOnArrival only where the plan put it", () => {
+    // The permissions page only (docs/m2-3-plan.md §9): FocusOnArrival through PurchasePermissions, used by that page alone.
+    expect(sec01Report(collectSec01Sources(join(ROOT, "src")), ROOT)).toEqual({
+      clientModules: [join(ROOT, "src", "components", "FocusOnArrival.tsx"), join(ROOT, "src", "components", "mock-journey", "ListingSearchForm.tsx")].sort(),
+      focusOnArrivalImporters: [join(ROOT, "src", "components", "PurchasePermissions.tsx")],
+      purchasePermissionsImporters: [join(ROOT, "src", "app", "shop", "permissions", "page.tsx")],
+      computedSpecifiers: [],
+    });
+  });
+
+  describe("SEC-01 through the repository path: collector and policy together, on a temporary source tree (Codex review)", () => {
+    /** Builds a throwaway repository with the real approved files plus the given extra files, and reports on it. */
+    function reportFor(extra: Record<string, string>) {
+      const root = mkdtempSync(join(tmpdir(), "sec01-"));
+      try {
+        const files: Record<string, string> = {
+          "src/components/FocusOnArrival.tsx": readFileSync(join(ROOT, "src", "components", "FocusOnArrival.tsx"), "utf8"),
+          "src/components/mock-journey/ListingSearchForm.tsx": '"use client";\nexport function ListingSearchForm() { return null; }\n',
+          "src/components/PurchasePermissions.tsx": 'import { FocusOnArrival } from "./FocusOnArrival";\nexport const P = FocusOnArrival;\n',
+          "src/app/shop/permissions/page.tsx": 'import { PurchasePermissions } from "@/components/PurchasePermissions";\nexport default PurchasePermissions;\n',
+          ...extra,
+        };
+        for (const [path, text] of Object.entries(files)) {
+          mkdirSync(dirname(join(root, path)), { recursive: true });
+          writeFileSync(join(root, path), text);
+        }
+        const report = sec01Report(collectSec01Sources(join(root, "src")), root);
+        const relative = (paths: readonly string[]) => paths.map((path) => path.slice(root.length + 1)).sort();
+        return {
+          clientModules: relative(report.clientModules),
+          focusOnArrivalImporters: relative(report.focusOnArrivalImporters),
+          purchasePermissionsImporters: relative(report.purchasePermissionsImporters),
+          computedSpecifiers: report.computedSpecifiers.map((entry) => entry.slice(root.length + 1)).sort(),
+        };
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+    const APPROVED = {
+      clientModules: ["src/components/FocusOnArrival.tsx", "src/components/mock-journey/ListingSearchForm.tsx"],
+      focusOnArrivalImporters: ["src/components/PurchasePermissions.tsx"],
+      purchasePermissionsImporters: ["src/app/shop/permissions/page.tsx"],
+      computedSpecifiers: [],
+    };
+
+    it("the approved tree passes (positive control)", () => {
+      expect(reportFor({})).toEqual(APPROVED);
+    });
+
+    it("finding 1: .mts and .cts files are collected, so their client directives and FocusOnArrival imports are refused", () => {
+      expect(
+        reportFor({
+          "src/lib/client-module.mts": '"use client";\nexport const a = 1;\n',
+          "src/server/client-module.cts": "'use client';\nexports.a = 1;\n",
+          "src/lib/uses-focus.mts": 'import { FocusOnArrival } from "../components/FocusOnArrival";\nexport const f = FocusOnArrival;\n',
+          "src/server/uses-focus.cts": 'const f = require("@/components/FocusOnArrival");\nmodule.exports = f;\n',
+        }),
+      ).toEqual({
+        ...APPROVED,
+        clientModules: [...APPROVED.clientModules, "src/lib/client-module.mts", "src/server/client-module.cts"].sort(),
+        focusOnArrivalImporters: [...APPROVED.focusOnArrivalImporters, "src/lib/uses-focus.mts", "src/server/uses-focus.cts"].sort(),
+      });
+    });
+
+    it("finding 2: computed import() and require() specifiers are refused, wherever they are in src", () => {
+      const report = reportFor({
+        "src/lib/a.ts": 'const name = "../components/FocusOnArrival";\nexport const m = () => import(name);\n',
+        "src/lib/b.ts": 'export const m = () => import("../components/Focus" + "OnArrival");\n',
+        "src/lib/c.ts": "const part = \"FocusOnArrival\";\nexport const m = () => import(`../components/${part}`);\n",
+        "src/lib/d.cts": 'const name = "../components/FocusOnArrival";\nmodule.exports = require(name);\n',
+        "src/lib/e.js": 'const base = "../components/";\nmodule.exports = require(base + "FocusOnArrival");\n',
+      });
+      expect(report.computedSpecifiers).toEqual(["src/lib/a.ts:2 import()", "src/lib/b.ts:1 import()", "src/lib/c.ts:2 import()", "src/lib/d.cts:2 require()", "src/lib/e.js:2 require()"]);
+    });
+
+    it("finding 2: literal forms, explicit suffixes, type-only and TS import-equals imports, aliases and re-exports are all importers", () => {
+      const report = reportFor({
+        "src/lib/template.ts": "export const m = () => import(`../components/FocusOnArrival`);\n",
+        "src/lib/suffix-js.ts": 'export { FocusOnArrival } from "../components/FocusOnArrival.js";\n',
+        "src/lib/suffix-tsx.ts": 'import { FocusOnArrival } from "@/components/FocusOnArrival.tsx";\nexport const f = FocusOnArrival;\n',
+        "src/lib/suffix-jsx.mjs": 'export * from "../components/FocusOnArrival.jsx";\n',
+        "src/lib/type-only.ts": 'import type { FocusOnArrival } from "../components/FocusOnArrival";\nexport type F = typeof FocusOnArrival;\n',
+        "src/lib/import-equals.ts": 'import f = require("../components/FocusOnArrival");\nexport const g = f;\n',
+        "src/components/index.ts": 'export * from "./FocusOnArrival";\nexport { PurchasePermissions as Permissions } from "./PurchasePermissions";\n',
+        "src/app/other/page.tsx": 'import { Permissions } from "@/components";\nexport default Permissions;\n',
+        "src/lib/not-it.ts": 'import { x } from "./NotFocusOnArrivalHelper";\nexport const y = x;\n',
+        "src/lib/NotFocusOnArrivalHelper.ts": "export const x = 1;\n",
+      });
+      expect(report.focusOnArrivalImporters).toEqual(
+        [
+          "src/components/PurchasePermissions.tsx",
+          "src/components/index.ts",
+          "src/lib/import-equals.ts",
+          "src/lib/suffix-js.ts",
+          "src/lib/suffix-jsx.mjs",
+          "src/lib/suffix-tsx.ts",
+          "src/lib/template.ts",
+          "src/lib/type-only.ts",
+        ].sort(),
+      );
+      // A barrel that re-exports PurchasePermissions is itself an importer, so the alias path cannot hide a second user
+      // (src/app/other/page.tsx reaches it only through the barrel, which is what the policy reports).
+      expect(report.purchasePermissionsImporters).toEqual(["src/app/shop/permissions/page.tsx", "src/components/index.ts"]);
+      expect(report.computedSpecifiers).toEqual([]);
+    });
+  });
+
+  it("SEC-01 negative controls: each known way around the FocusOnArrival exception is caught", () => {
+    const real = readFileSync(join(ROOT, "src", "components", "FocusOnArrival.tsx"), "utf8");
+    expect(focusOnArrivalViolations(real)).toEqual([]);
+    // Review finding 1's bypasses of the previous checks, then other routes to the same capabilities.
+    const additions: Record<string, string> = {
+      indentedImport: '  import { cookies } from "next/headers";',
+      splitImport: 'import\n  { x } from "../server/handlers";',
+      reExport: 'export { handlePermissionRevoke } from "../server/handlers";',
+      dynamicImport: 'void import("../server/handlers");',
+      require: 'const fs = require("fs");',
+      sendBeacon: 'navigator.sendBeacon("/x", "y");',
+      locationAssign: 'window.location = "https://example.test";',
+      dangerousHtml: "export const X = () => <div dangerouslySetInnerHTML={{ __html: targetId }} />;",
+      fetch: 'void fetch("/api");',
+      escapedFetch: "void \\u0066etch(targetId);",
+      templateString: "const u = `/x/${targetId}`;",
+      windowOpen: 'window.open("https://example.test");',
+      cookie: "const c = document.cookie;",
+      storage: 'localStorage.setItem("k", targetId);',
+      evalCall: "eval(targetId);",
+    };
+    for (const [name, line] of Object.entries(additions)) {
+      expect(focusOnArrivalViolations(`${real}\n${line}\n`), name).not.toEqual([]);
+    }
+    // A comment may say anything; it is not code.
+    expect(focusOnArrivalViolations(`${real}\n// fetch(require("x")) and window.location are mentioned only here\n`)).toEqual([]);
+
+    // Second review, finding 1. Bypass A: a string "//" used to hide the rest of its line from the vocabulary check.
+    const bypassA = `${real}\n"//"; fetch(targetId); navigator.sendBeacon("/x", document.cookie);\n`;
+    expect(focusOnArrivalViolations(bypassA)).toEqual(expect.arrayContaining(['string "//"', "identifier fetch", "identifier navigator", "identifier sendBeacon", "identifier cookie"]));
+    // Bypass B: code made only of punctuation has no identifier or string, so only the pin can see it.
+    const bypassB = `${real}\n[][(![]+[])[+[]]];\n`;
+    expect(focusOnArrivalViolations(bypassB)).toEqual([]);
+    // The pin rejects both, and any other change at all, down to one added space.
+    expect(pinViolation(readFileSync(join(ROOT, "src", "components", "FocusOnArrival.tsx")), FOCUS_ON_ARRIVAL_SHA256)).toBeNull();
+    for (const [name, text] of Object.entries({ bypassA, bypassB, addedSpace: `${real} `, commentOnly: `${real}// note\n` })) {
+      expect(pinViolation(text, FOCUS_ON_ARRIVAL_SHA256), name).not.toBeNull();
+    }
+
+    // The directive scan covers every script extension and directory, and the importer scan every import form.
+    const fake = (path: string, text: string) => ({ path, text });
+    expect(clientDirectiveFiles([fake("src/lib/x.ts", '"use client";\nexport const a = 1;'), fake("src/app/y.jsx", "  'use client'\n"), fake("src/lib/z.ts", "export {};")])).toEqual([
+      "src/lib/x.ts",
+      "src/app/y.jsx",
+    ]);
+    // Second review: valid prologues the line-start check missed, and the .mts/.cts extensions (one .mts exists in src).
+    expect(
+      clientDirectiveFiles([
+        fake("src/lib/lead.ts", '/* note */ "use client";\nexport const a = 1;'),
+        fake("src/lib/strict.js", '"use strict"; "use client";\nexport const a = 1;'),
+        fake("src/lib/after-line-comment.ts", '// header\n/** doc */\n"use client"\nexport const a = 1;'),
+        fake("src/server/tool.mts", '"use client";\n'),
+        fake("src/server/tool.cts", "'use client';\n"),
+        // Not directives: a mention in a comment, or the same text later as an ordinary string.
+        fake("src/lib/comment.ts", '// "use client" is not used here\nexport const a = 1;'),
+        fake("src/lib/later.ts", 'export const a = 1;\nconst b = ["use client"];'),
+      ]),
+    ).toEqual(["src/lib/lead.ts", "src/lib/strict.js", "src/lib/after-line-comment.ts", "src/server/tool.mts", "src/server/tool.cts"]);
+    // Importer forms (static, dynamic, require, template, suffixes, re-exports, aliases) and computed specifiers are
+    // covered through the repository path in "SEC-01 through the repository path" above.
   });
 
   it("session identifiers never appear in URLs or provider metadata", async () => {

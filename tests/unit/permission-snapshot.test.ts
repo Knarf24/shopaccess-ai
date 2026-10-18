@@ -115,6 +115,9 @@ describe("snapshot format 4: purchase permissions", () => {
       permission(6, { state: "expired", changedAt: ENDS }),
       permission(7, { state: "outcome_unknown", checkoutIntentId: ch(4), changedAt: LATER }),
       permission(8, { sessionId: S2 }),
+      // Review finding 4: a revoked or expired permission may keep the checkout that held it when it ended.
+      permission(9, { state: "revoked", checkoutIntentId: ch(5), changedAt: LATER }),
+      permission(10, { state: "expired", checkoutIntentId: ch(6), changedAt: ENDS }),
     ];
     const { opened } = await open(file(4, body(permissions)));
     expect(opened.status).toBe("ready");
@@ -147,6 +150,8 @@ describe("snapshot format 4: purchase permissions", () => {
       ["executing without a checkout", [permission(1, { state: "executing" })]],
       ["active holding a checkout", [permission(1, { checkoutIntentId: ch(1) })]],
       ["bad checkout id", [permission(1, { state: "reserved", checkoutIntentId: "ci_1" })]],
+      ["revoked with a bad checkout id", [permission(1, { state: "revoked", checkoutIntentId: "ci_1", changedAt: LATER })]],
+      ["expired with a non-string checkout id", [permission(1, { state: "expired", checkoutIntentId: 7, changedAt: ENDS })]],
       ["extra key", [{ ...permission(1), scopes: ["purchase"] }]],
       ["missing key", [without(permission(1), "changedAt")]],
       ["two live permissions for one exact binding", [permission(1), permission(2, { state: "reserved", checkoutIntentId: ch(1) })]],

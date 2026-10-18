@@ -31,7 +31,7 @@ Estimate and assumptions: partial estimate of 136–239 h for F01–F12, plus 8�
 Next action: owner decisions (assessment list 1–11), then authorization of the E1–E5 experiments.
 Owner decision needed, if any: yes. See [M1 assessment](m1-assessment.md#unresolved-owner-decisions).
 
-## October 16, 2026 — M2-1 snapshot persistence (implementation, uncommitted)
+## October 16, 2026 — M2-1 snapshot persistence (implementation — uncommitted when written; since committed as 08e6e6a and merged to main as b86a41b (PR #1))
 Date/time: about 14:50–16:40Z (10:50–12:40 EDT), several sessions, including a usage-limit pause.
 Goal and agreed session limit: approved M2-1 slices 1–5 and a mock-only browser restart check.
 Source branch / starting commit: feature/m2-1-snapshot-persistence from 6cc511c. Not committed.
@@ -51,7 +51,7 @@ Estimate and assumptions (or not estimated): M2-1 implementation complete; revie
 Next action: owner review of the diff and evidence; then commit and push on approval.
 Owner decision needed, if any: approve the commit.
 
-## October 16, 2026 — M2-1 review corrections (uncommitted)
+## October 16, 2026 — M2-1 review corrections (uncommitted when written; since committed as 08e6e6a and merged to main as b86a41b (PR #1))
 Date/time: about 16:40–17:05Z.
 Goal and agreed session limit: two review findings, affected tests and affected browser checks.
 Source branch / starting commit: feature/m2-1-snapshot-persistence (uncommitted on 6cc511c).
@@ -62,7 +62,7 @@ Unmet acceptance criteria / blockers: review and commit pending. The earlier all
 Next action: owner review.
 Owner decision needed, if any: approve the commit.
 
-## October 16, 2026 — M2-1 review correction 2 (uncommitted)
+## October 16, 2026 — M2-1 review correction 2 (uncommitted when written; since committed as 08e6e6a and merged to main as b86a41b (PR #1))
 Date/time: about 16:55–17:10Z.
 Goal and agreed session limit: completed interpretation, then confirmation, then restart must not be treated as interrupted.
 Source branch / starting commit: feature/m2-1-snapshot-persistence (uncommitted on 6cc511c).
@@ -84,7 +84,7 @@ Unmet acceptance criteria / blockers: slice 3 (permissions page, refusal copy, E
 Next action: slice 2 commit, then slice 3 on approval.
 Owner decision needed, if any: approve slice 3.
 
-## October 16, 2026 — M2-2 extension integration (implementation, uncommitted)
+## October 16, 2026 — M2-2 extension integration (implementation — uncommitted when written; since committed as cb09a94 and merged to main as e6bb69d, PR #2)
 Goal: implement `docs/m2-2-plan.md` in bounded slices; mock only; review target October 19.
 Source branch / starting commit: feature/m2-2-extension-integration from main b86a41b (PR #1 merge; no CI configured, no check results exist).
 Changes and resulting commit: format 3 snapshot grants (digest only); pairing authority; `/api/extension/v1` (5 routes, allowlist, originless read rule); shared follow-up path for website and panel; approval page, decide and revoke routes, Paired access list (EN/ES, pairing-specific revocation message); logout revokes grants durably; `extension/` side panel promoted from E1. No commit.
@@ -119,3 +119,34 @@ Codex investigated E1–E5 dependencies and recorded [full findings and bounded 
 
 ## October 16 — E1 isolated implementation, browser acceptance open
 Role: Codex implementer; owner approved design and plan. Prototype published only on branch design/shared-session-e1-20261016, commit e0be4b26f75e69a746aa91d3abfabf948f48a15c. Forty new files under experiments/e1-shared-session/; application source/payment/SQL/dependencies unchanged. Evidence: [results](https://github.com/Knarf24/shopaccess-ai/blob/e0be4b26f75e69a746aa91d3abfabf948f48a15c/experiments/e1-shared-session/evidence/RESULTS.md), [review ledger](https://github.com/Knarf24/shopaccess-ai/blob/e0be4b26f75e69a746aa91d3abfabf948f48a15c/experiments/e1-shared-session/evidence/LEDGER.md). Final PATH-only verification: 27 unit/client checks and 13 loopback checks, all exit 0, Node 24.19.0. No application suite/build, pinned-Node validation, installed-extension browser observation or screen-reader acceptance. Cloud browser failed loopback reachability. One independent review produced seven addressed findings; fixes covered by regression tests. Owned server stopped and port 3764 free. No credentials/live provider/payment calls. E1 is partial, not accepted. Next: local unpacked Chrome acceptance using the branch README, then separately reviewed application integration. Product target October 24 unchanged; no unattended coding scheduled.
+
+## October 16–17, 2026 — M2-3 slice 3, browser check and corrections (uncommitted)
+Date/time (UTC, recorded): slice 3 22:23–22:35Z Oct 16. Owner-assisted browser check: server run 1 from 22:37Z Oct 16 to 18:40Z Oct 17, then run 2 to 21:17Z. These spans include idle periods; active time was not recorded. Accessibility, language and D2 corrections: evidence runs 21:24–22:20Z Oct 17. Automated browser recheck 22:22–22:25Z.
+Goal and agreed session limit: slice 3 and its mock browser verification; then owner-directed accessibility and language corrections and the D2 fix. No Slice 4, no voice work.
+Source branch / starting commit: feature/m2-3-purchase-permissions at 42e9b7e (base e6bb69d). Not pushed.
+Changes and resulting commit: permissions page and routes, EN/ES refusal copy, capture-unsaved wording. D1: the permission label was visible; replaced with plain text. Focus moves on the permissions page. Skip links on /shop and the checkout. Spanish "(simulada)" seller descriptor. D2: a reloaded checkout shows the permission refusal instead of the generic message. One security-test allowlist entry (FocusOnArrival, React import only) needs owner review. No commit.
+Checks actually run and outcomes: current tree 54 files, 1,390 passed; typecheck 0; lint 0 errors, 9 warnings; red checks caught for every fix. Owner browser scenarios 1–8 passed after retries. The retries were caused by expiry and timing limits, not defects. Two defects, D1 and D2, were found and fixed. Automated browser recheck passed. Screen reader not performed.
+Evidence references and evidence type: private m2-3-permissions-20261016/PROGRESS.md and run outputs (source, unit, manual browser, automated browser), kept separate. Not published.
+Source reviews and corrections (October 17, owner-approved): two read-only reviews by separate Claude subagents. The first found six issues: the SEC-01 exception, contradictory or missing checkout refusals, a misleading reason after re-permission, "nothing was charged" from a URL code, and the unsaved-capture answer. The second found residual SEC-01 bypasses, missing sandbox Cancel, an untested sandbox unsaved-capture path and an unknown-order message gap. Each condition was reproduced before fixing, except where it is noted as a fixture-only path; each fix has a red-checked test. Current: 55 files, 1,406 passed; typecheck 0; lint 0 errors, 9 warnings. An independent Codex review of the frozen state is pending.
+Codex independent review of the r3 handoff (October 17): two SEC-01 findings. Both were reproduced through the repository's own collector and checker on a temporary source tree before fixing. The collector now includes `.mts` and `.cts`. Imports are read with the TypeScript parser and resolved through the `@/` alias, relative paths and explicit suffixes, and computed `import()`/`require()` specifiers are refused. Current: 55 files, 1,410 passed; typecheck 0; lint 0 errors, 9 warnings. Codex's focused, read-only re-review of r4 found both SEC-01 findings resolved and no new concrete defect. Its qualification: parser diagnostics are not checked, and unresolved literal paths are not refused. It did not rerun tests. SEC-01 implementation stops here unless new evidence shows a concrete defect.
+Automated browser recheck R1–R8 (October 18 01:35–01:48Z, Claude in Chrome, owner-authorised, mock only on 127.0.0.1, real timers): R1–R7 passed. R8 partly passed: permissions recovered exactly as expected and the not-found page rendered, but the HTTP status was 200, not the 404 the procedure expected. That is consistent with documented Next.js streaming behaviour, not confirmed for each request. The session was not isolated: the shared Chrome profile let the owner's open tabs send two unrelated GET requests, and every POST in the logs belongs to the automation. Recorded separately from owner observations; screenshots are in private evidence. Server stopped, port free.
+Screen-reader evidence audit and owner-operated VoiceOver (October 18, §10 amended by the owner):
+- No earlier speech evidence covered M2-3 screens.
+- The owner reported a general positive impression only. The validation-error speech check was inconclusive, because the session had ended.
+- Follow-on automated browser checks, with no speech inferred:
+  - the Spanish checkout refusal works by keyboard, but the checkout page sets no `lang`, so the Spanish text inherits `lang="en"` (pre-existing at page level, not fixed);
+  - both `/shop` keyboard gaps are closed;
+  - the focus re-fire on reload is confirmed;
+  - the slow-load focus jump is inconclusive.
+- Per-item speech remains unverified.
+Owner-reported VoiceOver speech (supplied October 18, 04:26–04:32Z): English arrival ("Skip to the current step", "Purchase permissions") and the Item, Quantity, Total, Expiry and Review controls, with caption support for Item and Total. The validation-error speech check is still inconclusive.
+Checkout language-marker correction (owner-approved, October 18):
+- the page is marked with its resolved language, and the English-only parts of a Spanish checkout are marked English;
+- 3 page-render tests added; 6 red checks caught;
+- suite 55 files, 1,413 passed; typecheck 0; lint 0 errors, 9 warnings;
+- a mock-only browser check (markup only, no pronunciation inferred) confirmed the Spanish and English markers.
+Handoff r5 prepared for Codex. Codex's focused review of r5 found no concrete defect and no demonstrated commit blocker, with its source-inspection and test-coverage qualifications.
+Unmet acceptance criteria / blockers: the remaining VoiceOver speech items (unverified); owner approval to commit and push.
+Estimate and assumptions: see the reconciliation forecast reported to the owner on October 17 (proposed, not approved).
+Next action: owner source review, then the slice 3 commit on approval.
+Owner decision needed, if any: yes. Approve the commit, the SEC-01 allowlist entry, and the open governance decisions.

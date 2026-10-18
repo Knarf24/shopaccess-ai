@@ -51,6 +51,13 @@ export async function pgCheckoutWithoutPermissions(): Promise<Response> {
   return Response.json(body, { status: error.status, headers: { "cache-control": "no-store" } });
 }
 
+/** M2-3: purchase permissions exist only in the mock; PostgreSQL mode refuses them explicitly (fail closed), not 404. */
+export async function pgPermissionsUnavailable(): Promise<Response> {
+  const error = toPublicError("UNAVAILABLE", randomIdGenerator("event"));
+  const body = { error: { ...error.body.error, message: "Purchase permissions are unavailable in PostgreSQL mode." } };
+  return Response.json(body, { status: error.status, headers: { "cache-control": "no-store" } });
+}
+
 /** A route that exists only in PostgreSQL mode: in the mock it is "not found", as it was before the route existed. */
 export async function mockRouteNotFound(): Promise<Response> {
   return refuseWithoutRuntime("NOT_FOUND");

@@ -12,6 +12,8 @@ import { SessionNotice } from "@/components/SessionNotice";
 import { SandboxCheckoutActions, SimulatedPaymentPanel } from "@/components/SimulatedPaymentPanel";
 import { formatUsd } from "@/lib/catalog/merchant-catalog";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
+import { isPermissionRefusal, type PermissionRefusalCode } from "@/lib/i18n/permission-copy";
+import { PermissionRefusal } from "@/components/PermissionRefusal";
 import "../../guided-presentation.css";
 import type { PgRuntime } from "@/server/pg-runtime";
 import { buildPgCheckoutView, PG_STATUS_LABELS, pgCookieHeader, resolvePgPageSession } from "@/server/pg-views";
@@ -27,6 +29,59 @@ interface PageProps {
 }
 
 type Query = Record<string, string | string[] | undefined>;
+
+export const CHECKOUT_ALERT_ID = "checkout-alert";
+export const CHECKOUT_NOTICE_ID = "checkout-notice";
+export const CHECKOUT_QUOTE_PROBLEM_ID = "checkout-quote-problem";
+export const CHECKOUT_CONFIRM_HEADING_ID = "confirm-heading";
+export const CHECKOUT_QUOTE_HEADING_ID = "quote-heading";
+
+/**
+ * The skip link's one target (M2-3): a refusal or error, then a notice, then the current step: the confirmation summary,
+ * a problem with the quote, the quote while the checkout is still at it, else the payment section.
+ */
+export function checkoutCurrentTargetId(state: {
+  readonly alert: boolean;
+  readonly notice: boolean;
+  readonly confirmation: boolean;
+  readonly quoteProblem: boolean;
+  readonly quoteStep: boolean;
+  readonly paymentHeadingId: string | null;
+}): string {
+  if (state.alert) return CHECKOUT_ALERT_ID;
+  if (state.notice) return CHECKOUT_NOTICE_ID;
+  if (state.confirmation) return CHECKOUT_CONFIRM_HEADING_ID;
+  if (state.quoteProblem) return CHECKOUT_QUOTE_PROBLEM_ID;
+  if (state.quoteStep || !state.paymentHeadingId) return CHECKOUT_QUOTE_HEADING_ID;
+  return state.paymentHeadingId;
+}
+
+/** A capture may have been sent and its outcome is not proven: a refused resend is reported as manual review. */
+const OUTCOME_UNPROVEN: ReadonlySet<string> = new Set(["CAPTURE_UNKNOWN", "RECONCILIATION_REQUIRED", "MANUAL_REVIEW"]);
+
+/**
+ * What the mock checkout reports about F07 (M2-3, D2 and review findings 2–5). The refusal shown is the one that applies
+ * now (`view.permissionRefusal`, from saved state); it replaces any message carried in the URL, which described the form
+ * that was just sent and could otherwise contradict it ("review the summary below" with no summary). A permission code in
+ * the URL is shown only once a capture's outcome is unproven, and then as manual review, never "nothing was charged".
+ * Anywhere else a URL permission code is stale or hand-made, and is ignored.
+ */
+export function checkoutMessages(
+  view: { readonly state: string; readonly permissionRefusal: PermissionRefusalCode | null },
+  errorCode: string | undefined,
+): { readonly refusal: PermissionRefusalCode | null; readonly underReview: boolean; readonly showUrlError: boolean } {
+  if (view.permissionRefusal) return { refusal: view.permissionRefusal, underReview: false, showUrlError: false };
+  if (isPermissionRefusal(errorCode)) return OUTCOME_UNPROVEN.has(view.state) ? { refusal: errorCode, underReview: true, showUrlError: false } : { refusal: null, underReview: false, showUrlError: false };
+  return { refusal: null, underReview: false, showUrlError: true };
+}
+
+function SkipToCurrentStep({ label, targetId }: { readonly label: string; readonly targetId: string }) {
+  return (
+    <a className="skip-link" href={`#${targetId}`}>
+      {label}
+    </a>
+  );
+}
 
 function CheckoutFrame({ children }: { readonly children: ReactNode }) {
   return (
@@ -65,17 +120,32 @@ async function PgCheckoutContent({ intentId, query, runtime }: { intentId: strin
   const error = messageFor(typeof query.error === "string" ? query.error : undefined);
   const notice = messageFor(typeof query.notice === "string" ? query.notice : undefined);
 
+  const skipTarget = checkoutCurrentTargetId({
+    alert: Boolean(error),
+    notice: Boolean(notice),
+    confirmation: Boolean(view.challenge),
+    quoteProblem: !view.challenge && view.quoteStale,
+    quoteStep: true,
+    paymentHeadingId: null,
+  });
+
   return (
     <>
-      {error ? <p role="alert" className="rounded border-2 border-red-700 p-3">{error}</p> : null}
-      {notice ? <p role="status" className="rounded border-2 border-green-800 p-3">{notice}</p> : null}
+      <SkipToCurrentStep label={journeyCopy("en").skipToCurrentStep} targetId={skipTarget} />
+      {error ? <p id={CHECKOUT_ALERT_ID} tabIndex={-1} role="alert" className="rounded border-2 border-red-700 p-3">{error}</p> : null}
+      {notice ? <p id={CHECKOUT_NOTICE_ID} tabIndex={-1} role="status" className="rounded border-2 border-green-800 p-3">{notice}</p> : null}
       {session.context.session.keyStatus === "VERIFY_ONLY" ? <SessionNotice kind="rotate" csrfToken={csrfToken} /> : null}
 
       {view.challenge ? (
-        <ConfirmationSummary challenge={view.challenge} csrfToken={csrfToken} action={`/checkout/${view.intentId}/confirm`} />
+        <ConfirmationSummary
+          challenge={view.challenge}
+          csrfToken={csrfToken}
+          action={`/checkout/${view.intentId}/confirm`}
+          headingTabIndex={skipTarget === CHECKOUT_CONFIRM_HEADING_ID ? -1 : undefined}
+        />
       ) : (
         <section aria-labelledby="quote-heading" className="rounded-lg border border-zinc-400 p-4">
-          <h2 id="quote-heading" className="text-xl font-semibold">
+          <h2 id={CHECKOUT_QUOTE_HEADING_ID} tabIndex={-1} className="text-xl font-semibold">
             Quote
           </h2>
           <p>
@@ -89,7 +159,7 @@ async function PgCheckoutContent({ intentId, query, runtime }: { intentId: strin
           <p>
             Status: {PG_STATUS_LABELS[view.effectiveStatus]}. Quote valid until <time dateTime={view.quoteExpiresAt}>{view.quoteExpiresAt}</time>.
           </p>
-          {view.quoteStale ? <p role="alert">{messageFor("QUOTE_STALE_CATALOG")}</p> : null}
+          {view.quoteStale ? <p id={CHECKOUT_QUOTE_PROBLEM_ID} tabIndex={-1} role="alert">{messageFor("QUOTE_STALE_CATALOG")}</p> : null}
         </section>
       )}
 
@@ -153,24 +223,45 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
   const view = await buildCheckoutView(runtime.value, session, intentId);
   if (!view) notFound();
 
-  const copy = journeyCopy(view.interfaceLanguage ?? "en");
+  // The checkout's resolved interface language (none recorded means English). The page is marked with it, and the parts
+  // that are English whatever the language (heading, quote lines, generic messages, the simulated-payment panel) are
+  // marked English on a Spanish checkout, so assistive technology is told the language of each part (M2-3).
+  const language = view.interfaceLanguage ?? "en";
+  const fixedEnglish = language === "en" ? undefined : "en";
+  const copy = journeyCopy(language);
   const errorCode = typeof query.error === "string" ? query.error : undefined;
-  const error =
-    errorCode === "APPROVAL_NOT_CONFIRMED"
+  // F07 refusals (M2-3) are shown in the checkout's language, from the current state (checkoutMessages).
+  const { refusal: permissionRefusal, underReview, showUrlError } = checkoutMessages(view, errorCode);
+  const quoteProblem = view.challengeProblem;
+  const errorLocalized = errorCode === "APPROVAL_NOT_CONFIRMED" || errorCode === "PAYEE_MISMATCH";
+  const error = !showUrlError
+    ? null
+    : errorCode === "APPROVAL_NOT_CONFIRMED"
       ? copy.sandboxCheckout.approvalNotConfirmed
       : errorCode === "PAYEE_MISMATCH"
         ? copy.sandboxCheckout.payeeMismatch
         : messageFor(errorCode);
   const noticeCode = typeof query.notice === "string" ? query.notice : undefined;
   const notice = noticeCode === "CAPTURED" ? null : messageFor(noticeCode);
+  const sandbox = runtime.value.paymentMode === "sandbox";
+  const skipTarget = checkoutCurrentTargetId({
+    alert: Boolean(error || permissionRefusal),
+    notice: Boolean(notice),
+    confirmation: Boolean(view.challenge),
+    quoteProblem: !view.challenge && Boolean(view.quote && quoteProblem),
+    quoteStep: !view.challenge && Boolean(view.quote) && view.state === "QUOTED",
+    paymentHeadingId: sandbox ? "sandbox-heading" : "sim-heading",
+  });
 
   return (
-    <main className="guided-presentation">
+    <main className="guided-presentation" lang={language}>
       <div className="presentation-column presentation-column-narrow">
-      <h1 className="text-3xl font-semibold">Demo checkout</h1>
-      {error ? <p role="alert" className="rounded border-2 border-red-700 p-3">{error}</p> : null}
-      {notice ? <p role="status" className="rounded border-2 border-green-800 p-3">{notice}</p> : null}
-      <GuidedProgress copy={journeyCopy(view.interfaceLanguage ?? "en")} current="purchase" />
+      <SkipToCurrentStep label={copy.skipToCurrentStep} targetId={skipTarget} />
+      <h1 lang={fixedEnglish} className="text-3xl font-semibold">Demo checkout</h1>
+      {error ? <p id={CHECKOUT_ALERT_ID} tabIndex={-1} role="alert" lang={errorLocalized ? undefined : fixedEnglish} className="rounded border-2 border-red-700 p-3">{error}</p> : null}
+      {permissionRefusal ? <PermissionRefusal language={language} code={permissionRefusal} underReview={underReview} id={CHECKOUT_ALERT_ID} /> : null}
+      {notice ? <p id={CHECKOUT_NOTICE_ID} tabIndex={-1} role="status" lang={fixedEnglish} className="rounded border-2 border-green-800 p-3">{notice}</p> : null}
+      <GuidedProgress copy={copy} current="purchase" />
       {view.interfaceLanguage ? <MockReviewGuidance language={view.interfaceLanguage} /> : null}
 
       {view.challenge ? (
@@ -179,30 +270,31 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
           csrfToken={session.csrfToken}
           action={`/checkout/${view.intentId}/confirm`}
           language={view.interfaceLanguage ?? undefined}
+          headingTabIndex={skipTarget === CHECKOUT_CONFIRM_HEADING_ID ? -1 : undefined}
         />
       ) : view.quote ? (
         <section aria-labelledby="quote-heading" className="rounded-lg border border-zinc-400 p-4">
-          <h2 id="quote-heading" className="text-xl font-semibold">
+          <h2 id={CHECKOUT_QUOTE_HEADING_ID} tabIndex={-1} lang={fixedEnglish} className="text-xl font-semibold">
             Quote
           </h2>
-          <p>
+          <p lang={fixedEnglish}>
             {view.itemTitle ?? "Item no longer in the demo catalog"}, quantity {view.quote.quantity}, sold by {view.merchantName}.
           </p>
-          <p>
+          <p lang={fixedEnglish}>
             Total {formatUsd(view.quote.totalCents)} {view.quote.currency}. Tax and shipping are $0.00 as an assumption of this Sandbox
             demonstration; nothing is shipped.
           </p>
-          <p>{journeyCopy(view.interfaceLanguage ?? "en").catalogNotice}</p>
-          {view.challengeProblem ? <p role="alert">{messageFor(view.challengeProblem)}</p> : null}
+          <p>{copy.catalogNotice}</p>
+          {quoteProblem ? <p id={CHECKOUT_QUOTE_PROBLEM_ID} tabIndex={-1} role="alert" lang={fixedEnglish}>{messageFor(quoteProblem)}</p> : null}
         </section>
       ) : null}
 
-      {runtime.value.paymentMode === "sandbox" ? (
+      {sandbox ? (
         <SandboxCheckoutActions view={view} csrfToken={session.csrfToken} copy={copy.sandboxCheckout} />
       ) : (
-        <SimulatedPaymentPanel view={view} csrfToken={session.csrfToken} />
+        <SimulatedPaymentPanel view={view} csrfToken={session.csrfToken} lang={fixedEnglish} />
       )}
-      <p>
+      <p lang={fixedEnglish}>
         <Link href="/" prefetch={false} className="underline">
           Back to the start
         </Link>

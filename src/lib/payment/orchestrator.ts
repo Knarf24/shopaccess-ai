@@ -1,5 +1,6 @@
 import type { MerchantCatalog } from "../catalog/schemas";
 import type { PurchaseGate, PurchaseRefusal } from "../permissions/gate";
+import { isPersistenceUnavailable, PersistenceUnavailableError } from "../session/durable";
 import { applyPaymentEvent } from "../checkout/service";
 import type { CheckoutIntentRecord, CheckoutRepository, ProviderObservation } from "../checkout/store";
 import type {
@@ -301,6 +302,10 @@ export async function verifyApproval(deps: PaymentDeps, intentId: string): Promi
 
 // --- Capture --------------------------------------------------------------
 
+/** A capture of this checkout was definitively declined or rejected, so its confirmation is spent (M2-3). */
+export const captureDeclinedBefore = (captures: readonly PaymentOperation[]): boolean =>
+  captures.some((operation) => operation.type === "CAPTURE" && (operation.state === "DECLINED" || operation.state === "REJECTED"));
+
 export async function prepareCapture(deps: PaymentDeps, intentId: string): Promise<Result<PaymentOperation, PaymentFlowFailure>> {
   return deps.store.transaction(async () => {
     const intent = await deps.store.findIntent(intentId);
@@ -315,7 +320,7 @@ export async function prepareCapture(deps: PaymentDeps, intentId: string): Promi
     if (!authorizedQuote) return err("QUOTE_NO_LONGER_VALID");
     const existing = await deps.ledger.listForIntent(intentId, "CAPTURE");
     // A definitive decline spends the confirmation: no further capture on this checkout without a fresh one (M2-3).
-    const declinedBefore = existing.some((operation) => operation.state === "DECLINED" || operation.state === "REJECTED");
+    const declinedBefore = captureDeclinedBefore(existing);
     const permitted = await deps.purchaseGate.beginCapture(intent.sessionId, authorizedQuote, intentId, declinedBefore);
     if (!permitted.ok) return err(permitted.code);
 
@@ -444,10 +449,29 @@ export async function sendCapture(deps: PaymentDeps, operation: PaymentOperation
   return recordCaptureOutcome(deps, intentId);
 }
 
+/**
+ * A capture was sent (and may have been made), but the final local record could not be saved (M2-3). It fails closed
+ * exactly like any refused save: the gate is blocked, the permission stays `executing` and becomes `outcome_unknown` on
+ * restart. It only lets the caller tell the shopper not to pay again. Recognised by `reason`, not by class identity.
+ */
+export class CaptureRecordUnsavedError extends PersistenceUnavailableError {
+  readonly reason = "CAPTURE_RECORD_UNSAVED";
+}
+
+export const isCaptureRecordUnsaved = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && (error as { reason?: unknown }).reason === "CAPTURE_RECORD_UNSAVED";
+
 /** After any capture step: the permission becomes consumed, returns to reserved on a proven decline, or outcome unknown. */
 async function recordCaptureOutcome(deps: PaymentDeps, intentId: string): Promise<Result<PaymentState, PaymentFlowFailure>> {
   const state = await finalState(deps, intentId);
-  if (state.ok) await deps.purchaseGate.recordPaymentState(intentId, state.value);
+  if (!state.ok) return state;
+  try {
+    await deps.purchaseGate.recordPaymentState(intentId, state.value);
+  } catch (error) {
+    // Only a provider-proven decline is known to have moved no money.
+    if (isPersistenceUnavailable(error) && state.value !== "DECLINED_RETRYABLE") throw new CaptureRecordUnsavedError();
+    throw error;
+  }
   return state;
 }
 

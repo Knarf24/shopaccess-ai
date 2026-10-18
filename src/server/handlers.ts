@@ -8,6 +8,7 @@ import {
   cancelCheckout,
   dispatchCapture,
   dispatchOrderCreate,
+  isCaptureRecordUnsaved,
   observeCaptureAftermath,
   reconcileOperation,
   recordBuyerReturn,
@@ -19,6 +20,8 @@ import { PROPOSED_RATE_LIMIT_POLICIES, type RateLimitPolicy } from "@/lib/securi
 import { runtimeSandboxProvider, type Runtime } from "./runtime";
 import { readSessionCookie, serializeSessionCookie } from "@/lib/session/cookie";
 import { admissionExpiryMs, protectedAdmissionLocation } from "@/server/demo-admission";
+import { permissionCopy, type PermissionFormCode } from "@/lib/i18n/permission-copy";
+import { parsePermissionForm } from "@/server/permission-form";
 import { authorizeMutation } from "@/lib/session/request-guard";
 import type { Session } from "@/lib/session/service";
 import {
@@ -643,7 +646,15 @@ export async function handleSimulate(request: Request, runtime: Runtime, intentI
   const step = SIMULATION_STEPS.find((candidate) => candidate === form.get("step"));
   if (!step || !availableSteps(intent.snapshot.state).includes(step)) return seeOther(`${back}?error=STEP_NOT_AVAILABLE`);
 
-  const error = await runSimulationStep(runtime, session, intent.id, step);
+  let error: string | null;
+  try {
+    error = await runSimulationStep(runtime, session, intent.id, step);
+  } catch (thrown) {
+    if (!isCaptureRecordUnsaved(thrown)) throw thrown;
+    const requestId = publicReference(runtime);
+    await auditBestEffort(runtime, session, "SIMULATION_STEP", intent.id, { step, result: "CAPTURE_RECORD_UNSAVED", requestId });
+    return captureRecordUnsaved(intent.interfaceLanguage ?? "en", requestId);
+  }
   await audit(runtime, session, "SIMULATION_STEP", intent.id, { step, result: error ?? "OK" });
   return seeOther(error ? `${back}?error=${error}` : back);
 }
@@ -743,7 +754,14 @@ export async function handleSandboxCapture(request: Request, runtime: Runtime, i
   const ready = await requireSandbox(request, runtime, intentId);
   if (!ready.ok) return ready.response;
   if (ready.intent.snapshot.state !== "APPROVED_VERIFIED") return seeOther(checkoutBack(ready.intent.id, "APPROVAL_NOT_CONFIRMED"));
-  await dispatchCapture(runtime.payment, ready.intent.id);
+  try {
+    await dispatchCapture(runtime.payment, ready.intent.id);
+  } catch (thrown) {
+    if (!isCaptureRecordUnsaved(thrown)) throw thrown;
+    const requestId = publicReference(runtime);
+    await auditBestEffort(runtime, ready.session, "SANDBOX_CAPTURE", ready.intent.id, { result: "CAPTURE_RECORD_UNSAVED", requestId });
+    return captureRecordUnsaved(ready.intent.interfaceLanguage ?? "en", requestId);
+  }
   const after = await runtime.store.findIntent(ready.intent.id);
   const captured = after?.snapshot.state === "CAPTURED_VERIFIED";
   await audit(runtime, ready.session, "SANDBOX_CAPTURE", ready.intent.id, { result: captured ? "CAPTURED_VERIFIED" : "NOT_CAPTURED" });
@@ -801,5 +819,97 @@ export async function handleExtensionRevoke(request: Request, runtime: Runtime):
   const revoked = await runtime.pairing.revoke(session.id, grantId, runtime.clock());
   if (revoked !== "revoked") return seeOther(needsBack(language));
   return seeOther(`/shop/needs?lang=${language}&revoked=${grantId.slice(4, 12)}`);
+}
+
+/** Where the permissions page reports a create or revoke outcome, with the entered values echoed back (never secrets). */
+function permissionsBack(language: JourneyLanguage, outcome: Record<string, string>): string {
+  return `/shop/permissions?${new URLSearchParams({ lang: language, ...outcome }).toString()}`;
+}
+
+const MODEL_TO_FORM: Record<string, PermissionFormCode> = {
+  BAD_REQUEST: "ITEM_INVALID",
+  NOT_IN_CATALOG: "ITEM_INVALID",
+  QUANTITY_INVALID: "QUANTITY_INVALID",
+  TOTAL_INVALID: "TOTAL_INVALID",
+  SESSION_INVALID: "SESSION_INVALID",
+  PERMISSION_DUPLICATE: "PERMISSION_DUPLICATE",
+  PERMISSION_LIMIT: "PERMISSION_LIMIT",
+};
+
+/**
+ * POST /shop/permissions/create (M2-3). The website's own guard (admission, trusted origin, same-origin Fetch Metadata,
+ * CSRF, rate limit) and a live session. The item is validated against the catalog and the seller taken from it.
+ * Saved before the page reports it. No extension credential has any effect here: only the website cookie and CSRF.
+ */
+export async function handlePermissionCreate(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
+  if (!guarded.ok) return guarded.response;
+  const { session, form } = guarded;
+  const language = needsLanguage(form);
+  const entered = { item: form.get("item") ?? "", quantity: form.get("quantity") ?? "", total: form.get("total") ?? "", expiry: form.get("expiry") ?? "" };
+  const parsed = parsePermissionForm(entered, runtime.catalog);
+  if (!parsed.ok) return seeOther(permissionsBack(language, { error: parsed.code, ...entered }));
+  const now = runtime.clock();
+  const made = await runtime.permissions.create(
+    { sessionId: session.id, ...parsed.value, admissionExpiresAtMs: admissionExpiryMs(runtime.admission, request.headers.get("cookie"), now.getTime()) },
+    now,
+  );
+  if (!made.ok) return seeOther(permissionsBack(language, { error: MODEL_TO_FORM[made.code] ?? "ITEM_INVALID", ...entered }));
+  return seeOther(permissionsBack(language, { result: "created" }));
+}
+
+/**
+ * POST /shop/permissions/revoke (M2-3). Same guard. The server decides: active or reserved is revoked (a reserved
+ * checkout then fails closed); executing is refused as in progress; used, revoked, ended or outcome-unknown permissions
+ * cannot be revoked. Another session's permission does not exist here.
+ */
+export async function handlePermissionRevoke(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
+  if (!guarded.ok) return guarded.response;
+  const { session, form } = guarded;
+  const language = needsLanguage(form);
+  const permissionId = form.get("permissionId") ?? "";
+  if (!/^prm_[0-9a-f]{32}$/.test(permissionId)) return seeOther(permissionsBack(language, { error: "REVOKE_NOT_AVAILABLE" }));
+  const result = await runtime.permissions.revoke(session.id, permissionId, runtime.clock());
+  if (result === "revoked") return seeOther(permissionsBack(language, { result: "revoked" }));
+  return seeOther(permissionsBack(language, { error: result === "in_progress" ? "REVOKE_IN_PROGRESS" : "REVOKE_NOT_AVAILABLE" }));
+}
+
+/**
+ * A capture was sent, but its final record could not be saved (M2-3). Never "failed" and never "try again": the payment
+ * may have gone through. The store stays unavailable (the gate is blocked) and the outcome is checked manually.
+ *
+ * The request is a form post, so the answer is a full page (review finding 6): language, title, heading and the message
+ * as an alert, then the same non-sensitive reference the earlier JSON answer carried (also in the audit record). It has
+ * no form, button, link or script, so nothing on it can pay, retry or resubmit; a resubmitted request is refused before
+ * any handler runs while the store is unavailable.
+ */
+function captureRecordUnsaved(language: JourneyLanguage, requestId: string): Response {
+  const copy = permissionCopy(language);
+  const title = escapeHtml(copy.captureRecordUnsavedTitle);
+  const html = `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head><body><main><h1>${title}</h1><p role="alert">${escapeHtml(copy.captureRecordUnsaved)}</p><p>${escapeHtml(copy.referenceLabel)}: <code>${escapeHtml(requestId)}</code></p></main></body></html>`;
+  return new Response(html, { status: 503, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}
+
+/** The public request reference (letters, digits, - and _ only), as every refusal carries. */
+function publicReference(runtime: Runtime): string {
+  return toPublicError("UNAVAILABLE", runtime.ids("event")).body.error.requestId;
+}
+
+/**
+ * Audits an outcome without letting the audit change the answer. The in-memory audit log is separate from the blocked
+ * state store, so this normally succeeds; it is process-local and lost on restart. A durable audit log kept in the same
+ * store would be refused here, and the shopper must still get the do-not-pay-again page, so a failure is swallowed.
+ */
+async function auditBestEffort(runtime: Runtime, session: Session, eventType: string, checkoutIntentId: string, detail: Record<string, unknown>): Promise<void> {
+  try {
+    await audit(runtime, session, eventType, checkoutIntentId, detail);
+  } catch {
+    // Nothing more can be done safely here; the answer below must not change.
+  }
 }
 
