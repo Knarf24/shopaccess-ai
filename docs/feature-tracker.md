@@ -1,6 +1,20 @@
 # ShopAccess AI feature and evidence tracker
 Updated October 16, 2026. Target: October 24. Initial status reflects published governance and owner-supplied reports, not a fresh implementation audit.
 
+## PayPal Sandbox rehearsal — October 18, 2026 (evening)
+
+Adds to the October 18 status below; that status predates the merge of PR #4 into `main` as `401556aabfb52191917ff8bd92d90a0d1e72dd35`.
+
+- **Source:** `main` `401556a`, run from the feature worktree at `f614006` (identical application tree). Procedure: `docs/paypal-sandbox-rehearsal-runbook.md`; results in its section 13.
+- **Attempt 1 (10:30–11:30 EDT window): incomplete, history.** One order creation reached the PayPal Sandbox sign-in page; no return or capture reached the app. The server ran past the cutoff (no payment action logged or reported). PayPal's final state of that order is unknown.
+- **Attempt 2 (supervised, 13:51:46–14:21:46 EDT):**
+  - *Observed:* fresh permission, quote and checkout; one order-creation press, one return request, one capture press.
+  - *App-reported:* approval verified, then "The payment was captured and the capture evidence was checked." for USD 579.99; the permission then showed "Used".
+  - *Source-derived only:* PayPal request ceilings (token, order, order read, capture, plus at most one 401 resend each). Actual outbound counts were not observed.
+  - *Not corroborated:* no PayPal dashboard read; capture ID not recorded.
+  - *Shutdown:* automatic cutoff shutdown armed beforehand; server stopped by hand 16 minutes before the cutoff; port 3000 free.
+- **F08 effect:** first current-source Sandbox approval and app-verified capture through the F07 permission gate. Still open for F08: decline, cancel and unknown-outcome paths against Sandbox, PayPal-side corroboration, duplicate prevention and repeat-order revalidation. **No acceptance change:** F07, F08, F11 and A35 remain unaccepted.
+
 ## Current status — October 18, 2026
 
 This supersedes the publication-status labels in the October 17 reconciliations below. Those reconciliations and all older entries remain dated history. Updated October 18, after the push and the draft PR.
