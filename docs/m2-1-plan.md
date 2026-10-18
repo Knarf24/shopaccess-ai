@@ -1,5 +1,12 @@
 # M2-1 plan: persist the guided conversation through the snapshot store
 
+## Publication reconciliation — October 17, 2026
+
+GitHub confirms M2-1 merged through [PR #1](https://github.com/Knarf24/shopaccess-ai/pull/1) as `b86a41be7797e5f12a3aae3aff3902abda78134d`; it is included in inspected main `e6bb69dbac7127786425c299667a45a3930a833b`. Statements below describing the implementation as uncommitted or awaiting its original commit/PR are dated historical records, superseded for publication status by this note.
+
+Merge status does not close the recorded acceptance limits. See the [current progress report](progress-report-2026-10-17.md) for published versus reported-local work. No application source or historical evidence is changed by this reconciliation.
+
+
 Prepared October 16, 2026 (America/New_York) by Claude as a planning record. **No application code was changed, and nothing was run**, apart from reading the source. The plan proposes work; it does not authorize it.
 
 Source inspected: `main` at `6cc511c` (application source identical to `0379134`; later commits change only `docs/`).

@@ -31,3 +31,15 @@ Stop after one inspection/report. No self-scheduling, automatic implementation o
 
 ## Claude documentation handoff
 At each manually authorized coding session's end, update the feature tracker and work log to match actual source and evidence; revise milestone estimates when justified. Preserve previous failures. Publish sanitized records through the agreed repository workflow so the monitor can read them. Reconcile local unpushed docs before replacing any. This instruction does not itself authorize live calls, payment, database work or deployment.
+
+## Published local-progress reports — October 17, 2026
+
+When the tracker or work log links a dated progress report, read it and retain its evidence labels. The current report is [October 17 progress](progress-report-2026-10-17.md), marker `SHOPACCESS-PROGRESS-20261017-R4`.
+
+Identify the exact main commit inspected. Distinguish implementation published in that tree from owner-reported work on unpublished local branches. A report's local HEAD and diff digest identify a claimed review state; they do not let the cloud monitor inspect private source or independently rerun its checks. Unaccepted and unstarted are different states.
+
+For one manually initiated ingestion check after the documentation update reaches main, include the report marker, published M2-1/M2-2 state, reported-local M2-3 state and pending browser/VM checks within the existing under-300-word report. Retain the existing Slack recipient and require a delivery result plus owner receipt before claiming end-to-end ingestion of this update.
+
+The owner supplied one Cursor report received in Slack at 20:04 EDT on October 17 for e6bb69d. This is evidence for that past report, not direct inspection of the automation settings, proof of its schedule, or proof of live laptop access. No automation setting or schedule is changed by this file.
+
+No direct Claude Code command channel, laptop filesystem bridge, webhook or unattended coding is established or authorized here. Continue using the existing approved repository publication workflow. No source commit or merge is authorized by a progress report.

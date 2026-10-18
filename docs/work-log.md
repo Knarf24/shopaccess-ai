@@ -1,6 +1,50 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 18, 2026 — current status, and integration of published main (documentation only)
+
+- **Published:** `main` at `21871db078790e97cf10d8b62b35214bada768eb` (documentation PR #3 on top of `e6bb69d`). It includes M2-1 (PR #1) and M2-2 (PR #2).
+- **M2-3 / F07:** committed locally on `feature/m2-3-purchase-permissions`. The commits are plan `ac95a17`, slice 1 `bb33781`, slice 2 `42e9b7e` and slice 3 `e2c1b05ee16198f43a3009bc94c41aa45fdeb11d`. They are **unpublished**: not pushed, and in no PR. This entry reaches `main` only through the approved workflow.
+- **Since the October 17 report:**
+  - **Automated mock browser recheck R1–R8 (Claude in Chrome):** R1–R7 passed. R8 partly passed: permission recovery and the not-found page passed, but the HTTP status was 200, not 404. Browser-profile isolation was incomplete.
+  - **Owner-operated VoiceOver on the owner's Mac (plan §10 amended):** limited English observations; validation-error speech inconclusive; other speech unverified.
+  - **Checkout language-marker correction (r5):** Codex's focused review found no concrete defect and no demonstrated commit blocker, with source-inspection and test-coverage qualifications.
+  - **Implementer-run gate:** 55 files, 1,413 passed; typecheck 0; lint 0 errors.
+- **Still open:**
+  - finding 7 (proposal) and finding 8 (tracked);
+  - per-item VoiceOver speech;
+  - M2-2 finding 3 before any non-local use;
+  - F07, F11 and A35 acceptance.
+- **Unchanged:** the October 24 target and the full scope. The likely-miss forecast is unresolved.
+
+**Integration.** A non-rebasing merge of `main` at `21871db` (PR #3) into the local branch. Git merged it with no conflicts. The October 18 status entries were added; the October 17 and older entries remain dated history. Relative to `e2c1b05`, only documentation changes. Not committed or pushed until the owner approves.
+
+**Correction to the slice 3 commit message** (the commit is not amended):
+- "The reviewers did not rerun the tests" is accurate only for Codex.
+- The two Claude subagent reviews ran network-blocked checks:
+  - the first ran 5 related test files (101 passed), typecheck and lint;
+  - the second ran 119 related tests, the full suite (1,401 passed), typecheck and lint, on the states they reviewed.
+- The message also omits Codex's r3 review, which found the two SEC-01 findings that r4 fixed.
+
+## October 17, 2026 — published/local progress reconciliation
+
+Goal: make current progress visible to the existing read-only monitor without publishing unfinished M2-3 source.
+
+Source inspected through GitHub: main `e6bb69dbac7127786425c299667a45a3930a833b`. PR #1 and PR #2 are confirmed merged. Earlier M2-1/M2-2 entries below remain the historical pre-merge records; this entry corrects their current publication status.
+
+Changes: added the [dated progress report](progress-report-2026-10-17.md), marker `SHOPACCESS-PROGRESS-20261017-R4`; linked it from the tracker and milestone plan; added publication-status notes to the M2 plans and monitor verification instructions. Application source is unchanged.
+
+Evidence: direct read-only GitHub metadata for the published state; owner-supplied Claude and Codex reports for private M2-3 r4. Reported local HEAD is `42e9b7e9b51db179bd10d5a0822a946a1b48d4a9`; source is uncommitted and unpublished. Codex reports no confirmed blocker remaining from the two prior SEC-01 findings, subject to the documented parser/unresolved-path limitations. Saved 1,410-test/typecheck/lint results are implementer-generated, not independently rerun by the publishing session.
+
+Checks: documentation, links, changed paths and GitHub diff inspection only. No application tests, builds, browsers, services, databases, payments or live-provider calls were run by this publishing session.
+
+Monitoring: the owner's 20:04 EDT Cursor report inspected main e6bb69d and reached the owner's Slack. That does not establish access to unpublished work or ingestion of this new record. Existing schedule/settings were not inspected or changed.
+
+Remaining: latest-correction browser recheck, separate VM screen-reader verification, owner commit/integration decision; finding 7 proposed and finding 8 tracked. October 24 and the expanded scope are unchanged. No acceptance status changes.
+
+Next: review/merge the documentation-only PR through the approved workflow, then run the existing monitor once and verify the publication commit, marker and Slack receipt. This entry does not itself authorize merge, a monitor run, source execution or a stage change.
+
+
 ## October 16, 2026 — owner-directed planning update
 - Owner selected October 24 for ShopAccess AI completion, replacing Sunday October 18. Wild Link work begins October 24 and continues through November 12.
 - Full expanded scope remains planned: conversational website, extension, persistent state/profiles, compatibility, external-store assistance, scoped delegated purchasing, voice, English/Spanish and accessible operation.
@@ -120,7 +164,7 @@ Codex investigated E1–E5 dependencies and recorded [full findings and bounded 
 ## October 16 — E1 isolated implementation, browser acceptance open
 Role: Codex implementer; owner approved design and plan. Prototype published only on branch design/shared-session-e1-20261016, commit e0be4b26f75e69a746aa91d3abfabf948f48a15c. Forty new files under experiments/e1-shared-session/; application source/payment/SQL/dependencies unchanged. Evidence: [results](https://github.com/Knarf24/shopaccess-ai/blob/e0be4b26f75e69a746aa91d3abfabf948f48a15c/experiments/e1-shared-session/evidence/RESULTS.md), [review ledger](https://github.com/Knarf24/shopaccess-ai/blob/e0be4b26f75e69a746aa91d3abfabf948f48a15c/experiments/e1-shared-session/evidence/LEDGER.md). Final PATH-only verification: 27 unit/client checks and 13 loopback checks, all exit 0, Node 24.19.0. No application suite/build, pinned-Node validation, installed-extension browser observation or screen-reader acceptance. Cloud browser failed loopback reachability. One independent review produced seven addressed findings; fixes covered by regression tests. Owned server stopped and port 3764 free. No credentials/live provider/payment calls. E1 is partial, not accepted. Next: local unpacked Chrome acceptance using the branch README, then separately reviewed application integration. Product target October 24 unchanged; no unattended coding scheduled.
 
-## October 16–17, 2026 — M2-3 slice 3, browser check and corrections (uncommitted)
+## October 16–17, 2026 — M2-3 slice 3, browser check and corrections (uncommitted when written; since committed locally as e2c1b05, unpublished)
 Date/time (UTC, recorded): slice 3 22:23–22:35Z Oct 16. Owner-assisted browser check: server run 1 from 22:37Z Oct 16 to 18:40Z Oct 17, then run 2 to 21:17Z. These spans include idle periods; active time was not recorded. Accessibility, language and D2 corrections: evidence runs 21:24–22:20Z Oct 17. Automated browser recheck 22:22–22:25Z.
 Goal and agreed session limit: slice 3 and its mock browser verification; then owner-directed accessibility and language corrections and the D2 fix. No Slice 4, no voice work.
 Source branch / starting commit: feature/m2-3-purchase-permissions at 42e9b7e (base e6bb69d). Not pushed.

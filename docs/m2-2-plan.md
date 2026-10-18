@@ -1,5 +1,12 @@
 # M2-2 plan: integrate the browser extension with the application
 
+## Publication reconciliation — October 17, 2026
+
+GitHub confirms M2-2 merged through [PR #2](https://github.com/Knarf24/shopaccess-ai/pull/2) as `e6bb69dbac7127786425c299667a45a3930a833b`; it is included in inspected main `e6bb69dbac7127786425c299667a45a3930a833b`. Statements below describing the implementation as uncommitted or awaiting its original commit/PR are dated historical records, superseded for publication status by this note.
+
+Merge status does not close the recorded acceptance limits. See the [current progress report](progress-report-2026-10-17.md) for published versus reported-local work. No application source or historical evidence is changed by this reconciliation.
+
+
 Prepared October 16, 2026 (America/New_York) by Claude. Planned against `08e6e6a04f20221e19eea95f17d56e2c1c40fda2` (M2-1).
 
 **Status update (October 16):**
