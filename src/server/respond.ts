@@ -51,6 +51,13 @@ export async function pgCheckoutWithoutPermissions(): Promise<Response> {
   return Response.json(body, { status: error.status, headers: { "cache-control": "no-store" } });
 }
 
+/** Device profiles exist only in the mock snapshot. PostgreSQL mode refuses them and does not connect. */
+export async function pgDeviceProfileUnavailable(): Promise<Response> {
+  const error = toPublicError("UNAVAILABLE", randomIdGenerator("event"));
+  const body = { error: { ...error.body.error, message: "Device profiles are unavailable in PostgreSQL mode." } };
+  return Response.json(body, { status: error.status, headers: { "cache-control": "no-store" } });
+}
+
 /** M2-3: purchase permissions exist only in the mock; PostgreSQL mode refuses them explicitly (fail closed), not 404. */
 export async function pgPermissionsUnavailable(): Promise<Response> {
   const error = toPublicError("UNAVAILABLE", randomIdGenerator("event"));

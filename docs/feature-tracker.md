@@ -1,6 +1,20 @@
 # ShopAccess AI feature and evidence tracker
 Updated October 16, 2026. Target: October 24. Initial status reflects published governance and owner-supplied reports, not a fresh implementation audit.
 
+## Optional device profile — October 18, 2026 (uncommitted when written)
+
+The sections below stay dated history. This entry does not rewrite them.
+
+- **Source:** `feature/device-profile` `8059280bfb33558000477ef7cc2545b092109839`, parent and current `main` `e3c582967adb4897b144c2c4c7436eb137ffa035`. Pushed to `origin`. Not merged into `main`.
+- **Scope:** one optional brand and one optional model on the live website session. Each field has its own consent. Withdrawing consent discards that field's posted text and its saved value. The profile belongs to the authenticated session. Recommendations and the extension do not read it.
+- **Format 6:** a revision marker stores the session id and the last issued version, with no brand and no model. The next profile is that version plus one. Logout, expiry, and recovery of a dead session drop the marker.
+- **Format 5:** a format-5 file stores no deleted-profile history. Upgrading it adds an empty marker list and does not reconstruct a deletion. Protection for a form issued before that upgrade remains limited.
+- **Rollback:** there is no downgrade writer. A reader that accepts only an older format rejects a format-6 file. Restoring an earlier `store.json` discards every snapshot write made after that copy, including purchase-permission outcomes and revision markers. Do not restore that copy while payment or checkout continues. No real-store migration is authorized.
+- **Attribution:** Cursor implemented the feature and the revision-marker correction. Codex's source-only reviews identified the r1 defect, a recreated profile reusing version 1, and assessed r2. The r2 review found no demonstrated defect in r2-era deletion and recreation. The later r3 additions were tests only.
+- **r2 checks, recorded before r3 and not rerun:** unit suite 58 files and 1,456 tests passed; typecheck exited 0; lint exited 0 with nine warnings.
+- **r3 checks:** the focused device-profile file's 25 tests passed. The full suite, typecheck, and lint were not rerun.
+- **Outstanding:** no browser check and no screen-reader check have occurred. F02 remains unaccepted. October 24 and the full scope are unchanged.
+
 ## Spanish checkout cleanup (finding 8, checkout part) — October 18, 2026 (uncommitted when written)
 
 - **Scope:** the mock and Sandbox checkout page (heading, quote lines, notices and errors, start link), the PayPal cancel-return page and the Spanish permissions page's product-name `lang` markers follow the language saved on the checkout, never the URL. English wording is unchanged. The simulated payment panel stays English. Not F09 (explicit language switching) and not external-site multilingual assistance.

@@ -37,7 +37,7 @@ const SANDBOX_PAYEE = "2ABCDEFGHJKLM";
 const SANDBOX_ORDER = "5O190127TN364715T";
 const ITEM = "dmp_aspire14ai:dmv_aspire14ai";
 const OTHER_ITEM = "dmp_aspirego15:dmv_aspirego15";
-const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [] };
+const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [] };
 
 function memoryRuntime(admission?: DemoAdmission) {
   const time = createTestClock("2026-10-16T12:00:00.000Z");

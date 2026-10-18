@@ -24,6 +24,7 @@ import { memoryDurableHost, snapshotDurableHost, type DurableHost } from "@/lib/
 import { InMemorySessionStore } from "@/lib/session/store";
 import { createPairingAuthority, type PairingAuthority } from "@/lib/session/grants";
 import { createPermissionAuthority, type PermissionAuthority } from "@/lib/permissions/authority";
+import { createProfileAuthority, type ProfileAuthority } from "@/lib/profile/authority";
 import { createPurchaseGate } from "@/lib/permissions/gate";
 import type { StateGate } from "@/lib/session/snapshot-state";
 import { systemClock, type Clock } from "@/lib/shared/clock";
@@ -95,6 +96,8 @@ export interface Runtime {
   readonly extensionOrigins: ReadonlySet<string>;
   /** F07 purchase permissions (M2-3). Website only; never reachable from the extension API. */
   readonly permissions: PermissionAuthority;
+  /** Optional device profile for this website session. Not used by recommendations, checkout, or payment. */
+  readonly profiles: ProfileAuthority;
 }
 
 const MAINTENANCE_INTERVAL_MS = 60_000;
@@ -215,6 +218,7 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     sessionLive: sessionIsLive,
     sessionExpiresAt: (sessionId) => sessionStore.absoluteExpiryOf(sessionId),
   });
+  const profiles = createProfileAuthority({ durable, sessionLive: sessionIsLive });
 
   if (channel3ClientForProcess() !== "disabled") {
     throw new Error("Channel3 live transport is not installed.");
@@ -280,6 +284,7 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     pairing,
     extensionOrigins: config.extensionOrigins ?? new Set<string>(),
     permissions,
+    profiles,
   };
   if (sandbox) sandboxInstallations().set(runtime, sandbox);
   return runtime;

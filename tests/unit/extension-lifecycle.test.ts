@@ -30,7 +30,7 @@ const EXT = `chrome-extension://${"a".repeat(32)}`;
 const API = `${SITE}/api/extension/v1`;
 const VERIFIER = "f".repeat(64);
 const CHALLENGE = createHash("sha256").update(VERIFIER).digest("hex");
-const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [] };
+const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [] };
 const config = { sessionKey: TEST_SESSION_KEY, trustedOrigins: parseTrustedOrigins([SITE]), extensionOrigins: new Set([EXT]) };
 
 /** A fake foundation store whose published body outlives each runtime, as the snapshot file does across a restart. */

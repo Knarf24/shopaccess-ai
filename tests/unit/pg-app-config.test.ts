@@ -343,6 +343,9 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
         // M2-3: purchase permissions, mock only; PostgreSQL refuses them (503).
         join("src", "app", "shop", "permissions", "create", "route.ts"),
         join("src", "app", "shop", "permissions", "revoke", "route.ts"),
+        // Optional device profile, mock only; PostgreSQL refuses it (503) and does not connect.
+        join("src", "app", "shop", "profile", "delete", "route.ts"),
+        join("src", "app", "shop", "profile", "save", "route.ts"),
       ].sort(),
     );
     const mockOnly: Record<string, string> = {
@@ -374,6 +377,10 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
       [join("src", "app", "shop", "permissions", "create", "route.ts")]: "handlePermissionCreate(request, runtime)",
       [join("src", "app", "shop", "permissions", "revoke", "route.ts")]: "handlePermissionRevoke(request, runtime)",
     };
+    const pgProfileRefused: Record<string, string> = {
+      [join("src", "app", "shop", "profile", "save", "route.ts")]: "handleProfileSave(request, runtime)",
+      [join("src", "app", "shop", "profile", "delete", "route.ts")]: "handleProfileDelete(request, runtime)",
+    };
     // M2-3: PostgreSQL mode has no F07 purchase-permission enforcement, so its checkout steps are refused (fail closed).
     const pgCheckoutRefused: Record<string, string> = {
       [join("src", "app", "checkout", "start", "route.ts")]: "handleCheckoutStart(request, runtime)",
@@ -388,6 +395,9 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
       if (pgPermissionsRefused[route]) {
         expect(text, route).toContain(`mock: (runtime) => ${pgPermissionsRefused[route]}`);
         expect(text, route).toContain("postgres: async () => pgPermissionsUnavailable()");
+      } else if (pgProfileRefused[route]) {
+        expect(text, route).toContain(`mock: (runtime) => ${pgProfileRefused[route]}`);
+        expect(text, route).toContain("postgres: async () => pgDeviceProfileUnavailable()");
       } else if (pgCheckoutRefused[route]) {
         expect(text, route).toContain(`mock: (runtime) => ${pgCheckoutRefused[route]}`);
         expect(text, route).toContain("postgres: async () => pgCheckoutWithoutPermissions()");

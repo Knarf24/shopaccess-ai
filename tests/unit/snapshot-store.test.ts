@@ -91,7 +91,7 @@ describe("snapshot foundation", () => {
             interpretationPending:
               draft.interpretationClaimVersion !== null && draft.interpretationClaimVersion === draft.version && draft.notice === null && draft.confirmedUse === null && draft.recommendationClaim === null,
           }));
-          expect(canonicalJson(published.value), row.id).toBe(canonicalJson({ ...file, body: { ...file.body, drafts, conversations: [], selections: [], grants: [], permissions: [] } }));
+          expect(canonicalJson(published.value), row.id).toBe(canonicalJson({ ...file, body: { ...file.body, drafts, conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [] } }));
           if (row.id === "F16") expect(stalenessDetectedByChecksum).toBe(false);
         } else {
           expect(opened.status, row.id).toBe("unavailable");
@@ -116,7 +116,7 @@ describe("snapshot foundation", () => {
     expect(opened.status).toBe("ready");
     if (opened.status !== "ready") return;
     const before = opened.value.readPublished();
-    const failed = await opened.value.commit(current(bodyWith([session(1)], [])));
+    const failed = await opened.value.commit(writing(current(bodyWith([session(1)], []))));
     expect(failed).toEqual({ status: "unavailable", outcome: "definite" });
     expect(canonicalJson(opened.value.readPublished())).toBe(canonicalJson(before));
     expect(fs.readFileSync(join(directory, "store.json")).equals(original)).toBe(true);
@@ -142,7 +142,7 @@ describe("snapshot foundation", () => {
     expect(opened.status).toBe("ready");
     if (opened.status !== "ready") return;
     try {
-      const firstCommit = opened.value.commit(current(baseBody()));
+      const firstCommit = opened.value.commit(writing(current(baseBody())));
       const started = Date.now();
       while (flushes !== 1) {
         if (Date.now() - started > 2000) throw new Error("the first commit did not reach the queue barrier");
@@ -152,7 +152,7 @@ describe("snapshot foundation", () => {
       const line = item(1, { title: "nested title" });
       const advice = recommendation([line]);
       const nested = draft(record.id, 1, confirmedPatch(advice));
-      const submitted = current(bodyWith([record], [nested]));
+      const submitted = writing(current(bodyWith([record], [nested])));
       const expected = canonicalJson(submitted);
       const secondCommit = opened.value.commit(submitted);
       record.id = `ses_${"c".repeat(32)}`;
@@ -225,8 +225,8 @@ describe("snapshot foundation", () => {
       vi.resetModules();
       const { openFoundationStore } = await import("../../src/lib/session/snapshot-store");
       const previous = current(baseBody());
-      const candidate = current(bodyWith([session(1, { id: "ses_" + "a".repeat(32) })], []));
-      const third = current(bodyWith([session(2)], []));
+      const candidate = writing(current(bodyWith([session(1, { id: "ses_" + "a".repeat(32) })], [])));
+      const third = writing(current(bodyWith([session(2)], [])));
       const directory = saved.mkdirSync(join(tmpdir(), `sa-fault-${Date.now()}`), { recursive: true }) as string;
       saved.chmodSync(directory, 0o700);
       const storePath = join(directory, "store.json");
@@ -264,13 +264,15 @@ describe("snapshot foundation", () => {
 
   it("reopens one whole snapshot after the writing process has exited", async () => {
     const previous = current(bodyWith([session(4)], [draft(session(4).id)]));
+    // Format 4 stays on disk. The served body adds an empty profile list and does not rewrite the file.
+    const served = { ...previous, profiles: [], profileRevisions: [] };
     const failed = fixture(pack2(previous));
     const failedKey = writeKey(failed);
     const failedChild = spawnChild("failed-write", failed, failedKey);
     const failedHash = await failedChild.output;
     expect(await failedChild.finish()).toBe(0);
-    expect(failedHash).toBe(checksum(previous));
-    expect(await reopen(failed, checksum(previous))).toBe(checksum(previous));
+    expect(failedHash).toBe(checksum(served));
+    expect(await reopen(failed, checksum(served))).toBe(checksum(served));
 
     const renamed = fixture(pack2(previous));
     const renamedKey = writeKey(renamed);
@@ -689,6 +691,11 @@ function omit(value: object, key: string): Record<string, unknown> {
   const copy = { ...(value as Record<string, unknown>) };
   delete copy[key];
   return copy;
+}
+
+/** A format-5 commit body: the format-4 shape plus an empty profile list. */
+function writing(body: Record<string, unknown>): Record<string, unknown> {
+  return { ...body, profiles: [], profileRevisions: [] };
 }
 
 /** A format-2 body: the format-1 fields plus empty (or given) conversations and selections. */

@@ -1,6 +1,6 @@
 import { revokeSessionPermissions } from "../permissions/model";
 import { conversationStateOf, replaceConversationState } from "./conversation";
-import type { DurableState, PersistedGrant, PersistedPermission, StateGate, Windows } from "./snapshot-state";
+import type { DurableState, PersistedDeviceProfile, PersistedGrant, PersistedPermission, PersistedProfileRevision, StateGate, Windows } from "./snapshot-state";
 import { needsDraftsFor, replaceNeedsDrafts, type InMemorySessionStore, type SessionRecord, type SessionStore } from "./store";
 
 /**
@@ -90,6 +90,18 @@ export interface DurableHost {
   decidePermissions<T>(
     decide: (permissions: readonly PersistedPermission[]) => { readonly value: T; readonly permissions?: readonly PersistedPermission[] },
   ): Promise<T>;
+  /** Device profiles as last published (never a candidate). */
+  readProfiles(): readonly PersistedDeviceProfile[];
+  /**
+   * Runs a profile decision against the published profiles. A returned `profiles` list replaces them and is durable
+   * before the value is returned (snapshot mode); a refused save throws PersistenceUnavailableError.
+   */
+  decideProfiles<T>(
+    decide: (
+      profiles: readonly PersistedDeviceProfile[],
+      revisions: readonly PersistedProfileRevision[],
+    ) => { readonly value: T; readonly profiles?: readonly PersistedDeviceProfile[]; readonly revisions?: readonly PersistedProfileRevision[] },
+  ): Promise<T>;
 }
 
 /** Today's behaviour, unchanged: one process, in memory. */
@@ -99,12 +111,39 @@ export function memoryDurableHost(store: object, sessionStore: InMemorySessionSt
   // Memory mode keeps nothing across a restart. A logged-out session's permissions give no authority because authority
   // requires a live session; snapshot mode also revokes them durably at logout.
   let permissions: readonly PersistedPermission[] = [];
+  let profiles: readonly PersistedDeviceProfile[] = [];
+  let profileRevisions: readonly PersistedProfileRevision[] = [];
+  const dropProfiles = (sessionIds: readonly string[]) => {
+    if (sessionIds.length === 0) return;
+    const gone = new Set(sessionIds);
+    profiles = profiles.filter((profile) => !gone.has(profile.sessionId));
+    profileRevisions = profileRevisions.filter((revision) => !gone.has(revision.sessionId));
+  };
+  const sessions: LiveSessionStore = {
+    insertWithinCapacity: (record, maxSessions) => sessionStore.insertWithinCapacity(record, maxSessions),
+    findByTokenDigest: (tokenDigest) => sessionStore.findByTokenDigest(tokenDigest),
+    touch: (id, lastSeenAt) => sessionStore.touch(id, lastSeenAt),
+    replaceTokenDigest: (id, expectedDigest, newDigest, at) => sessionStore.replaceTokenDigest(id, expectedDigest, newDigest, at),
+    revoke: async (id, at) => {
+      await sessionStore.revoke(id, at);
+      dropProfiles([id]);
+    },
+    deleteExpired: async (now, idleCutoff) => {
+      const removed = await sessionStore.deleteExpired(now, idleCutoff);
+      dropProfiles(removed);
+      return removed;
+    },
+    count: () => sessionStore.count(),
+    isLive: (sessionId, now, idleTimeoutMs) => sessionStore.isLive(sessionId, now, idleTimeoutMs),
+    absoluteExpiryOf: (sessionId) => sessionStore.absoluteExpiryOf(sessionId),
+    liveUntil: (sessionId, idleTimeoutMs) => sessionStore.liveUntil(sessionId, idleTimeoutMs),
+  };
   return {
     mode: "memory",
     async change(change) {
       return change(store);
     },
-    sessionStore,
+    sessionStore: sessions,
     async spendAllocation(nowMs, policy) {
       const spent = spendWindow(allocation, nowMs, policy, false);
       allocation = spent.next;
@@ -127,6 +166,13 @@ export function memoryDurableHost(store: object, sessionStore: InMemorySessionSt
     async decidePermissions(decide) {
       const decision = decide(permissions);
       if (decision.permissions) permissions = decision.permissions;
+      return decision.value;
+    },
+    readProfiles: () => profiles,
+    async decideProfiles(decide) {
+      const decision = decide(profiles, profileRevisions);
+      if (decision.profiles) profiles = decision.profiles;
+      if (decision.revisions) profileRevisions = decision.revisions;
       return decision.value;
     },
   };
@@ -158,6 +204,8 @@ function withoutSessions(state: DurableState, removed: ReadonlySet<string>): Dur
     selections: keep(state.selections),
     grants: state.grants.filter((grant) => !removed.has(grant.sessionId)),
     permissions: state.permissions.filter((permission) => !removed.has(permission.sessionId)),
+    profiles: state.profiles.filter((profile) => !removed.has(profile.sessionId)),
+    profileRevisions: state.profileRevisions.filter((revision) => !removed.has(revision.sessionId)),
   };
 }
 
@@ -214,7 +262,9 @@ export function snapshotDurableHost(gate: StateGate, published: object): Durable
         );
         // F07: active and reserved purchase permissions are revoked in the same decision (M2-3 §8).
         const permissions = revokeSessionPermissions(state.permissions, id, at);
-        return { value: undefined, next: { ...replaceSession(state, { ...record, revokedAt: at }), grants, permissions } };
+        const profiles = state.profiles.filter((profile) => profile.sessionId !== id);
+        const profileRevisions = state.profileRevisions.filter((revision) => revision.sessionId !== id);
+        return { value: undefined, next: { ...replaceSession(state, { ...record, revokedAt: at }), grants, permissions, profiles, profileRevisions } };
       }),
     deleteExpired: (now, idleCutoff) =>
       decide((state) => {
@@ -278,6 +328,20 @@ export function snapshotDurableHost(gate: StateGate, published: object): Durable
       decide((state) => {
         const decision = permissionDecision(state.permissions);
         return decision.permissions ? { value: decision.value, next: { ...state, permissions: decision.permissions } } : { value: decision.value };
+      }),
+    readProfiles: () => current().profiles,
+    decideProfiles: (profileDecision) =>
+      decide((state) => {
+        const decision = profileDecision(state.profiles, state.profileRevisions);
+        if (!decision.profiles && !decision.revisions) return { value: decision.value };
+        return {
+          value: decision.value,
+          next: {
+            ...state,
+            ...(decision.profiles ? { profiles: decision.profiles } : {}),
+            ...(decision.revisions ? { profileRevisions: decision.revisions } : {}),
+          },
+        };
       }),
   };
 }

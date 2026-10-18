@@ -1,6 +1,16 @@
 # ShopAccess AI milestone plan
 Updated October 16, 2026. Owner decision: Frank Ncube. Dates use America/New_York.
 
+## Current evidence note — October 18, 2026 (device profile)
+
+This note is later than the October 18 note below. That note and the October 17 note remain dated history.
+
+The optional device profile is committed on `feature/device-profile` as `8059280bfb33558000477ef7cc2545b092109839` and pushed. It is not merged into `main`. Current `main` is `e3c582967adb4897b144c2c4c7436eb137ffa035`. Cursor implemented the session-owned brand and model and the format-6 revision-marker correction. Codex's source-only reviews identified the r1 version-reuse defect and assessed r2. The r2 review found no demonstrated defect in r2-era deletion and recreation. A format-5 file stores no deleted-profile history, so protection for a form issued before the upgrade remains limited. The later r3 additions were tests only.
+
+r2 checks, recorded before r3 and not rerun: 58 files and 1,456 tests passed, typecheck exited 0, and lint exited 0 with nine warnings. r3: the focused device-profile file's 25 tests passed, and the full suite was not rerun. No browser check and no screen-reader check have occurred. F02 remains unaccepted.
+
+A reader that accepts only an older format rejects a format-6 file. Restoring an earlier store copy loses every later snapshot write, including purchase-permission outcomes. No real-store migration is authorized. Recommendations and the extension do not use the profile. October 24, the scope, and the forecast are unchanged.
+
 ## Current evidence note — October 18, 2026
 
 M2-3/F07 is committed on `feature/m2-3-purchase-permissions`: slice 3 is `e2c1b05`, and in merge `a142e95` `main` (`21871db`) was merged into the feature branch. The branch is pushed and open as draft PR #4. M2-3 is not merged into `main`, and published `main` is still `21871db`. The browser recheck and owner-operated VoiceOver results, with their limits, are in the feature tracker's October 18 status. October 24 remains the owner target. No scope, date or acceptance changes, and the forecast has not been recalculated. The October 17 note below is dated history.

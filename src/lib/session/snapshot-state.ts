@@ -69,6 +69,23 @@ export interface PersistedPermission {
   readonly changedAt: Date;
 }
 
+/** One optional device profile for a website session. A null field was not saved. */
+export interface PersistedDeviceProfile {
+  readonly sessionId: string;
+  readonly version: number;
+  readonly brand: string | null;
+  readonly model: string | null;
+}
+
+/**
+ * Last issued profile version for a session whose profile row is gone. No brand and no model.
+ * A session has a profile, or one of these, or neither. Logout, expiry, and restore of a dead session drop it.
+ */
+export interface PersistedProfileRevision {
+  readonly sessionId: string;
+  readonly version: number;
+}
+
 /** The whole persisted application state. Values are treated as immutable: a decision returns a new state. */
 export interface DurableState {
   readonly sessions: readonly SessionRecord[];
@@ -78,6 +95,8 @@ export interface DurableState {
   readonly windows: Windows;
   readonly grants: readonly PersistedGrant[];
   readonly permissions: readonly PersistedPermission[];
+  readonly profiles: readonly PersistedDeviceProfile[];
+  readonly profileRevisions: readonly PersistedProfileRevision[];
 }
 
 /** Builds the body to commit. Entries whose session is gone, and conversations for a replaced draft, are left out. */
@@ -138,6 +157,12 @@ export function bodyFromState(state: DurableState): PublishedBody {
         checkoutIntentId: permission.checkoutIntentId,
         changedAt: permission.changedAt.toISOString(),
       })),
+    profiles: state.profiles
+      .filter((profile) => ids.has(profile.sessionId))
+      .map((profile) => ({ sessionId: profile.sessionId, version: profile.version, brand: profile.brand, model: profile.model })),
+    profileRevisions: state.profileRevisions
+      .filter((revision) => ids.has(revision.sessionId))
+      .map((revision) => ({ sessionId: revision.sessionId, version: revision.version })),
   };
 }
 
@@ -224,8 +249,16 @@ export function restoreState(body: PublishedBody, now: Date): RecoveredState {
       })),
     now,
   );
+  // Profiles of restored sessions only, copied as stored. Recovery does not rewrite brand or model text.
+  const profiles = body.profiles
+    .filter((profile) => ids.has(profile.sessionId))
+    .map((profile) => ({ sessionId: profile.sessionId, version: profile.version, brand: profile.brand, model: profile.model }));
+  // Markers of restored sessions only. A dead session's marker is dropped with the session. Text is not stored here.
+  const profileRevisions = body.profileRevisions
+    .filter((revision) => ids.has(revision.sessionId))
+    .map((revision) => ({ sessionId: revision.sessionId, version: revision.version }));
   return {
-    state: { sessions, drafts, conversations, selections, windows: { allocation: body.allocation, admissionLogin: body.admissionLogin }, grants, permissions },
+    state: { sessions, drafts, conversations, selections, windows: { allocation: body.allocation, admissionLogin: body.admissionLogin }, grants, permissions, profiles, profileRevisions },
     interrupted: { interpretations, recommendations },
     droppedSessions,
   };

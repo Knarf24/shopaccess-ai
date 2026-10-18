@@ -264,6 +264,8 @@ describe("restart", () => {
       windows: { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 } },
       grants: [],
       permissions: [p("reserved"), p("executing", { productId: OTHER.productId, variantId: OTHER.variantId, permissionId: `prm_${"e".repeat(32)}` }), p("active", { sessionId: S2, permissionId: `prm_${"f".repeat(32)}` })],
+      profiles: [],
+      profileRevisions: [],
     };
     const body = bodyFromState(state);
     expect(body.permissions).toHaveLength(3);
@@ -276,7 +278,7 @@ describe("restart", () => {
 });
 
 // Runtime-level: the permission authority on the save-first gate, logout, and the extension boundary.
-const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [] };
+const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [] };
 
 async function snapshotRuntime() {
   let published = structuredClone(EMPTY);
