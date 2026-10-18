@@ -9,8 +9,10 @@ import { sandboxCorrelationId } from "@/lib/payment/adapter-config";
 import { centsToPaypalAmount, isPayPalSandboxProvider, PayPalSandboxProvider, type PaypalTransport } from "@/lib/providers/paypal-sandbox";
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
 import { parseTrustedOrigins } from "@/lib/session/request-guard";
-import type { PaymentState } from "@/lib/payment/state-machine";
+import type { PaymentOperation } from "@/lib/payment/operations";
+import { INITIAL_PAYMENT_SNAPSHOT, PAYMENT_STATES, type PaymentContext, type PaymentSnapshot, type PaymentState } from "@/lib/payment/state-machine";
 import {
+  cancelReturnStatus,
   handleConfirm,
   handleCheckoutStart,
   handleSandboxApprove,
@@ -22,7 +24,7 @@ import {
 } from "@/server/handlers";
 import { createRuntime, type Runtime } from "@/server/runtime";
 import type { CheckoutView } from "@/server/views";
-import { TEST_SESSION_KEY } from "./helpers";
+import { TEST_SESSION_KEY, permitPurchase } from "./helpers";
 
 const ORIGIN = "https://shop.example.test";
 const PAYEE = "2ABCDEFGHJKLM";
@@ -78,6 +80,8 @@ async function shopper(runtime: Runtime): Promise<Shopper> {
   const token = response.headers.get("set-cookie")!.split(";")[0]!.split("=")[1]!;
   const session = await runtime.sessions.resolve(token);
   if (!session.ok) throw new Error("session");
+  // M2-3: a shopper creates the purchase permission before checking out.
+  await permitPurchase(runtime, session.value.id);
   return { cookie: `${SESSION_COOKIE_NAME}=${token}`, csrfToken: session.value.csrfToken, sessionId: session.value.id };
 }
 
@@ -253,7 +257,7 @@ describe("PayPal sandbox checkout handlers", () => {
 
   it("shows capture success only after the capture is verified", () => {
     const copy = journeyCopy("en").sandboxCheckout;
-    const markup = (state: PaymentState) =>
+    const markup = (state: PaymentState, permissionRefusal: CheckoutView["permissionRefusal"] = null, steps: CheckoutView["steps"] = []) =>
       renderToStaticMarkup(
         SandboxCheckoutActions({
           view: {
@@ -264,7 +268,8 @@ describe("PayPal sandbox checkout handlers", () => {
             merchantName: "ShopAccess Demo Store (simulated)",
             challenge: null,
             challengeProblem: null,
-            steps: [],
+            permissionRefusal,
+            steps,
             transitions: [],
             observations: [],
             operations: [],
@@ -279,6 +284,20 @@ describe("PayPal sandbox checkout handlers", () => {
     expect(markup("CAPTURED_VERIFIED")).toContain(copy.captured);
     expect(markup("USER_CONFIRMED")).toContain(copy.approve);
     expect(markup("USER_CONFIRMED")).not.toContain(copy.captured);
+    // M2-3 review finding 3: while a permission refusal applies, neither approval nor capture is offered.
+    for (const refusal of ["PERMISSION_REVOKED", "CONFIRMATION_REQUIRED"] as const) {
+      expect(markup("USER_CONFIRMED", refusal), refusal).not.toMatch(/<form|<button/);
+      expect(markup("APPROVED_VERIFIED", refusal), refusal).not.toMatch(/<form|<button/);
+      // Second review finding 2: while cancelling is valid, the protected cancel form is the only control.
+      for (const state of ["USER_CONFIRMED", "APPROVED_VERIFIED"] as const) {
+        const html = markup(state, refusal, ["cancel"]);
+        expect([...html.matchAll(/<form\b[^>]*action="([^"]+)"/g)].map((match) => match[1]), `${state} ${refusal}`).toEqual([`/checkout/ci_${"ab".repeat(16)}/cancel`]);
+        expect(html).toContain('<input type="hidden" name="csrfToken" value="csrf"/>');
+        expect([...html.matchAll(/<button\b[^>]*>([^<]*)<\/button>/g)].map((match) => match[1])).toEqual([copy.cancel]);
+      }
+    }
+    // No refusal: no cancel form here (unchanged behaviour).
+    expect(markup("APPROVED_VERIFIED", null, ["cancel"])).not.toContain("/cancel");
   });
 
   it("refuses approve, return, and capture for mock mode, a missing provider, an inconsistent runtime, and PostgreSQL routes", async () => {
@@ -379,5 +398,188 @@ describe("PayPal sandbox checkout handlers", () => {
     expect((await runtime.store.findIntent(intentId))?.snapshot.state).toBe("CAPTURED_VERIFIED");
     expect(foreign.outbound.some((call) => call.url.startsWith("https://api-m.sandbox.paypal.com/"))).toBe(true);
     expect(foreign.outbound.some((call) => !call.url.startsWith("https://api-m.sandbox.paypal.com/"))).toBe(false);
+  });
+});
+
+// Codex slices 1–2 review finding 1: the PayPal cancel-return page (GET) states and offers only what the saved payment
+// state supports, and changes nothing. Mocked transport; no PayPal call leaves the test.
+describe("sandbox cancel-return page follows the saved payment state", () => {
+  const copy = journeyCopy("en").sandboxCheckout;
+  const NO_CAPTURE = "No payment has been captured.";
+
+  function world(fallback: { status: number; body: string } | null = null) {
+    const replies: Array<{ status: number; body: string }> = [];
+    const runtime = runtimeWith(async (request) => {
+      if (request.url.endsWith("/token")) return tokenResponse();
+      const next = replies.shift() ?? fallback;
+      if (!next) throw new Error(`unexpected PayPal call ${request.url}`);
+      return next;
+    });
+    return { runtime, replies };
+  }
+
+  async function approved(runtime: Runtime, replies: Array<{ status: number; body: string }>) {
+    const current = await shopper(runtime);
+    const { intentId, totalCents, quoteId } = await confirmed(runtime, current);
+    replies.push({ status: 201, body: orderBody(quoteId, totalCents, "CREATED") });
+    await handleSandboxApprove(post(`/checkout/${intentId}/approve`, { csrfToken: current.csrfToken }, current), runtime, intentId);
+    replies.push({ status: 200, body: orderBody(quoteId, totalCents, "APPROVED") });
+    await handleSandboxReturn(new Request(`${ORIGIN}/checkout/${intentId}/return?token=${ORDER_ID}`, { headers: { cookie: current.cookie } }), runtime, intentId);
+    expect((await runtime.store.findIntent(intentId))?.snapshot.state).toBe("APPROVED_VERIFIED");
+    return { current, intentId, totalCents, quoteId };
+  }
+
+  const captureReply = (quoteId: string, totalCents: number, status: string) => ({
+    status: 201,
+    body: JSON.stringify({
+      id: CAPTURE_ID,
+      status,
+      amount: { currency_code: "USD", value: centsToPaypalAmount(totalCents) },
+      custom_id: sandboxCorrelationId(quoteId),
+      payee: { merchant_id: PAYEE },
+      supplementary_data: { related_ids: { order_id: ORDER_ID } },
+    }),
+  });
+
+  /** Everything a GET must leave unchanged. */
+  async function recorded(runtime: Runtime, intentId: string) {
+    return structuredClone({
+      intent: await runtime.store.findIntent(intentId),
+      transitions: await runtime.store.listTransitions(intentId),
+      observations: await runtime.store.listObservations(intentId),
+      ledger: [...(await runtime.ledger.listForIntent(intentId, "ORDER_CREATE")), ...(await runtime.ledger.listForIntent(intentId, "CAPTURE"))],
+      audit: runtime.audit.list(),
+      outbound: runtime.sandbox!.outbound,
+      permissions: runtime.durable.readPermissions(),
+    });
+  }
+
+  async function cancelPage(runtime: Runtime, current: Shopper, intentId: string) {
+    const before = await recorded(runtime, intentId);
+    const response = await handleSandboxPaypalCancel(new Request(`${ORIGIN}/checkout/${intentId}/paypal-cancel`, { headers: { cookie: current.cookie } }), runtime, intentId);
+    expect(response.status).toBe(200);
+    expect(await recorded(runtime, intentId)).toEqual(before);
+    const html = await response.text();
+    return { html, forms: [...html.matchAll(/<form\b[^>]*action="([^"]+)"/g)].map((match) => match[1]) };
+  }
+
+  it("captured: says it was captured, offers no cancel, and links back to the checkout", async () => {
+    const { runtime, replies } = world();
+    const { current, intentId, totalCents, quoteId } = await approved(runtime, replies);
+    replies.push(captureReply(quoteId, totalCents, "COMPLETED"));
+    await handleSandboxCapture(post(`/checkout/${intentId}/capture`, { csrfToken: current.csrfToken }, current), runtime, intentId);
+    expect((await runtime.store.findIntent(intentId))?.snapshot.state).toBe("CAPTURED_VERIFIED");
+    const page = await cancelPage(runtime, current, intentId);
+    expect(page.html).not.toContain(NO_CAPTURE);
+    expect(page.html).toContain(copy.captured);
+    expect(page.forms).toEqual([]);
+    expect(page.html).toContain(`href="/checkout/${intentId}"`);
+  });
+
+  it("capture outcome uncertain: says so, never 'no payment has been captured', and offers no cancel", async () => {
+    const { runtime, replies } = world({ status: 500, body: "{}" });
+    const { current, intentId } = await approved(runtime, replies);
+    await handleSandboxCapture(post(`/checkout/${intentId}/capture`, { csrfToken: current.csrfToken }, current), runtime, intentId);
+    const intent = (await runtime.store.findIntent(intentId))!;
+    expect(intent.snapshot.context.captureDispatched).toBe(true);
+    expect(["CAPTURE_UNKNOWN", "RECONCILIATION_REQUIRED", "CAPTURE_IN_FLIGHT"]).toContain(intent.snapshot.state);
+    const page = await cancelPage(runtime, current, intentId);
+    expect(page.html).not.toContain(NO_CAPTURE);
+    expect(page.html).toContain(copy.unknown);
+    expect(page.forms).toEqual([]);
+    expect(page.html).toContain(`href="/checkout/${intentId}"`);
+  });
+
+  it("provider-proven decline: no capture, and Cancel is offered because the state machine still allows it", async () => {
+    const { runtime, replies } = world();
+    const { current, intentId, totalCents, quoteId } = await approved(runtime, replies);
+    replies.push(captureReply(quoteId, totalCents, "DECLINED"));
+    await handleSandboxCapture(post(`/checkout/${intentId}/capture`, { csrfToken: current.csrfToken }, current), runtime, intentId);
+    expect((await runtime.store.findIntent(intentId))?.snapshot.state).toBe("DECLINED_RETRYABLE");
+    const page = await cancelPage(runtime, current, intentId);
+    expect(page.html).toContain(NO_CAPTURE);
+    expect(page.forms).toEqual([`/checkout/${intentId}/cancel`]);
+  });
+
+  it("order outcome unknown: no capture, but no Cancel because the state machine does not allow it", async () => {
+    const { runtime } = world({ status: 500, body: "{}" });
+    const current = await shopper(runtime);
+    const { intentId } = await confirmed(runtime, current);
+    await handleSandboxApprove(post(`/checkout/${intentId}/approve`, { csrfToken: current.csrfToken }, current), runtime, intentId);
+    expect((await runtime.store.findIntent(intentId))?.snapshot.state).toBe("ORDER_CREATE_UNKNOWN");
+    const page = await cancelPage(runtime, current, intentId);
+    expect(page.html).toContain(`${NO_CAPTURE} It can&#39;t be canceled here.`);
+    expect(page.forms).toEqual([]);
+    expect(page.html).toContain(`href="/checkout/${intentId}"`);
+  });
+
+  it("before any capture: no capture, Cancel offered; after Cancel: canceled wording and no form", async () => {
+    const { runtime, replies } = world();
+    const { current, intentId } = await approved(runtime, replies);
+    const open = await cancelPage(runtime, current, intentId);
+    expect(open.html).toContain(NO_CAPTURE);
+    expect(open.forms).toEqual([`/checkout/${intentId}/cancel`]);
+    await handleSandboxCancel(post(`/checkout/${intentId}/cancel`, { csrfToken: current.csrfToken }, current), runtime, intentId);
+    expect((await runtime.store.findIntent(intentId))?.snapshot.state).toBe("CANCELED_LOCAL");
+    const closed = await cancelPage(runtime, current, intentId);
+    expect(closed.html).toContain(copy.canceled);
+    expect(closed.forms).toEqual([]);
+  });
+});
+
+// Codex slices 1–2 review finding 1, states the mocked flows above do not reach: the classifier behind the page.
+describe("cancel-return classification", () => {
+  const snapshot = (state: PaymentState, context: Partial<PaymentContext> = {}): PaymentSnapshot => ({ state, version: 9, context: { ...INITIAL_PAYMENT_SNAPSHOT.context, ...context } });
+  const capture = (state: PaymentOperation["state"]) => ({ type: "CAPTURE", state }) as PaymentOperation;
+  const dispatched = { captureDispatched: true, captureOperationId: "op_capture", providerCaptureId: CAPTURE_ID };
+
+  it("captured, refunded and disputed states are never 'no capture'", () => {
+    expect(cancelReturnStatus(snapshot("CAPTURED_VERIFIED", dispatched), [capture("SUCCEEDED")])).toBe("captured");
+    for (const state of ["PARTIALLY_REFUNDED_OBSERVED", "REFUNDED_OBSERVED", "REVERSED_OR_DISPUTED_OBSERVED"] as const) {
+      expect(cancelReturnStatus(snapshot(state, dispatched), [capture("SUCCEEDED")])).toBe("captured_observed");
+    }
+  });
+
+  it("capture in flight, unknown, pending, reconciliation and manual review are uncertain, before or after dispatch", () => {
+    for (const state of ["CAPTURE_IN_FLIGHT", "CAPTURE_UNKNOWN", "CAPTURE_PENDING_PROVIDER", "RECONCILIATION_REQUIRED", "MANUAL_REVIEW"] as const) {
+      expect(cancelReturnStatus(snapshot(state, dispatched), [capture("UNKNOWN")])).toBe("uncertain");
+      expect(cancelReturnStatus(snapshot(state), [])).toBe("uncertain");
+    }
+  });
+
+  it("a no-capture state is uncertain unless the capture context and every saved capture operation agree", () => {
+    expect(cancelReturnStatus(snapshot("APPROVED_VERIFIED"), [])).toBe("no_capture");
+    expect(cancelReturnStatus(snapshot("DECLINED_RETRYABLE"), [capture("DECLINED")])).toBe("no_capture");
+    expect(cancelReturnStatus(snapshot("CANCELED_LOCAL"), [capture("REJECTED")])).toBe("canceled");
+    const violations: Array<[Partial<PaymentContext>, PaymentOperation[]]> = [
+      [{ captureDispatched: true }, []],
+      [{ captureOperationId: "op_capture" }, []],
+      [{ providerCaptureId: CAPTURE_ID }, []],
+      [{}, [capture("DECLINED"), capture("SUCCEEDED")]],
+      [{}, [capture("UNKNOWN")]],
+      [{}, [capture("PENDING")]],
+      [{}, [capture("DISPATCHING")]],
+    ];
+    for (const state of ["APPROVED_VERIFIED", "DECLINED_RETRYABLE", "CANCELED_LOCAL", "EXPIRED"] as const) {
+      for (const [context, captures] of violations) expect(cancelReturnStatus(snapshot(state, context), captures)).toBe("uncertain");
+    }
+  });
+
+  it("every payment state is classified, and only the listed pre-capture and ended states can be 'no capture'", () => {
+    const noCapture = PAYMENT_STATES.filter((state) => cancelReturnStatus(snapshot(state), []) === "no_capture");
+    expect(noCapture).toEqual([
+      "DRAFT",
+      "QUOTED",
+      "USER_CONFIRMED",
+      "ORDER_CREATE_IN_FLIGHT",
+      "ORDER_CREATE_UNKNOWN",
+      "AWAITING_APPROVAL",
+      "APPROVAL_CHECK_PENDING",
+      "APPROVED_VERIFIED",
+      "DECLINED_RETRYABLE",
+      "SUPERSEDED",
+      "EXPIRED",
+      "FAILED_TERMINAL",
+    ]);
   });
 });

@@ -1,6 +1,10 @@
 # ShopAccess AI milestone plan
 Updated October 16, 2026. Owner decision: Frank Ncube. Dates use America/New_York.
 
+## Current evidence note — October 18, 2026
+
+M2-3/F07 is committed on `feature/m2-3-purchase-permissions`: slice 3 is `e2c1b05`, and in merge `a142e95` `main` (`21871db`) was merged into the feature branch. The branch is pushed and open as draft PR #4. M2-3 is not merged into `main`, and published `main` is still `21871db`. The browser recheck and owner-operated VoiceOver results, with their limits, are in the feature tracker's October 18 status. October 24 remains the owner target. No scope, date or acceptance changes, and the forecast has not been recalculated. The October 17 note below is dated history.
+
 ## Current evidence note — October 17, 2026
 
 Read the [dated progress report](progress-report-2026-10-17.md), marker `SHOPACCESS-PROGRESS-20261017-R4`, alongside the historical plan below. M2-1 and M2-2 are merged in published main; M2-3/F07 r4 is reported locally and remains uncommitted/unpublished, with the latest browser recheck and VM screen-reader verification pending.

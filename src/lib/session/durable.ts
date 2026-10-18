@@ -1,5 +1,6 @@
+import { revokeSessionPermissions } from "../permissions/model";
 import { conversationStateOf, replaceConversationState } from "./conversation";
-import type { DurableState, PersistedGrant, StateGate, Windows } from "./snapshot-state";
+import type { DurableState, PersistedGrant, PersistedPermission, StateGate, Windows } from "./snapshot-state";
 import { needsDraftsFor, replaceNeedsDrafts, type InMemorySessionStore, type SessionRecord, type SessionStore } from "./store";
 
 /**
@@ -80,12 +81,24 @@ export interface DurableHost {
    * the value is returned (snapshot mode); a refused save throws PersistenceUnavailableError.
    */
   decideGrants<T>(decide: (grants: readonly PersistedGrant[]) => { readonly value: T; readonly grants?: readonly PersistedGrant[] }): Promise<T>;
+  /** F07 purchase permissions as last published (never a candidate). */
+  readPermissions(): readonly PersistedPermission[];
+  /**
+   * Runs a permission decision against the published permissions. A returned `permissions` list replaces them and is
+   * durable before the value is returned (snapshot mode); a refused save throws PersistenceUnavailableError.
+   */
+  decidePermissions<T>(
+    decide: (permissions: readonly PersistedPermission[]) => { readonly value: T; readonly permissions?: readonly PersistedPermission[] },
+  ): Promise<T>;
 }
 
 /** Today's behaviour, unchanged: one process, in memory. */
 export function memoryDurableHost(store: object, sessionStore: InMemorySessionStore, admissionAttempts: { windowStartedAt: number | null; count: number }): DurableHost {
   let allocation: WindowState = { windowStartedAt: null, count: 0 };
   let grants: readonly PersistedGrant[] = [];
+  // Memory mode keeps nothing across a restart. A logged-out session's permissions give no authority because authority
+  // requires a live session; snapshot mode also revokes them durably at logout.
+  let permissions: readonly PersistedPermission[] = [];
   return {
     mode: "memory",
     async change(change) {
@@ -108,6 +121,12 @@ export function memoryDurableHost(store: object, sessionStore: InMemorySessionSt
     async decideGrants(decide) {
       const decision = decide(grants);
       if (decision.grants) grants = decision.grants;
+      return decision.value;
+    },
+    readPermissions: () => permissions,
+    async decidePermissions(decide) {
+      const decision = decide(permissions);
+      if (decision.permissions) permissions = decision.permissions;
       return decision.value;
     },
   };
@@ -138,6 +157,7 @@ function withoutSessions(state: DurableState, removed: ReadonlySet<string>): Dur
     conversations: keep(state.conversations),
     selections: keep(state.selections),
     grants: state.grants.filter((grant) => !removed.has(grant.sessionId)),
+    permissions: state.permissions.filter((permission) => !removed.has(permission.sessionId)),
   };
 }
 
@@ -192,7 +212,9 @@ export function snapshotDurableHost(gate: StateGate, published: object): Durable
         const grants = state.grants.map((grant) =>
           grant.sessionId === id && grant.revokedAt === null ? { ...grant, revokedAt: new Date(Math.max(at.getTime(), grant.createdAt.getTime())) } : grant,
         );
-        return { value: undefined, next: { ...replaceSession(state, { ...record, revokedAt: at }), grants } };
+        // F07: active and reserved purchase permissions are revoked in the same decision (M2-3 §8).
+        const permissions = revokeSessionPermissions(state.permissions, id, at);
+        return { value: undefined, next: { ...replaceSession(state, { ...record, revokedAt: at }), grants, permissions } };
       }),
     deleteExpired: (now, idleCutoff) =>
       decide((state) => {
@@ -250,6 +272,12 @@ export function snapshotDurableHost(gate: StateGate, published: object): Durable
       decide((state) => {
         const decision = grantDecision(state.grants);
         return decision.grants ? { value: decision.value, next: { ...state, grants: decision.grants } } : { value: decision.value };
+      }),
+    readPermissions: () => current().permissions,
+    decidePermissions: (permissionDecision) =>
+      decide((state) => {
+        const decision = permissionDecision(state.permissions);
+        return decision.permissions ? { value: decision.value, next: { ...state, permissions: decision.permissions } } : { value: decision.value };
       }),
   };
 }

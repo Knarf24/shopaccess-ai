@@ -8,6 +8,8 @@ import { GuidedProgress, type GuidedStep } from "@/components/mock-journey/Guide
 import { InterpretedNeedsReview, NEEDS_REVIEW_HEADING_ID } from "@/components/mock-journey/InterpretedNeedsReview";
 import { NeedsConversation } from "@/components/mock-journey/NeedsConversation";
 import { PAIRED_ACCESS_RESULT_ID, PairedAccess } from "@/components/PairedAccess";
+import { PermissionRefusal } from "@/components/PermissionRefusal";
+import { isPermissionRefusal, permissionCopy } from "@/lib/i18n/permission-copy";
 import { revocationMessage } from "@/lib/i18n/extension-copy";
 import "../../guided-presentation.css";
 import { ExternalListings, type ListingNotice } from "@/components/mock-journey/ExternalListings";
@@ -137,6 +139,8 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
   const copy = journeyCopy(language);
   const errorCode = typeof query.error === "string" ? query.error : undefined;
   const alert = errorCode && errorCode in copy.alerts ? copy.alerts[errorCode as keyof typeof copy.alerts] : null;
+  // F07 (M2-3): a refused checkout start. Not a needs-form error, so it is not linked to the needs inputs.
+  const permissionRefusal = isPermissionRefusal(errorCode) ? errorCode : null;
   const notice = visibleNeedsNotice({
     sessionLive: true,
     draft: journey.draft,
@@ -177,7 +181,7 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
   const revokedLabel = pairedAccessShown && typeof query.revoked === "string" ? query.revoked : null;
   const currentTarget = selectNeedsCurrentTarget({
     expiredDraft,
-    validationAlert: validationAlertId !== undefined,
+    validationAlert: validationAlertId !== undefined || (!expiredDraft && permissionRefusal !== null),
     revocationRendered: revocationMessage(language, revokedLabel, 0) !== null,
     noticeRendered,
     reviewRendered: showConfirm,
@@ -222,6 +226,7 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
           {alert}
         </p>
       ) : null}
+      {!expiredDraft && !alert && permissionRefusal ? <PermissionRefusal language={language} code={permissionRefusal} id={NEEDS_VALIDATION_ALERT_ID} /> : null}
       {!expiredDraft && failureNotice ? (
         <p id="needs-notice" role="alert" tabIndex={currentTarget === "notice" ? -1 : undefined}>
           {copy.notices[failureNotice]}
@@ -334,6 +339,11 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
           revokedLabel={revokedLabel}
         />
       ) : null}
+      <p>
+        <Link href={`/shop/permissions?lang=${language}`} prefetch={false} className="underline">
+          {permissionCopy(language).managePermissions}
+        </Link>
+      </p>
       <p>
         <Link href="/" prefetch={false} className="underline">
           {copy.navigationHome}

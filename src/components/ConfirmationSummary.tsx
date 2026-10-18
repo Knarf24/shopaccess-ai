@@ -2,6 +2,7 @@ import { formatUsd } from "@/lib/catalog/merchant-catalog";
 import type { ConfirmationChallenge } from "@/lib/confirmation/confirmation";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
+import { sellerName } from "@/lib/i18n/seller-name";
 
 export interface ConfirmationSummaryProps {
   readonly challenge: ConfirmationChallenge;
@@ -10,6 +11,8 @@ export interface ConfirmationSummaryProps {
   readonly action?: string;
   /** Absent or English keeps the original markup. Spanish is a separate rendering of the same fields. */
   readonly language?: JourneyLanguage;
+  /** Set only when this heading is the skip-link target. */
+  readonly headingTabIndex?: -1;
 }
 
 /**
@@ -18,12 +21,12 @@ export interface ConfirmationSummaryProps {
  * Submitting records the shopper's confirmation of this exact summary; it does
  * not contact PayPal.
  */
-export function ConfirmationSummary({ challenge, csrfToken, action, language }: ConfirmationSummaryProps) {
-  if (language === "es") return <SpanishConfirmation challenge={challenge} csrfToken={csrfToken} action={action} />;
+export function ConfirmationSummary({ challenge, csrfToken, action, language, headingTabIndex }: ConfirmationSummaryProps) {
+  if (language === "es") return <SpanishConfirmation challenge={challenge} csrfToken={csrfToken} action={action} headingTabIndex={headingTabIndex} />;
   const { summary } = challenge;
   return (
     <form method="post" action={action} aria-labelledby="confirm-heading" className="flex max-w-xl flex-col gap-4 rounded-lg border border-zinc-400 p-5">
-      <h2 id="confirm-heading" className="text-xl font-semibold">
+      <h2 id="confirm-heading" tabIndex={headingTabIndex} className="text-xl font-semibold">
         Review and confirm this purchase summary
       </h2>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
@@ -70,17 +73,17 @@ export function ConfirmationSummary({ challenge, csrfToken, action, language }: 
   );
 }
 
-function SpanishConfirmation({ challenge, csrfToken, action }: Omit<ConfirmationSummaryProps, "language">) {
+function SpanishConfirmation({ challenge, csrfToken, action, headingTabIndex }: Omit<ConfirmationSummaryProps, "language">) {
   const { summary } = challenge;
   const copy = journeyCopy("es").confirmation;
   return (
     <form method="post" action={action} aria-labelledby="confirm-heading" lang="es" className="flex max-w-xl flex-col gap-4 rounded-lg border border-zinc-400 p-5">
-      <h2 id="confirm-heading" className="text-xl font-semibold">
+      <h2 id="confirm-heading" tabIndex={headingTabIndex} className="text-xl font-semibold">
         {copy.heading}
       </h2>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
         <dt className="font-medium">{copy.seller}</dt>
-        <dd>{summary.merchantName}</dd>
+        <dd>{sellerName(summary.merchantName, "es")}</dd>
         <dt className="font-medium">{copy.item}</dt>
         <dd>
           <span lang="en">{summary.productTitle}</span> — <span lang="en">{summary.variantLabel}</span>

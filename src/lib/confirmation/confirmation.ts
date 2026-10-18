@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { findMerchantVariant } from "../catalog/merchant-catalog";
 import { applyPaymentEvent, type CheckoutDeps } from "../checkout/service";
+import type { PurchaseRefusal } from "../permissions/gate";
 import type { ConfirmationRecord, ConfirmationSummary } from "../checkout/store";
 import { verifyQuote, type QuoteVerificationFailure } from "../quote/quote";
 import { constantTimeEqual, randomTokenBase64Url, sha256Hex } from "../shared/crypto";
@@ -19,7 +20,7 @@ export interface ConfirmationChallenge {
   readonly expiresAt: string;
 }
 
-export type PrepareConfirmationFailure = QuoteVerificationFailure | "QUOTE_NOT_FOUND" | "INTENT_NOT_AWAITING_CONFIRMATION";
+export type PrepareConfirmationFailure = QuoteVerificationFailure | PurchaseRefusal | "QUOTE_NOT_FOUND" | "INTENT_NOT_AWAITING_CONFIRMATION";
 
 /**
  * Creates the purchase summary a shopper will be asked to confirm, bound to one
@@ -46,6 +47,9 @@ export async function prepareConfirmation(
   if (!intent || intent.snapshot.state !== "QUOTED" || intent.snapshot.context.quoteId !== quoteId) {
     return err("INTENT_NOT_AWAITING_CONFIRMATION");
   }
+  // F07: the checkout's purchase permission must still cover this exact quote (M2-3).
+  const permitted = deps.purchaseGate.check(sessionId, quote.value, intent.id, "confirm_prepare");
+  if (!permitted.ok) return err(permitted.code);
 
   // verifyQuote already proved the variant exists and is unchanged.
   const entry = findMerchantVariant(deps.catalog, quote.value.productId, quote.value.variantId)!;
@@ -93,6 +97,7 @@ export const ConfirmationSubmissionSchema = z.strictObject({
 
 export type ConfirmFailure =
   | QuoteVerificationFailure
+  | PurchaseRefusal
   | "SUBMISSION_INVALID"
   | "CONFIRMATION_NOT_FOUND"
   | "CONFIRMATION_SUPERSEDED"
@@ -149,6 +154,9 @@ export async function confirmPurchaseSummary(
     if (!intent || intent.snapshot.state !== "QUOTED" || intent.snapshot.context.quoteId !== record.quoteId) {
       return err("INTENT_NOT_AWAITING_CONFIRMATION" as const);
     }
+    // F07: re-checked at submission, never relying on the check made when the summary was shown (M2-3).
+    const permitted = deps.purchaseGate.check(sessionId, quote.value, record.checkoutIntentId, "confirm_submit");
+    if (!permitted.ok) return err(permitted.code);
     // Consume first: of any number of concurrent submissions, exactly one proceeds.
     if (!(await deps.store.consumeConfirmation(record.id, now.toISOString()))) {
       return err("CONFIRMATION_ALREADY_USED" as const);

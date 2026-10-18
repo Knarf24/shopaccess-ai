@@ -104,6 +104,8 @@ export interface JourneyCopy {
     readonly payeeMismatch: string;
     readonly canceled: string;
     readonly unknown: string;
+    /** The cancel button shown while a purchase-permission refusal applies (M2-3). */
+    readonly cancel: string;
   };
   readonly purchaseGuidanceTitle: string;
   readonly reviewGuidance: string;
@@ -221,6 +223,7 @@ const ENGLISH: JourneyCopy = {
     payeeMismatch: "The seller on the PayPal order does not match this checkout. No payment was captured.",
     canceled: "This checkout was canceled before any capture. No payment was taken.",
     unknown: "The payment outcome is unknown. Nothing here confirms that a payment was captured.",
+    cancel: "Cancel this checkout",
   },
   purchaseGuidanceTitle: "Review this purchase",
   reviewGuidance: "Review the seller, item, quantity, and total. The total is calculated by the server. Confirming does not take payment.",
@@ -338,6 +341,7 @@ const SPANISH: JourneyCopy = {
     payeeMismatch: "El vendedor del pedido de PayPal no coincide con esta compra. No se capturó ningún pago.",
     canceled: "Esta compra se canceló antes de cualquier captura. No se cobró ningún pago.",
     unknown: "El resultado del pago es desconocido. Nada aquí confirma que se haya capturado un pago.",
+    cancel: "Cancelar esta compra",
   },
   purchaseGuidanceTitle: "Revise esta compra",
   reviewGuidance: "Revise el vendedor, el artículo, la cantidad y el total. El total lo calcula el servidor. Confirmar no cobra un pago.",

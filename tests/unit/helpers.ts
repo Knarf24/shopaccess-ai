@@ -1,4 +1,6 @@
 import { DEMO_MERCHANT_CATALOG } from "@/lib/catalog/merchant-catalog";
+import type { PurchaseGate } from "@/lib/permissions/gate";
+import type { Runtime } from "@/server/runtime";
 import type { MerchantCatalog } from "@/lib/catalog/schemas";
 import { requestQuote, startCheckout, type CheckoutDeps } from "@/lib/checkout/service";
 import { InMemoryCheckoutStore } from "@/lib/checkout/store";
@@ -32,6 +34,20 @@ export function cloneCatalog(): MerchantCatalog {
   return structuredClone(DEMO_MERCHANT_CATALOG);
 }
 
+/**
+ * TEST ONLY. A purchase gate that permits every step, for the payment-mechanics tests that build their own world
+ * without a website session or permissions. F07 enforcement is tested with the real gate (createPurchaseGate) in
+ * purchase-gate.test.ts and through createRuntime. Never used by application code.
+ */
+export const PERMIT_ALL_PURCHASE_GATE_FOR_TESTS: PurchaseGate = {
+  reserveForCheckout: async () => ({ ok: true }),
+  check: () => ({ ok: true }),
+  beginCapture: async () => ({ ok: true }),
+  beginCaptureResend: async () => ({ ok: true }),
+  recordPaymentState: async () => {},
+  releaseCheckout: async () => {},
+};
+
 export function createWorld() {
   const time = createTestClock();
   const ids = createSequentialIdGenerator();
@@ -43,7 +59,7 @@ export function createWorld() {
   const catalog = cloneCatalog();
   const audit = new InMemoryAuditLog();
   const sessionIsLive = (sessionId: string) => sessionStore.isLive(sessionId, time.clock(), SESSION_IDLE_TIMEOUT_MS);
-  const checkout: CheckoutDeps = { store, sessionIsLive, catalog, clock: time.clock, ids };
+  const checkout: CheckoutDeps = { store, sessionIsLive, catalog, clock: time.clock, ids, purchaseGate: PERMIT_ALL_PURCHASE_GATE_FOR_TESTS };
   const payment = (workerId = "worker-a"): PaymentDeps => ({
     store,
     ledger,
@@ -54,6 +70,7 @@ export function createWorld() {
     ids,
     workerId,
     leaseMs: LEASE_MS,
+    purchaseGate: PERMIT_ALL_PURCHASE_GATE_FOR_TESTS,
   });
   return { time, ids, sessionStore, sessions, store, ledger, provider, catalog, audit, checkout, payment };
 }
@@ -87,4 +104,45 @@ export async function confirmedIntent(world: World, sessionId: string) {
 
 export async function stateOf(world: World, intentId: string) {
   return (await world.store.findIntent(intentId))!.snapshot.state;
+}
+
+/**
+ * M2-3: grants the shopper an F07 purchase permission for one demo variant through the real website authority, as the
+ * permissions page does. Idempotent: does nothing while a live permission for the binding exists. Limits default to the
+ * widest allowed (2 units, the maximum total), so existing checkout tests keep their behaviour.
+ */
+export async function permitPurchase(
+  runtime: Pick<Runtime, "permissions" | "clock" | "catalog">,
+  sessionId: string,
+  binding: { readonly productId: string; readonly variantId: string } = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai" },
+  limits: { readonly maxQuantity?: number; readonly maxTotalCents?: number; readonly expiry?: string } = {},
+): Promise<string> {
+  const now = runtime.clock();
+  const existing = runtime.permissions
+    .list(sessionId, now)
+    .find((p) => p.live && p.productId === binding.productId && p.variantId === binding.variantId);
+  if (existing) return existing.permissionId;
+  const made = await runtime.permissions.create(
+    {
+      sessionId,
+      merchantId: runtime.catalog.merchant.merchantId,
+      ...binding,
+      maxQuantity: limits.maxQuantity ?? 2,
+      maxTotalCents: limits.maxTotalCents ?? 20_000_000,
+      expiry: limits.expiry ?? "session",
+      admissionExpiresAtMs: null,
+    },
+    now,
+  );
+  if (!made.ok) throw new Error(`permitPurchase: ${made.code}`);
+  return made.value.permissionId;
+}
+
+/** M2-3: grants a permission for every in-stock demo variant (three, within the five-per-session cap). */
+export async function permitCatalog(runtime: Pick<Runtime, "permissions" | "clock" | "catalog">, sessionId: string): Promise<void> {
+  for (const product of runtime.catalog.products) {
+    for (const variant of product.variants) {
+      if (variant.availability === "IN_STOCK") await permitPurchase(runtime, sessionId, { productId: product.productId, variantId: variant.variantId });
+    }
+  }
 }

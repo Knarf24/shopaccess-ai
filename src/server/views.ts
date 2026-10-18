@@ -2,7 +2,9 @@ import { headers } from "next/headers";
 import { findMerchantVariant } from "@/lib/catalog/merchant-catalog";
 import type { ProviderObservation } from "@/lib/checkout/store";
 import { prepareConfirmation, type ConfirmationChallenge } from "@/lib/confirmation/confirmation";
+import { isPermissionRefusal, type PermissionRefusalCode } from "@/lib/i18n/permission-copy";
 import type { PaymentOperation } from "@/lib/payment/operations";
+import { captureDeclinedBefore } from "@/lib/payment/orchestrator";
 import type { PaymentState, TransitionRecord } from "@/lib/payment/state-machine";
 import type { Quote } from "@/lib/quote/quote";
 import { readSessionCookie } from "@/lib/session/cookie";
@@ -25,7 +27,13 @@ export interface CheckoutView {
   readonly merchantName: string;
   /** Present only while the checkout is waiting for confirmation and the quote is still valid. */
   readonly challenge: ConfirmationChallenge | null;
+  /** Why no confirmation could be prepared, other than a purchase-permission refusal (that is `permissionRefusal`). */
   readonly challengeProblem: string | null;
+  /**
+   * The F07 refusal that applies now (M2-3 review findings 2–5), from the saved permission and payment records, never
+   * from the URL. Only before any capture could have been sent; while it applies, only Cancel and Reconcile are offered.
+   */
+  readonly permissionRefusal: PermissionRefusalCode | null;
   readonly steps: readonly SimulationStep[];
   readonly transitions: readonly TransitionRecord[];
   readonly observations: readonly ProviderObservation[];
@@ -33,6 +41,22 @@ export interface CheckoutView {
   /** Set only when the mock journey sent a language. Null leaves the existing English checkout markup. */
   readonly interfaceLanguage: "en" | "es" | null;
 }
+
+/**
+ * Confirmed checkouts whose next step needs the checkout's purchase permission (order creation or its resend, approval
+ * that leads to a capture, the capture itself), before any capture could have been sent. A decline returns here too.
+ * ORDER_CREATE_UNKNOWN (second review finding 4): an order resend needs the permission; no capture can have been sent.
+ */
+const PERMISSION_GATED: ReadonlySet<PaymentState> = new Set([
+  "USER_CONFIRMED",
+  "ORDER_CREATE_UNKNOWN",
+  "AWAITING_APPROVAL",
+  "APPROVAL_CHECK_PENDING",
+  "APPROVED_VERIFIED",
+  "DECLINED_RETRYABLE",
+]);
+/** Steps still offered while a refusal applies: Cancel, and Reconcile, which only reads back (a resend stays gated). */
+const STEPS_WHILE_REFUSED: ReadonlySet<SimulationStep> = new Set(["cancel", "reconcile"]);
 
 /** Loads a checkout for display. Returns null unless it belongs to the given session. */
 export async function buildCheckoutView(runtime: Runtime, session: Session, intentId: string): Promise<CheckoutView | null> {
@@ -46,12 +70,21 @@ export async function buildCheckoutView(runtime: Runtime, session: Session, inte
 
   let challenge: ConfirmationChallenge | null = null;
   let challengeProblem: string | null = null;
+  let permissionRefusal: PermissionRefusalCode | null = null;
+  const captures = await runtime.ledger.listForIntent(intentId, "CAPTURE");
   if (state === "QUOTED" && quote) {
     // Each render replaces the quote's single challenge; a page rendered earlier is superseded and told to refresh.
     const prepared = await prepareConfirmation(runtime.checkout, session.id, quote.quoteId);
     if (prepared.ok) challenge = prepared.value;
+    else if (isPermissionRefusal(prepared.error)) permissionRefusal = prepared.error;
     else challengeProblem = prepared.error;
+  } else if (PERMISSION_GATED.has(state) && quote && !context.captureDispatched) {
+    // The same read-only check the next step would make, so the page never offers a step the gate will refuse.
+    const checked = runtime.checkout.purchaseGate.check(session.id, quote, intentId, "display");
+    if (!checked.ok) permissionRefusal = checked.code;
+    else if (captureDeclinedBefore(captures)) permissionRefusal = "CONFIRMATION_REQUIRED";
   }
+  const steps = availableSteps(state).filter((step) => permissionRefusal === null || STEPS_WHILE_REFUSED.has(step));
 
   return {
     intentId,
@@ -61,10 +94,11 @@ export async function buildCheckoutView(runtime: Runtime, session: Session, inte
     merchantName: runtime.catalog.merchant.displayName,
     challenge,
     challengeProblem,
-    steps: availableSteps(state),
+    permissionRefusal,
+    steps,
     transitions: await runtime.store.listTransitions(intentId),
     observations: await runtime.store.listObservations(intentId),
-    operations: [...(await runtime.ledger.listForIntent(intentId, "ORDER_CREATE")), ...(await runtime.ledger.listForIntent(intentId, "CAPTURE"))],
+    operations: [...(await runtime.ledger.listForIntent(intentId, "ORDER_CREATE")), ...captures],
     interfaceLanguage: intent.interfaceLanguage ?? null,
   };
 }

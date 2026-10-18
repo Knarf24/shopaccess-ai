@@ -1,7 +1,28 @@
 # ShopAccess AI feature and evidence tracker
 Updated October 16, 2026. Target: October 24. Initial status reflects published governance and owner-supplied reports, not a fresh implementation audit.
 
+## Current status — October 18, 2026
+
+This supersedes the publication-status labels in the October 17 reconciliations below. Those reconciliations and all older entries remain dated history. Updated October 18, after the push and the draft PR.
+
+- **Published:** `main` at `21871db078790e97cf10d8b62b35214bada768eb` (documentation PR #3 on top of `e6bb69d`). It includes M2-1 (PR #1) and M2-2 (PR #2).
+- **M2-3 / F07:** committed on `feature/m2-3-purchase-permissions`: plan `ac95a17`, slice 1 `bb33781`, slice 2 `42e9b7e`, slice 3 `e2c1b05ee16198f43a3009bc94c41aa45fdeb11d`, and merge `a142e959b743eff95b1899dd4dedbe8ea205351f`, by which **`main` (`21871db`) was merged into the feature branch** (documentation only). The branch is **pushed** to `origin` and is open as **draft PR #4** (https://github.com/Knarf24/shopaccess-ai/pull/4): base `main` `21871db`, head `a142e95`. **M2-3 is not merged into `main`**, so the monitor, which reads `main` only, does not see it. GitHub reports no checks, because no CI is configured; that means unverified, not passing.
+- **Since the October 17 report:**
+  - **Automated mock browser recheck R1–R8 (Claude in Chrome):** R1–R7 passed. R8 partly passed: permission recovery and the not-found page passed, but the HTTP status was 200, not 404. Browser-profile isolation was incomplete.
+  - **Owner-operated VoiceOver on the owner's Mac (plan §10 amended):** limited English observations; validation-error speech inconclusive; other speech unverified.
+  - **Checkout language-marker correction (r5):** Codex's focused review found no concrete defect and no demonstrated commit blocker, with source-inspection and test-coverage qualifications.
+  - **Implementer-run gate:** 55 files, 1,413 passed; typecheck 0; lint 0 errors.
+  - **Codex review of slices 1–2 (frozen baseline `a142e95`):** two findings, both corrected in the working tree (owner-approved, uncommitted): the sandbox cancel-return page now follows the saved payment state (finding 1), and permission creation rechecks the session inside its serialized decision (finding 2). Implementer-run gate after the fixes: 55 files, 1,423 passed; typecheck 0; lint 0 errors. Codex's focused review of the fixes (source and saved evidence; it did not rerun tests) found both findings resolved, with no demonstrated blocker. Acceptance is unchanged.
+- **Still open:**
+  - finding 7 (proposal) and finding 8 (tracked);
+  - per-item VoiceOver speech;
+  - M2-2 finding 3 before any non-local use;
+  - F07, F11 and A35 acceptance.
+- **Unchanged:** the October 24 target and the full scope. The likely-miss forecast is unresolved.
+
 ## Current reconciliation — October 17, 2026
+
+*Historical since October 18: superseded for status by the October 18 status above. Its text is kept as published in PR #3.*
 
 Read the [dated progress report](progress-report-2026-10-17.md) before interpreting the historical tables below. Marker: `SHOPACCESS-PROGRESS-20261017-R4`.
 
@@ -67,15 +88,59 @@ No feature is accepted solely because code exists, tests pass, or a concept vide
 ## October 16 feasibility research supplement
 See [full investigation](full-feasibility-investigation-20261016.md) and [external-store matrix](external-store-feasibility-20261016.md). These refine F02–F10 prerequisites; no F-row is accepted by them. Amazon Business ordering is a distinct candidate with onboarding dependencies, not proof of ordinary personal Amazon support. Shopify's test gateway does not establish PayPal Sandbox. Bounded E1–E4 proposals are documented and not run. Model, storage and store choices remain proposals. E5 official rules were read; judge setup and final compliance remain open.
 
-## M2-1 update (October 16, 2026, uncommitted branch)
+## M2-1 update (October 16, 2026; merged to main as b86a41b, PR #1)
 
 F02 conversation persistence:
 - Source on `feature/m2-1-snapshot-persistence`: sessions, drafts, conversation (language, eight lines), confirmation-invalidation state, and the allocation and admission windows persist through the save-first snapshot gate when `SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE` are set.
 - Evidence: unit and behavioural tests, 41 files and 1,243 passed. Private mock-only browser restart check passed.
-- Not accepted until reviewed and committed. Device profile (the rest of F02) is not started. See `docs/m2-1-plan.md` §9–10.
+- Committed as `08e6e6a` and merged as `b86a41b` (PR #1); the suite rerun on `b86a41b` gave 41 files, 1,253 passed (the count after review correction 2). F02 is not accepted: the device profile (the rest of F02) is not started. See `docs/m2-1-plan.md` §9–10.
 
 ## Voice addendum (October 16, 2026)
 
 F10 now also records the owner's optional "Hey ShopAccess" hands-free activation: local wake-word detection, spoken conversation, a visible listening state and a stop command. It is planned as a separate feasibility experiment (`docs/m2-2-plan.md` §8). It is not part of M2-2 and not implemented; there is no estimate beyond the experiment's 5–9 hours.
 
-F05 (October 16): M2-2 integrates pairing, a shared conversation and per-grant revocation into the application, uncommitted on `feature/m2-2-extension-integration`. Unit evidence (1,300 tests) and an owner-assisted mock browser check on 127.0.0.1 (pairing, shared history, revoke, restart, keyboard). An independent source review passed with notes; its corrections are made and await owner review. B1, a conversation-persistence defect from M2-1, was found in that browser check and fixed. Before any non-local use, pairing needs a matching code (accepted carry-forward). Screen-reader acceptance is open. F05 is not accepted.
+F05 (October 16): M2-2 integrates pairing, a shared conversation and per-grant revocation into the application, committed as `cb09a94` and merged to main as `e6bb69d` (PR #2). Unit evidence: 1,300 tests after the browser-check fixes; 1,306 at the commit after the review corrections, and 1,306 again when rerun on merged `e6bb69d`. An owner-assisted mock browser check on 127.0.0.1 covered pairing, shared history, revoke, restart and keyboard. An independent source review passed with notes; its corrections were approved and merged. B1, a conversation-persistence defect from M2-1, was found in that browser check and fixed. Before any non-local use, pairing needs a matching code (accepted carry-forward). Screen-reader acceptance is open. F05 is not accepted.
+
+## Reconciliation (October 17, 2026)
+
+**Historical record.** "Uncommitted", "not pushed" and "current" in this section describe the worktree before slice 3 was committed (`e2c1b05`, October 18). For the current state, see the October 18 status at the top.
+
+Written in the M2-3 worktree; unpublished until the owner approves a commit. The monitor reads `main` only and cannot see this branch, its uncommitted work or the private evidence.
+
+**Merged `main` at `e6bb69d`** (M2-2 merge, PR #2; its tree is identical to `cb09a94`). It contains M2-1 (`08e6e6a`, merged as `b86a41b`, PR #1) and M2-2 (`cb09a94`). No CI is configured, so no check results exist on GitHub.
+
+**Local M2-3** on `feature/m2-3-purchase-permissions`, based on `e6bb69d`. Committed but **not pushed**: plan `ac95a17`, slice 1 `bb33781`, slice 2 `42e9b7e`. **Uncommitted:** slice 3 (permissions page, routes, refusal copy), the browser-check fixes D1 and D2, the accessibility and language corrections, and these documents.
+
+Suite counts belong to different revisions, not conflicting results:
+
+| Revision | Suite (database-free) | Run |
+| --- | --- | --- |
+| M2-1 working tree, before review | 41 files, 1,243 | implementation gate |
+| `08e6e6a` / `b86a41b` | 41 files, 1,253 | after review correction 2; rerun on `b86a41b` |
+| M2-2 working tree after browser fixes | 48 files, 1,300 | fix gate |
+| `cb09a94` / `e6bb69d` | 49 files, 1,306 | after review corrections; rerun on merged `e6bb69d` |
+| `bb33781` (slice 1) | 51 files, 1,325 | slice gate |
+| `42e9b7e` (slice 2) | 52 files, 1,354 | slice gate |
+| uncommitted slice 3 (historical) | 53 files, 1,373 → 1,374 (D1) | slice gate, D1 fix |
+| uncommitted (historical) | 54 files, 1,389 → 1,390 (D2) | accessibility corrections, D2 fix |
+| uncommitted (historical) | 55 files, 1,401 | review findings 1–6 fixed |
+| uncommitted (historical) | 55 files, 1,406 | second-review corrections (SEC-01 pin, sandbox cancel and unsaved-capture page, unknown-order refusal) |
+| uncommitted (historical) | 55 files, 1,410 | Codex review: SEC-01 collector covers `.mts`/`.cts`; parser-based import policy refuses computed specifiers |
+| uncommitted then (historical); the same tree was committed as `e2c1b05` | 55 files, 1,413 | checkout language-marker correction (r5) |
+
+Typecheck 0 and lint 0 errors with the same 9 pre-existing warnings at every row. Runs are the implementer's no-network recipe; no separate party has rerun them.
+
+**F07 (M2-3), not accepted.** Evidence for the slice 3 tree (uncommitted when written; committed as `e2c1b05`):
+- source and unit: the counts above, with red checks for each enforcement point and each fix (private evidence);
+- manual browser (owner, mock only, 127.0.0.1): scenarios 1–8 with retries, the Spanish and keyboard recheck, and the revocation focus checks;
+- automated browser (Claude in Chrome, October 17 22:22–22:25Z): revoke before confirm, the refusal and its link, QUOTED and unconfirmed, focus targets and outlines, and D2 after a reload. It predates the review corrections, which have unit and page-render evidence only;
+- source reviews: two read-only reviews by separate Claude subagents (not independent of the implementer's model), and an independent Codex review of the r3 handoff, which found two SEC-01 gaps (the repository collector omitted `.mts`/`.cts`; computed specifiers and some suffixes evaded the import restriction). All were fixed with red-checked tests. Codex's focused, read-only re-review of the r4 handoff (October 17) found both SEC-01 findings resolved and no new concrete defect, with a stated qualification: parser diagnostics are not checked, and unresolved literal paths are not refused. That review read the source and the saved outputs; it did not rerun tests and does not grant commit or product acceptance;
+- automated browser recheck of the review corrections (Claude in Chrome, owner-authorised, mock only, October 18 01:35–01:48Z), scenarios R1–R8. R1–R7 passed: the successful checkout, the refusal after confirmation, the spent confirmation after a decline, the old checkout keeping its revoked reason, a single current refusal, URL codes ignored after capture, and "(simulada)" in the Spanish summary. R8 partly passed: permission recovery and the rendered not-found page passed, but the expected HTTP 404 did not; the old checkouts returned HTTP 200. That is consistent with the installed Next.js streaming guidance (`notFound()` under `<Suspense>`; pre-existing on main) but not confirmed for each request. The browser session was not isolated: it shared the owner's Chrome profile, and the owner's open tabs sent two unrelated GET requests. The server logs account for every POST as the automation's. Optional cases are deferred;
+- screen reader, kept separate from the markup and browser evidence:
+  - **Observed (limited):** an owner-operated VoiceOver check on the owner's Mac, under the amended §10. The owner reported speech for the English permissions-page arrival ("Skip to the current step", "Purchase permissions") and for the Item, Quantity, Total, Expiry and Review controls, with caption support for Item and Total.
+  - **Inconclusive:** speech for the validation error, interrupted by an ended session.
+  - **Unverified:** all other speech. That is the Spanish voice; the created and revoked results; the list and the Revoke description; checkout refusals in English and Spanish; and the skip-link targets on `/shop` and the checkout. Also unverified: the reload and slow-load focus speech. None of this is F11 or A35 acceptance;
+- the checkout language-marker correction (r5) was reviewed by Codex: no concrete defect and no demonstrated commit blocker, with its stated qualifications (based on source inspection, and the limits of the test coverage). A mock browser check confirmed the language markers; VoiceOver pronunciation is not inferred;
+- not performed in a browser (unit evidence only): the sandbox Cancel form; the "payment may already have gone through" warning, which has both simulated and sandbox implementations, both unit-tested, but needs a deliberate save failure to appear (browser coverage unverified); and the test-only unknown-order state. Also not performed: PostgreSQL F07 (fails closed by design), live providers and live payment (sandbox paths are tested only with a mocked PayPal transport), the optional quantity-tampering browser check, the Spanish needs-page refusal, and slow-load focus behaviour (not reproducible with the available tools).
+
+Acceptance status is unchanged: none of F01–F12 is accepted. M1 is open; M2 and M4 are not accepted.

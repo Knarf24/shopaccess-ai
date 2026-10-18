@@ -1,3 +1,4 @@
+import { restorePermissions } from "../permissions/model";
 import { canonicalJson } from "../shared/canonical-json";
 import type { ConversationState } from "./conversation";
 import type { CommitResult, FoundationStore, PublishedBody } from "./snapshot-store";
@@ -41,6 +42,33 @@ export interface PersistedGrant {
   readonly revokedAt: Date | null;
 }
 
+export type PermissionState = "active" | "reserved" | "executing" | "consumed" | "revoked" | "expired" | "outcome_unknown";
+
+/**
+ * An F07 purchase permission (M2-3, docs/m2-3-plan.md §3). One exact seller + product + variant binding, a maximum
+ * quantity, a maximum final payable total and a concrete expiry. Single use; owned by one website session.
+ */
+export interface PersistedPermission {
+  readonly permissionId: string;
+  readonly sessionId: string;
+  readonly merchantId: string;
+  readonly productId: string;
+  readonly variantId: string;
+  readonly maxQuantity: number;
+  readonly maxTotalCents: number;
+  readonly currency: "USD";
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+  readonly state: PermissionState;
+  /**
+   * The checkout holding it: set exactly for `reserved`, `executing`, `consumed` and `outcome_unknown`. A `revoked` or
+   * `expired` permission may keep the checkout that held it when it ended (so that checkout reports why); `active` never
+   * has one. Only the state decides authority.
+   */
+  readonly checkoutIntentId: string | null;
+  readonly changedAt: Date;
+}
+
 /** The whole persisted application state. Values are treated as immutable: a decision returns a new state. */
 export interface DurableState {
   readonly sessions: readonly SessionRecord[];
@@ -49,6 +77,7 @@ export interface DurableState {
   readonly selections: ReadonlyMap<string, PersistedSelection>;
   readonly windows: Windows;
   readonly grants: readonly PersistedGrant[];
+  readonly permissions: readonly PersistedPermission[];
 }
 
 /** Builds the body to commit. Entries whose session is gone, and conversations for a replaced draft, are left out. */
@@ -91,6 +120,23 @@ export function bodyFromState(state: DurableState): PublishedBody {
         createdAt: grant.createdAt.toISOString(),
         expiresAt: grant.expiresAt.toISOString(),
         revokedAt: grant.revokedAt ? grant.revokedAt.toISOString() : null,
+      })),
+    permissions: state.permissions
+      .filter((permission) => ids.has(permission.sessionId))
+      .map((permission) => ({
+        permissionId: permission.permissionId,
+        sessionId: permission.sessionId,
+        merchantId: permission.merchantId,
+        productId: permission.productId,
+        variantId: permission.variantId,
+        maxQuantity: permission.maxQuantity,
+        maxTotalCents: permission.maxTotalCents,
+        currency: permission.currency,
+        createdAt: permission.createdAt.toISOString(),
+        expiresAt: permission.expiresAt.toISOString(),
+        state: permission.state,
+        checkoutIntentId: permission.checkoutIntentId,
+        changedAt: permission.changedAt.toISOString(),
       })),
   };
 }
@@ -165,8 +211,21 @@ export function restoreState(body: PublishedBody, now: Date): RecoveredState {
   const grants: PersistedGrant[] = body.grants
     .filter((grant) => ids.has(grant.sessionId) && grant.revokedAt === null && at < Date.parse(grant.expiresAt))
     .map((grant) => ({ ...grant, scopes: [...grant.scopes], createdAt: new Date(grant.createdAt), expiresAt: new Date(grant.expiresAt), revokedAt: null }));
+  // Permissions of live sessions only. Reserved returns to active (checkouts do not survive a restart); executing becomes
+  // outcome_unknown (a capture may have been sent); lapsed active/reserved become expired (docs/m2-3-plan.md §4).
+  const permissions = restorePermissions(
+    body.permissions
+      .filter((permission) => ids.has(permission.sessionId))
+      .map((permission) => ({
+        ...permission,
+        createdAt: new Date(permission.createdAt),
+        expiresAt: new Date(permission.expiresAt),
+        changedAt: new Date(permission.changedAt),
+      })),
+    now,
+  );
   return {
-    state: { sessions, drafts, conversations, selections, windows: { allocation: body.allocation, admissionLogin: body.admissionLogin }, grants },
+    state: { sessions, drafts, conversations, selections, windows: { allocation: body.allocation, admissionLogin: body.admissionLogin }, grants, permissions },
     interrupted: { interpretations, recommendations },
     droppedSessions,
   };

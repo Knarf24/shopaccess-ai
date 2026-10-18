@@ -32,7 +32,7 @@ import {
 import { handleCheckoutStart, handleConfirm, handleNeedsConfirm, handleNeedsSession, handleNeedsSubmit } from "@/server/handlers";
 import { createRuntime, type Runtime } from "@/server/runtime";
 import { loadNeedsJourney } from "@/server/shopping";
-import { HOUR, MINUTE, createTestClock, newSession, quotedIntent, TEST_SESSION_KEY, createWorld } from "./helpers";
+import { HOUR, MINUTE, createTestClock, newSession, quotedIntent, TEST_SESSION_KEY, createWorld, permitCatalog } from "./helpers";
 
 const SCHOOL_TEXT = "I need a laptop for school.";
 const SCHOOL_TEXT_ES = "Necesito una computadora portátil para la escuela.";
@@ -92,6 +92,8 @@ async function shopper(runtime: Runtime) {
   const token = response.headers.get("set-cookie")!.split(";")[0].split("=")[1];
   const session = await runtime.sessions.resolve(token);
   if (!session.ok) throw new Error("session not established");
+  // M2-3: a shopper creates the purchase permission before checking out.
+  await permitCatalog(runtime, session.value.id);
   return { cookie: `${SESSION_COOKIE_NAME}=${token}`, sessionId: session.value.id, csrfToken: session.value.csrfToken, session: session.value };
 }
 
@@ -312,10 +314,11 @@ describe("guided needs flow", () => {
     );
     expect(confirmed.headers.get("location")).toContain("notice=CONFIRMED");
 
+    // M2-3: the first checkout still holds its item's single-use permission, so this one is for another item.
     const plain = await handleCheckoutStart(
       post(
         "/checkout/start",
-        { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: "1", use: "programming", budget: "900", csrfToken: buyer.csrfToken },
+        { productId: "dmp_aspirego15", variantId: "dmv_aspirego15", quantity: "1", use: "programming", budget: "900", csrfToken: buyer.csrfToken },
         buyer.cookie,
       ),
       runtime,
@@ -490,6 +493,8 @@ describe("guided needs flow", () => {
     const token = opened.headers.get("set-cookie")!.split(";")[0].split("=")[1];
     const resolved = await runtime.sessions.resolve(token);
     if (!resolved.ok) throw new Error("session not established");
+    // M2-3: a shopper creates the purchase permission before checking out.
+    await permitCatalog(runtime, resolved.value.id);
     const cookie = `${SESSION_COOKIE_NAME}=${token}`;
     const csrfToken = resolved.value.csrfToken;
     const carried = new URL(opened.headers.get("location")!, ORIGIN).searchParams.get("lang");

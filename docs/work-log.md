@@ -1,6 +1,31 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 18, 2026 — current status, and integration of published main (documentation only)
+
+- **Published:** `main` at `21871db078790e97cf10d8b62b35214bada768eb` (documentation PR #3 on top of `e6bb69d`). It includes M2-1 (PR #1) and M2-2 (PR #2).
+- **M2-3 / F07:** committed on `feature/m2-3-purchase-permissions`: plan `ac95a17`, slice 1 `bb33781`, slice 2 `42e9b7e`, slice 3 `e2c1b05ee16198f43a3009bc94c41aa45fdeb11d`, and merge `a142e959b743eff95b1899dd4dedbe8ea205351f`, by which **`main` (`21871db`) was merged into the feature branch** (documentation only). The branch is **pushed** to `origin` and is open as **draft PR #4** (https://github.com/Knarf24/shopaccess-ai/pull/4): base `main` `21871db`, head `a142e95`. **M2-3 is not merged into `main`**, so the monitor, which reads `main` only, does not see it. GitHub reports no checks, because no CI is configured; that means unverified, not passing.
+- **Since the October 17 report:**
+  - **Automated mock browser recheck R1–R8 (Claude in Chrome):** R1–R7 passed. R8 partly passed: permission recovery and the not-found page passed, but the HTTP status was 200, not 404. Browser-profile isolation was incomplete.
+  - **Owner-operated VoiceOver on the owner's Mac (plan §10 amended):** limited English observations; validation-error speech inconclusive; other speech unverified.
+  - **Checkout language-marker correction (r5):** Codex's focused review found no concrete defect and no demonstrated commit blocker, with source-inspection and test-coverage qualifications.
+  - **Implementer-run gate:** 55 files, 1,413 passed; typecheck 0; lint 0 errors.
+- **Still open:**
+  - finding 7 (proposal) and finding 8 (tracked);
+  - per-item VoiceOver speech;
+  - M2-2 finding 3 before any non-local use;
+  - F07, F11 and A35 acceptance.
+- **Unchanged:** the October 24 target and the full scope. The likely-miss forecast is unresolved.
+
+**Integration.** A non-rebasing merge of `main` at `21871db` (PR #3) into the local branch. Git merged it with no conflicts. The October 18 status entries were added; the October 17 and older entries remain dated history. Relative to `e2c1b05`, only documentation changes. Not committed or pushed until the owner approves. *(Later on October 18, each step was separately owner-approved: committed as merge `a142e959b743eff95b1899dd4dedbe8ea205351f`, pushed without force to `origin/feature/m2-3-purchase-permissions`, and opened as draft PR #4. `main` was merged into the feature branch; M2-3 is not merged into `main`.)*
+
+**Correction to the slice 3 commit message** (the commit is not amended):
+- "The reviewers did not rerun the tests" is accurate only for Codex.
+- The two Claude subagent reviews ran network-blocked checks:
+  - the first ran 5 related test files (101 passed), typecheck and lint;
+  - the second ran 119 related tests, the full suite (1,401 passed), typecheck and lint, on the states they reviewed.
+- The message also omits Codex's r3 review, which found the two SEC-01 findings that r4 fixed.
+
 ## October 17, 2026 — published/local progress reconciliation
 
 Goal: make current progress visible to the existing read-only monitor without publishing unfinished M2-3 source.
@@ -50,7 +75,7 @@ Estimate and assumptions: partial estimate of 136–239 h for F01–F12, plus 8�
 Next action: owner decisions (assessment list 1–11), then authorization of the E1–E5 experiments.
 Owner decision needed, if any: yes. See [M1 assessment](m1-assessment.md#unresolved-owner-decisions).
 
-## October 16, 2026 — M2-1 snapshot persistence (implementation, uncommitted)
+## October 16, 2026 — M2-1 snapshot persistence (implementation — uncommitted when written; since committed as 08e6e6a and merged to main as b86a41b (PR #1))
 Date/time: about 14:50–16:40Z (10:50–12:40 EDT), several sessions, including a usage-limit pause.
 Goal and agreed session limit: approved M2-1 slices 1–5 and a mock-only browser restart check.
 Source branch / starting commit: feature/m2-1-snapshot-persistence from 6cc511c. Not committed.
@@ -70,7 +95,7 @@ Estimate and assumptions (or not estimated): M2-1 implementation complete; revie
 Next action: owner review of the diff and evidence; then commit and push on approval.
 Owner decision needed, if any: approve the commit.
 
-## October 16, 2026 — M2-1 review corrections (uncommitted)
+## October 16, 2026 — M2-1 review corrections (uncommitted when written; since committed as 08e6e6a and merged to main as b86a41b (PR #1))
 Date/time: about 16:40–17:05Z.
 Goal and agreed session limit: two review findings, affected tests and affected browser checks.
 Source branch / starting commit: feature/m2-1-snapshot-persistence (uncommitted on 6cc511c).
@@ -81,7 +106,7 @@ Unmet acceptance criteria / blockers: review and commit pending. The earlier all
 Next action: owner review.
 Owner decision needed, if any: approve the commit.
 
-## October 16, 2026 — M2-1 review correction 2 (uncommitted)
+## October 16, 2026 — M2-1 review correction 2 (uncommitted when written; since committed as 08e6e6a and merged to main as b86a41b (PR #1))
 Date/time: about 16:55–17:10Z.
 Goal and agreed session limit: completed interpretation, then confirmation, then restart must not be treated as interrupted.
 Source branch / starting commit: feature/m2-1-snapshot-persistence (uncommitted on 6cc511c).
@@ -92,7 +117,18 @@ Unmet acceptance criteria / blockers: review and commit pending.
 Next action: owner review.
 Owner decision needed, if any: approve the commit.
 
-## October 16, 2026 — M2-2 extension integration (implementation, uncommitted)
+## October 16, 2026 — M2-3 F07 purchase permissions (in progress when written; slices since committed as `bb33781`, `42e9b7e` and `e2c1b05`; draft PR #4)
+Goal: website-only, single-use purchase permissions enforced on the mock checkout (`docs/m2-3-plan.md`); local and mock only.
+Source branch / starting commit: feature/m2-3-purchase-permissions from main e6bb69d. Plan ac95a17; slice 1 bb33781 (model, snapshot format 4).
+Changes and resulting commit: slice 2 enforces permissions at checkout start (reserve), confirmation, order creation and capture (`executing` saved before any capture), records consumed or outcome unknown, limits reconciliation to the same operation, and fails PostgreSQL checkout closed. After owner review: a definitive decline spends the checkout's confirmation (`CONFIRMATION_REQUIRED`).
+Checks actually run and outcomes: suite, typecheck and lint after slice 2; red checks for every enforcement point (see below).
+Red-check incident (slice 2): the first red-check run was invalid. Its backup and restore commands failed (an unquoted shell variable), so the deliberate breakages accumulated in the source. Those results were discarded and are not evidence. The source was restored by applying each edit's exact inverse, every enforcement line was checked, and the full suite passed. A known-good tar snapshot was then taken, and every red check was repeated with restoration from that snapshot after each one. All were caught by failing tests; the final working tree was byte-identical to the snapshot, and the full suite passed again.
+Evidence references and evidence type: private m2-3-permissions-20261016/PROGRESS.md and run outputs (source, unit). Not published.
+Unmet acceptance criteria / blockers: slice 3 (permissions page, refusal copy, EN/ES), mock browser check, security review.
+Next action: slice 2 commit, then slice 3 on approval.
+Owner decision needed, if any: approve slice 3.
+
+## October 16, 2026 — M2-2 extension integration (implementation — uncommitted when written; since committed as cb09a94 and merged to main as e6bb69d, PR #2)
 Goal: implement `docs/m2-2-plan.md` in bounded slices; mock only; review target October 19.
 Source branch / starting commit: feature/m2-2-extension-integration from main b86a41b (PR #1 merge; no CI configured, no check results exist).
 Changes and resulting commit: format 3 snapshot grants (digest only); pairing authority; `/api/extension/v1` (5 routes, allowlist, originless read rule); shared follow-up path for website and panel; approval page, decide and revoke routes, Paired access list (EN/ES, pairing-specific revocation message); logout revokes grants durably; `extension/` side panel promoted from E1. No commit.
@@ -127,3 +163,40 @@ Codex investigated E1–E5 dependencies and recorded [full findings and bounded 
 
 ## October 16 — E1 isolated implementation, browser acceptance open
 Role: Codex implementer; owner approved design and plan. Prototype published only on branch design/shared-session-e1-20261016, commit e0be4b26f75e69a746aa91d3abfabf948f48a15c. Forty new files under experiments/e1-shared-session/; application source/payment/SQL/dependencies unchanged. Evidence: [results](https://github.com/Knarf24/shopaccess-ai/blob/e0be4b26f75e69a746aa91d3abfabf948f48a15c/experiments/e1-shared-session/evidence/RESULTS.md), [review ledger](https://github.com/Knarf24/shopaccess-ai/blob/e0be4b26f75e69a746aa91d3abfabf948f48a15c/experiments/e1-shared-session/evidence/LEDGER.md). Final PATH-only verification: 27 unit/client checks and 13 loopback checks, all exit 0, Node 24.19.0. No application suite/build, pinned-Node validation, installed-extension browser observation or screen-reader acceptance. Cloud browser failed loopback reachability. One independent review produced seven addressed findings; fixes covered by regression tests. Owned server stopped and port 3764 free. No credentials/live provider/payment calls. E1 is partial, not accepted. Next: local unpacked Chrome acceptance using the branch README, then separately reviewed application integration. Product target October 24 unchanged; no unattended coding scheduled.
+
+## October 16–17, 2026 — M2-3 slice 3, browser check and corrections (uncommitted when written; since committed as `e2c1b05`, pushed, draft PR #4)
+Date/time (UTC, recorded): slice 3 22:23–22:35Z Oct 16. Owner-assisted browser check: server run 1 from 22:37Z Oct 16 to 18:40Z Oct 17, then run 2 to 21:17Z. These spans include idle periods; active time was not recorded. Accessibility, language and D2 corrections: evidence runs 21:24–22:20Z Oct 17. Automated browser recheck 22:22–22:25Z.
+Goal and agreed session limit: slice 3 and its mock browser verification; then owner-directed accessibility and language corrections and the D2 fix. No Slice 4, no voice work.
+Source branch / starting commit: feature/m2-3-purchase-permissions at 42e9b7e (base e6bb69d). Not pushed.
+Changes and resulting commit: permissions page and routes, EN/ES refusal copy, capture-unsaved wording. D1: the permission label was visible; replaced with plain text. Focus moves on the permissions page. Skip links on /shop and the checkout. Spanish "(simulada)" seller descriptor. D2: a reloaded checkout shows the permission refusal instead of the generic message. One security-test allowlist entry (FocusOnArrival, React import only) needs owner review. No commit.
+Checks actually run and outcomes: current tree 54 files, 1,390 passed; typecheck 0; lint 0 errors, 9 warnings; red checks caught for every fix. Owner browser scenarios 1–8 passed after retries. The retries were caused by expiry and timing limits, not defects. Two defects, D1 and D2, were found and fixed. Automated browser recheck passed. Screen reader not performed.
+Evidence references and evidence type: private m2-3-permissions-20261016/PROGRESS.md and run outputs (source, unit, manual browser, automated browser), kept separate. Not published.
+Source reviews and corrections (October 17, owner-approved): two read-only reviews by separate Claude subagents. The first found six issues: the SEC-01 exception, contradictory or missing checkout refusals, a misleading reason after re-permission, "nothing was charged" from a URL code, and the unsaved-capture answer. The second found residual SEC-01 bypasses, missing sandbox Cancel, an untested sandbox unsaved-capture path and an unknown-order message gap. Each condition was reproduced before fixing, except where it is noted as a fixture-only path; each fix has a red-checked test. Current: 55 files, 1,406 passed; typecheck 0; lint 0 errors, 9 warnings. An independent Codex review of the frozen state is pending.
+Codex independent review of the r3 handoff (October 17): two SEC-01 findings. Both were reproduced through the repository's own collector and checker on a temporary source tree before fixing. The collector now includes `.mts` and `.cts`. Imports are read with the TypeScript parser and resolved through the `@/` alias, relative paths and explicit suffixes, and computed `import()`/`require()` specifiers are refused. Current: 55 files, 1,410 passed; typecheck 0; lint 0 errors, 9 warnings. Codex's focused, read-only re-review of r4 found both SEC-01 findings resolved and no new concrete defect. Its qualification: parser diagnostics are not checked, and unresolved literal paths are not refused. It did not rerun tests. SEC-01 implementation stops here unless new evidence shows a concrete defect.
+Automated browser recheck R1–R8 (October 18 01:35–01:48Z, Claude in Chrome, owner-authorised, mock only on 127.0.0.1, real timers): R1–R7 passed. R8 partly passed: permissions recovered exactly as expected and the not-found page rendered, but the HTTP status was 200, not the 404 the procedure expected. That is consistent with documented Next.js streaming behaviour, not confirmed for each request. The session was not isolated: the shared Chrome profile let the owner's open tabs send two unrelated GET requests, and every POST in the logs belongs to the automation. Recorded separately from owner observations; screenshots are in private evidence. Server stopped, port free.
+Screen-reader evidence audit and owner-operated VoiceOver (October 18, §10 amended by the owner):
+- No earlier speech evidence covered M2-3 screens.
+- The owner reported a general positive impression only. The validation-error speech check was inconclusive, because the session had ended.
+- Follow-on automated browser checks, with no speech inferred:
+  - the Spanish checkout refusal works by keyboard, but the checkout page sets no `lang`, so the Spanish text inherits `lang="en"` (pre-existing at page level, not fixed);
+  - both `/shop` keyboard gaps are closed;
+  - the focus re-fire on reload is confirmed;
+  - the slow-load focus jump is inconclusive.
+- Per-item speech remains unverified.
+Owner-reported VoiceOver speech (supplied October 18, 04:26–04:32Z): English arrival ("Skip to the current step", "Purchase permissions") and the Item, Quantity, Total, Expiry and Review controls, with caption support for Item and Total. The validation-error speech check is still inconclusive.
+Checkout language-marker correction (owner-approved, October 18):
+- the page is marked with its resolved language, and the English-only parts of a Spanish checkout are marked English;
+- 3 page-render tests added; 6 red checks caught;
+- suite 55 files, 1,413 passed; typecheck 0; lint 0 errors, 9 warnings;
+- a mock-only browser check (markup only, no pronunciation inferred) confirmed the Spanish and English markers.
+Handoff r5 prepared for Codex. Codex's focused review of r5 found no concrete defect and no demonstrated commit blocker, with its source-inspection and test-coverage qualifications.
+Codex slices 1–2 review corrections (owner-approved, October 18; working tree, uncommitted):
+- finding 1: the sandbox cancel-return page derived "No payment has been captured" and its Cancel form from nothing. It now classifies the saved payment state, capture context and capture operations, offers Cancel only where the state machine allows it, and links back to the checkout. The classifier adds no payment or permission mutation. Correction to the first handoff, which called the remaining housekeeping unrelated to payments and permissions: the existing `runtime.maintain()` cleanup of revoked and expired sessions can remove those sessions' permissions (snapshot mode) and local mock checkout data, and session resolution updates session activity;
+- finding 2: a permission creation queued behind a logout whose save was still pending could be created for the revoked session. Creation now rechecks session liveness and reads the session expiry inside its serialized decision;
+- 10 regression tests (implementer-run): written first, 4 failing as intended before the fixes; 7 finding-1 and the full finding-2 reversal caught; a negative control (logout released before creation) fails the interleaving assertion. Removing only one of the two finding-2 parts is not caught, because the other still refuses (defence in depth);
+- suite 55 files, 1,423 passed; typecheck 0; lint 0 errors, 9 warnings. Focused handoff prepared for Codex;
+- Codex's focused review (owner-reported, October 18): it inspected the source and the saved evidence and did not rerun tests. Both findings are resolved, with no demonstrated blocker. F07, F11 and A35 acceptance is unchanged.
+Unmet acceptance criteria / blockers: the remaining VoiceOver speech items (unverified); owner approval to commit and push.
+Estimate and assumptions: see the reconciliation forecast reported to the owner on October 17 (proposed, not approved).
+Next action: owner source review, then the slice 3 commit on approval.
+Owner decision needed, if any: yes. Approve the commit, the SEC-01 allowlist entry, and the open governance decisions.

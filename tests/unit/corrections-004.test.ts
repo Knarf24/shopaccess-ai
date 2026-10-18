@@ -19,7 +19,7 @@ import { SESSION_ABSOLUTE_LIFETIME_MS, SESSION_IDLE_TIMEOUT_MS } from "@/lib/ses
 import { InMemorySessionStore } from "@/lib/session/store";
 import { handleCheckoutStart } from "@/server/handlers";
 import { createRuntime, type Runtime } from "@/server/runtime";
-import { createTestClock, MINUTE, TEST_SESSION_KEY } from "./helpers";
+import { createTestClock, MINUTE, TEST_SESSION_KEY, permitPurchase } from "./helpers";
 
 const ORIGIN = "https://shop.example.test";
 const VALID_REQUEST = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 };
@@ -39,6 +39,8 @@ function runtimeWorld() {
 async function shopper(runtime: Runtime) {
   const established = await runtime.sessions.establish(null);
   if (!established.ok) throw new Error(`session refused: ${established.error.reason}`);
+  // M2-3: a shopper creates the purchase permission before checking out.
+  await permitPurchase(runtime, established.value.session.id);
   return { session: established.value.session, token: established.value.issuedToken!, cookie: `${SESSION_COOKIE_NAME}=${established.value.issuedToken}` };
 }
 
@@ -88,6 +90,7 @@ const totals = (runtime: Runtime) => ({
 const EMPTY = { intents: 0, transitions: 0, quotes: 0, confirmations: 0, observations: 0, operations: 0, providerOrders: 0, providerCaptures: 0 };
 
 async function fullCheckout(runtime: Runtime, sessionId: string) {
+  await permitPurchase(runtime, sessionId);
   const started = await startCheckoutWithQuote(runtime.checkout, sessionId, VALID_REQUEST);
   if (!started.ok) throw new Error(started.error);
   const challenge = await prepareConfirmation(runtime.checkout, sessionId, started.value.quote.quoteId);
@@ -271,6 +274,8 @@ describe("AUD-012: no checkout record is committed for a session that expired, w
       await runtime.ledger.listForIntent(bobIntent, "CAPTURE"),
     ]);
     const before = totals(runtime);
+    // M2-3: Bob's first permission was used by his completed checkout; he creates a new one for the next.
+    await permitPurchase(runtime, bob.session.id);
 
     const held = holdCheckoutCommits(runtime, 2);
     const stale = handleCheckoutStart(checkoutPost(alice.cookie, alice.session.csrfToken), held.runtime);

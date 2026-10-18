@@ -7,10 +7,12 @@ import fsExt from "fs-ext";
 import { canonicalJson } from "../shared/canonical-json";
 import type { NeedsDraft, RetainedRecommendation, SessionRecord } from "./store";
 
-const FORMAT = 3;
-/** Format 2 (M2-1): no extension grants. Read upgraded with an empty grant list. */
+const FORMAT = 4;
+/** Format 3 (M2-2): no purchase permissions. Read upgraded with an empty permission list. */
+const FORMAT_3 = 3;
+/** Format 2 (M2-1): no extension grants. Read upgraded with empty grant and permission lists. */
 const PREVIOUS_FORMAT = 2;
-/** Format-1 files (sessions and drafts only) are still read; they are upgraded in memory and rewritten as format 3 on the next commit. */
+/** Format-1 files (sessions and drafts only) are still read; they are upgraded in memory and rewritten as format 4 on the next commit. */
 const LEGACY_FORMAT = 1;
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
@@ -29,6 +31,20 @@ const GRANT_SCOPES = new Set(["conversation:read", "conversation:write"]);
 const GRANT_ID = /^grt_[0-9a-f]{32}$/;
 const INSTALLATION_ID = /^ins_[0-9a-f]{32}$/;
 const EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
+/** F07 purchase permissions (M2-3): see src/lib/permissions/model.ts. Kept here so this module stays self-contained. */
+const PERMISSION_ID = /^prm_[0-9a-f]{32}$/;
+const MERCHANT_ID = /^dmm_[a-z0-9]{6,24}$/;
+const CHECKOUT_INTENT_ID = /^ci_[0-9a-f]{32}$/;
+const PERMISSION_STATES = new Set(["active", "reserved", "executing", "consumed", "revoked", "expired", "outcome_unknown"]);
+/** States that carry a checkout: set exactly for these. */
+const BOUND_STATES = new Set(["reserved", "executing", "consumed", "outcome_unknown"]);
+/** Ended permissions may record the checkout that held them when they ended (M2-3 review finding 4). */
+const ENDED_STATES = new Set(["revoked", "expired"]);
+/** States that can hold authority (before expiry): at most one per binding and five per session. */
+const LIVE_STATES = new Set(["active", "reserved", "executing"]);
+const MAX_LIVE_PERMISSIONS_PER_SESSION = 5;
+const MAX_PERMISSION_QUANTITY = 10;
+const MAX_PERMISSION_LIFETIME_MS = 86_400_000;
 const MAX_UNIT_AMOUNT_CENTS = 2_000_000;
 const ABSOLUTE_LIFETIME_MS = 86_400_000;
 const IDENTITY_LABEL = "shopaccess.mock-store.v1";
@@ -55,7 +71,7 @@ const DIRECTORY_MODE = 0o700;
 
 export type PublishedSnapshot = {
   /** The format the file was written in. A format-1 body is returned upgraded, with empty conversations and selections. */
-  readonly format: 1 | 2 | 3;
+  readonly format: 1 | 2 | 3 | 4;
   readonly identity: string;
   readonly sha256: string;
   readonly body: PublishedBody;
@@ -99,6 +115,23 @@ export type SnapshotGrant = {
   readonly revokedAt: string | null;
 };
 
+/** An F07 purchase permission. Dates are ISO strings; see PersistedPermission for the meaning of each field. */
+export type SnapshotPermission = {
+  readonly permissionId: string;
+  readonly sessionId: string;
+  readonly merchantId: string;
+  readonly productId: string;
+  readonly variantId: string;
+  readonly maxQuantity: number;
+  readonly maxTotalCents: number;
+  readonly currency: "USD";
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly state: "active" | "reserved" | "executing" | "consumed" | "revoked" | "expired" | "outcome_unknown";
+  readonly checkoutIntentId: string | null;
+  readonly changedAt: string;
+};
+
 export type PublishedBody = {
   readonly allocation: WindowState;
   readonly admissionLogin: WindowState;
@@ -107,6 +140,7 @@ export type PublishedBody = {
   readonly conversations: readonly SnapshotConversation[];
   readonly selections: readonly SnapshotSelection[];
   readonly grants: readonly SnapshotGrant[];
+  readonly permissions: readonly SnapshotPermission[];
 };
 
 type WindowState = { readonly windowStartedAt: number | null; readonly count: number };
@@ -426,8 +460,8 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
     return null;
   }
   if (!isRecord(parsed) || !hasExactKeys(parsed, ["format", "identity", "sha256", "body"])) return null;
-  if (parsed.format !== FORMAT && parsed.format !== PREVIOUS_FORMAT && parsed.format !== LEGACY_FORMAT) return null;
-  const format: 1 | 2 | 3 = parsed.format === LEGACY_FORMAT ? 1 : parsed.format === PREVIOUS_FORMAT ? 2 : 3;
+  if (parsed.format !== FORMAT && parsed.format !== FORMAT_3 && parsed.format !== PREVIOUS_FORMAT && parsed.format !== LEGACY_FORMAT) return null;
+  const format: 1 | 2 | 3 | 4 = parsed.format === LEGACY_FORMAT ? 1 : parsed.format === PREVIOUS_FORMAT ? 2 : parsed.format === FORMAT_3 ? 3 : 4;
   if (typeof parsed.identity !== "string" || !HEX_64.test(parsed.identity)) return null;
   if (typeof parsed.sha256 !== "string" || !HEX_64.test(parsed.sha256)) return null;
   if (parsed.identity !== identityFor(key)) return null;
@@ -440,11 +474,12 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
 
 const LEGACY_BODY_KEYS = ["allocation", "admissionLogin", "sessions", "drafts"] as const;
 const PREVIOUS_BODY_KEYS = [...LEGACY_BODY_KEYS, "conversations", "selections"] as const;
-const BODY_KEYS = [...PREVIOUS_BODY_KEYS, "grants"] as const;
+const FORMAT_3_BODY_KEYS = [...PREVIOUS_BODY_KEYS, "grants"] as const;
+const BODY_KEYS = [...FORMAT_3_BODY_KEYS, "permissions"] as const;
 
 /** Parses a body written in `format`. A format-1 body is returned upgraded with empty conversations and selections. */
-function parseBody(value: unknown, format: 1 | 2 | 3): PublishedBody | null {
-  const keys = format === LEGACY_FORMAT ? LEGACY_BODY_KEYS : format === PREVIOUS_FORMAT ? PREVIOUS_BODY_KEYS : BODY_KEYS;
+function parseBody(value: unknown, format: 1 | 2 | 3 | 4): PublishedBody | null {
+  const keys = format === LEGACY_FORMAT ? LEGACY_BODY_KEYS : format === PREVIOUS_FORMAT ? PREVIOUS_BODY_KEYS : format === FORMAT_3 ? FORMAT_3_BODY_KEYS : BODY_KEYS;
   if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
   const allocation = parseWindow(value.allocation, MAX_ALLOCATION_COUNT);
   const admissionLogin = parseWindow(value.admissionLogin, MAX_SAFE);
@@ -476,7 +511,7 @@ function parseBody(value: unknown, format: 1 | 2 | 3): PublishedBody | null {
         draft.confirmedUse === null &&
         draft.recommendationClaim === null,
     }));
-    return { ...(value as Omit<PublishedBody, "conversations" | "selections" | "drafts" | "grants">), drafts, conversations: [], selections: [], grants: [] };
+    return { ...(value as Omit<PublishedBody, "conversations" | "selections" | "drafts" | "grants" | "permissions">), drafts, conversations: [], selections: [], grants: [], permissions: [] };
   }
   if (!Array.isArray(value.conversations) || !Array.isArray(value.selections)) return null;
   if (value.conversations.length > MAX_SESSIONS || value.selections.length > MAX_SESSIONS) return null;
@@ -492,7 +527,7 @@ function parseBody(value: unknown, format: 1 | 2 | 3): PublishedBody | null {
     if (!selection || selecting.has(selection.sessionId)) return null;
     selecting.add(selection.sessionId);
   }
-  if (format === PREVIOUS_FORMAT) return { ...(value as Omit<PublishedBody, "grants">), grants: [] };
+  if (format === PREVIOUS_FORMAT) return { ...(value as Omit<PublishedBody, "grants" | "permissions">), grants: [], permissions: [] };
   if (!Array.isArray(value.grants) || value.grants.length > MAX_SESSIONS * MAX_ACTIVE_GRANTS_PER_SESSION * 4) return null;
   const grantIds = new Set<string>();
   const tokenDigests = new Set<string>();
@@ -512,7 +547,60 @@ function parseBody(value: unknown, format: 1 | 2 | 3): PublishedBody | null {
       activeInstallations.add(grant.installationKey);
     }
   }
+  if (format === FORMAT_3) return { ...(value as Omit<PublishedBody, "permissions">), permissions: [] };
+  if (!Array.isArray(value.permissions) || value.permissions.length > MAX_SESSIONS * 50) return null;
+  const permissionIds = new Set<string>();
+  const livePerSession = new Map<string, number>();
+  const liveBindings = new Set<string>();
+  for (const entry of value.permissions) {
+    const permission = permissionIdentity(entry, ids);
+    if (!permission || permissionIds.has(permission.permissionId)) return null;
+    permissionIds.add(permission.permissionId);
+    if (permission.live) {
+      const count = (livePerSession.get(permission.sessionId) ?? 0) + 1;
+      if (count > MAX_LIVE_PERMISSIONS_PER_SESSION) return null;
+      livePerSession.set(permission.sessionId, count);
+      // One live authority per exact seller + product + variant binding (D-M23-6).
+      if (liveBindings.has(permission.bindingKey)) return null;
+      liveBindings.add(permission.bindingKey);
+    }
+  }
   return value as PublishedBody;
+}
+
+/**
+ * Strict shape of one saved permission. "Live" here is by state only: an `active` or `reserved` record past its expiry
+ * is turned into `expired` by the next decision, and a new permission for the binding is only created after that.
+ */
+function permissionIdentity(
+  value: unknown,
+  sessionIds: ReadonlySet<string>,
+): { permissionId: string; sessionId: string; live: boolean; bindingKey: string } | null {
+  const keys = ["permissionId", "sessionId", "merchantId", "productId", "variantId", "maxQuantity", "maxTotalCents", "currency", "createdAt", "expiresAt", "state", "checkoutIntentId", "changedAt"];
+  if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
+  if (typeof value.permissionId !== "string" || !PERMISSION_ID.test(value.permissionId)) return null;
+  if (typeof value.sessionId !== "string" || !sessionIds.has(value.sessionId)) return null;
+  if (typeof value.merchantId !== "string" || !MERCHANT_ID.test(value.merchantId)) return null;
+  if (typeof value.productId !== "string" || !PRODUCT_ID.test(value.productId)) return null;
+  if (typeof value.variantId !== "string" || !VARIANT_ID.test(value.variantId)) return null;
+  if (!isBoundedInteger(value.maxQuantity, 1, MAX_PERMISSION_QUANTITY)) return null;
+  if (!isBoundedInteger(value.maxTotalCents, 1, MAX_UNIT_AMOUNT_CENTS * MAX_PERMISSION_QUANTITY)) return null;
+  if (value.currency !== "USD") return null;
+  if (typeof value.state !== "string" || !PERMISSION_STATES.has(value.state)) return null;
+  const createdAt = parseTimestamp(value.createdAt);
+  const expiresAt = parseTimestamp(value.expiresAt);
+  const changedAt = parseTimestamp(value.changedAt);
+  if (!createdAt || !expiresAt || !changedAt) return null;
+  if (expiresAt.getTime() <= createdAt.getTime() || expiresAt.getTime() - createdAt.getTime() > MAX_PERMISSION_LIFETIME_MS) return null;
+  if (changedAt.getTime() < createdAt.getTime()) return null;
+  const linked = typeof value.checkoutIntentId === "string" && CHECKOUT_INTENT_ID.test(value.checkoutIntentId);
+  if (BOUND_STATES.has(value.state) ? !linked : ENDED_STATES.has(value.state) ? !linked && value.checkoutIntentId !== null : value.checkoutIntentId !== null) return null;
+  return {
+    permissionId: value.permissionId,
+    sessionId: value.sessionId,
+    live: LIVE_STATES.has(value.state),
+    bindingKey: `${value.sessionId}\u0000${value.merchantId}\u0000${value.productId}\u0000${value.variantId}`,
+  };
 }
 
 function grantIdentity(
@@ -599,7 +687,7 @@ function sessionIdentity(value: unknown): { id: string; tokenDigest: string } | 
   return { id: value.id, tokenDigest: value.tokenDigest };
 }
 
-function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>, format: 1 | 2 | 3): { sessionId: string; draftId: string } | null {
+function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>, format: 1 | 2 | 3 | 4): { sessionId: string; draftId: string } | null {
   const legacyKeys = [
     "sessionId",
     "draftId",
@@ -696,6 +784,7 @@ function emptyBody(): PublishedBody {
     conversations: [],
     selections: [],
     grants: [],
+    permissions: [],
   };
 }
 

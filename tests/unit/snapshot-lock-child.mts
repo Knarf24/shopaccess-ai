@@ -50,6 +50,7 @@ if (mode === "uncertain") {
     conversations: published.value.body.conversations,
     selections: published.value.body.selections,
     grants: published.value.body.grants,
+    permissions: published.value.body.permissions,
   };
   const committed = await opened.value.commit(candidate);
   if (committed.status !== "unavailable" || committed.outcome !== "indeterminate") process.exit(1);
@@ -73,7 +74,7 @@ if (mode === "failed-write") {
     drafts: [],
     conversations: [],
     selections: [],
-    grants: [],
+    grants: [], permissions: [],
   });
   if (failed.status !== "unavailable" || failed.outcome !== "definite") process.exit(1);
   process.stdout.write(createHash("sha256").update(canonicalJson(published.value.body), "utf8").digest("hex"));
