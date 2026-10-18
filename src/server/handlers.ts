@@ -25,6 +25,7 @@ import { readSessionCookie, serializeSessionCookie } from "@/lib/session/cookie"
 import { admissionExpiryMs, protectedAdmissionLocation } from "@/server/demo-admission";
 import { permissionCopy, type PermissionFormCode } from "@/lib/i18n/permission-copy";
 import { parsePermissionForm } from "@/server/permission-form";
+import { parseProfileDelete, parseProfileSave } from "@/server/profile-form";
 import { authorizeMutation } from "@/lib/session/request-guard";
 import type { Session } from "@/lib/session/service";
 import {
@@ -985,5 +986,38 @@ async function auditBestEffort(runtime: Runtime, session: Session, eventType: st
   } catch {
     // Nothing more can be done safely here; the answer below must not change.
   }
+}
+
+function profileBack(language: JourneyLanguage, outcome: Record<string, string>): string {
+  return `/shop/profile?${new URLSearchParams({ lang: language, ...outcome }).toString()}`;
+}
+
+/**
+ * POST /shop/profile/save. The same admission, origin, Fetch Metadata, CSRF and confirmation rate limit as the other
+ * website forms. The owner is the authenticated session. A posted session id is not a field this form accepts.
+ */
+export async function handleProfileSave(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
+  if (!guarded.ok) return guarded.response;
+  const parsed = parseProfileSave(guarded.form);
+  if (!parsed.ok || !parsed.write) return seeOther(profileBack("en", { error: "MALFORMED" }));
+  const saved = await runtime.profiles.save(guarded.session.id, parsed.write);
+  if (!saved.ok) return seeOther(profileBack(parsed.language, { error: saved.code }));
+  return seeOther(profileBack(parsed.language, { result: saved.outcome }));
+}
+
+/** POST /shop/profile/delete. Same guard. Removes this session's profile when the posted version matches. */
+export async function handleProfileDelete(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
+  if (!guarded.ok) return guarded.response;
+  const parsed = parseProfileDelete(guarded.form);
+  if (!parsed.ok) return seeOther(profileBack("en", { error: "MALFORMED" }));
+  const removed = await runtime.profiles.remove(guarded.session.id, parsed.version);
+  if (!removed.ok) return seeOther(profileBack(parsed.language, { error: removed.code }));
+  return seeOther(profileBack(parsed.language, { result: removed.outcome }));
 }
 

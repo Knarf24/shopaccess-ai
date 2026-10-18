@@ -11,6 +11,7 @@ import { ReadinessPanel } from "@/components/ReadinessPanel";
 import { SessionNotice } from "@/components/SessionNotice";
 import { formatUsd } from "@/lib/catalog/merchant-catalog";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
+import { profileCopy } from "@/lib/i18n/profile-copy";
 import { isPermissionRefusal, type PermissionRefusalCode } from "@/lib/i18n/permission-copy";
 import { PermissionRefusal } from "@/components/PermissionRefusal";
 import type { PgRuntime } from "@/server/pg-runtime";
@@ -132,7 +133,14 @@ async function ShopContentUnguarded({ searchParams }: { searchParams: SearchPara
   const refusal = isPermissionRefusal(errorCode) ? errorCode : null;
   const error = refusal ? null : messageFor(errorCode);
 
-  return <ShopListing view={view} preferences={preferences} csrfToken={session.csrfToken} error={error} refusal={refusal} />;
+  return (
+    <>
+      <ShopListing view={view} preferences={preferences} csrfToken={session.csrfToken} error={error} refusal={refusal} />
+      <p>
+        <a href="/shop/profile?lang=en">{profileCopy("en").shopLink}</a>
+      </p>
+    </>
+  );
 }
 
 export const SHOP_ALERT_ID = "shop-alert";

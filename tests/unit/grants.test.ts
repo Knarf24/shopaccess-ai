@@ -168,7 +168,7 @@ describe("grants", () => {
 });
 
 describe("durable grants (snapshot gate)", () => {
-  const EMPTY_STATE = (sessions: SessionRecord[]): DurableState => ({ sessions, drafts: new Map(), conversations: new Map(), selections: new Map(), windows: { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 } }, grants: [], permissions: [] });
+  const EMPTY_STATE = (sessions: SessionRecord[]): DurableState => ({ sessions, drafts: new Map(), conversations: new Map(), selections: new Map(), windows: { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 } }, grants: [], permissions: [], profiles: [], profileRevisions: [] });
 
   function snapshotWorld(refuse: () => boolean = () => false) {
     let published: PublishedBody | null = null;

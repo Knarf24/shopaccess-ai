@@ -18,7 +18,7 @@ import { createTestClock, MINUTE, TEST_SESSION_KEY } from "./helpers";
 const SITE = "https://shop.example.test";
 const ITEM = { productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai", quantity: 1 };
 const PRICE = 87_999;
-const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [] };
+const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [] };
 
 type World = { runtime: Runtime; time: ReturnType<typeof createTestClock>; boot: () => Promise<Runtime>; body: () => PublishedBody; refuse: (when: ((body: PublishedBody) => boolean) | null) => void };
 

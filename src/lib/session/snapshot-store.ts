@@ -7,12 +7,28 @@ import fsExt from "fs-ext";
 import { canonicalJson } from "../shared/canonical-json";
 import type { NeedsDraft, RetainedRecommendation, SessionRecord } from "./store";
 
-const FORMAT = 4;
+/**
+ * Format 6 appends `profileRevisions`: the last issued profile version for a session whose profile row is gone.
+ * A marker is `{ sessionId, version }` only. It stores no brand and no model. Formats 1–5 are still read.
+ * Formats 1–4 upgrade with empty profiles and empty markers. Format 5 upgrades with an empty marker list,
+ * because that file did not record a version after deletion. The next successful commit, including startup
+ * recovery, rewrites the file as format 6.
+ * There is no downgrade writer and no code that restores a backup. A program that accepts only an older
+ * format cannot read a format-6 file and stays unavailable. Restoring a copy of store.json taken before
+ * a later commit discards every snapshot write made after the copy, including purchase-permission outcomes
+ * and revision markers saved in the same file. Do not restore that copy while payment or checkout activity
+ * is still going on.
+ */
+const FORMAT = 6;
+/** Format 5: device profiles, no revision markers. Read upgraded with an empty marker list. */
+const FORMAT_5 = 5;
+/** Format 4 (M2-3): purchase permissions, no device profiles. Read upgraded with an empty profile list. */
+const FORMAT_4 = 4;
 /** Format 3 (M2-2): no purchase permissions. Read upgraded with an empty permission list. */
 const FORMAT_3 = 3;
 /** Format 2 (M2-1): no extension grants. Read upgraded with empty grant and permission lists. */
 const PREVIOUS_FORMAT = 2;
-/** Format-1 files (sessions and drafts only) are still read; they are upgraded in memory and rewritten as format 4 on the next commit. */
+/** Format-1 files (sessions and drafts only) are still read; they are upgraded in memory and rewritten as format 6 on the next commit. */
 const LEGACY_FORMAT = 1;
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
@@ -57,6 +73,10 @@ const PRODUCT_ID = /^dmp_[a-z0-9]{6,24}$/;
 const VARIANT_ID = /^dmv_[a-z0-9]{6,24}$/;
 const BUDGET = /^[1-9][0-9]{1,4}$/;
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+/** Brand and model reject every ASCII control, including tab and newline. */
+const PROFILE_CONTROL = /[\u0000-\u001F\u007F]/;
+const MAX_PROFILE_TEXT = 80;
+const MAX_PROFILE_VERSION = 999_999_999;
 const USES = new Set(["programming", "schoolwork", "general_productivity"]);
 const NOTICES = new Set(["malformed", "missing_use", "missing_budget", "ambiguous", "review", "unavailable"]);
 const CLAIMS = new Set(["pending", "completed", "failed"]);
@@ -70,8 +90,8 @@ const LOCK_MODE = 0o600;
 const DIRECTORY_MODE = 0o700;
 
 export type PublishedSnapshot = {
-  /** The format the file was written in. A format-1 body is returned upgraded, with empty conversations and selections. */
-  readonly format: 1 | 2 | 3 | 4;
+  /** The format the file was written in. Older bodies are returned upgraded, with empty lists for keys they did not have. */
+  readonly format: 1 | 2 | 3 | 4 | 5 | 6;
   readonly identity: string;
   readonly sha256: string;
   readonly body: PublishedBody;
@@ -141,6 +161,22 @@ export type PublishedBody = {
   readonly selections: readonly SnapshotSelection[];
   readonly grants: readonly SnapshotGrant[];
   readonly permissions: readonly SnapshotPermission[];
+  readonly profiles: readonly SnapshotProfile[];
+  readonly profileRevisions: readonly SnapshotProfileRevision[];
+};
+
+/** Last issued version after the profile row was removed. No brand and no model. */
+type SnapshotProfileRevision = {
+  readonly sessionId: string;
+  readonly version: number;
+};
+
+/** One optional device profile for a session. A null field is absent. Both null is not a stored record. */
+type SnapshotProfile = {
+  readonly sessionId: string;
+  readonly version: number;
+  readonly brand: string | null;
+  readonly model: string | null;
 };
 
 type WindowState = { readonly windowStartedAt: number | null; readonly count: number };
@@ -460,8 +496,18 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
     return null;
   }
   if (!isRecord(parsed) || !hasExactKeys(parsed, ["format", "identity", "sha256", "body"])) return null;
-  if (parsed.format !== FORMAT && parsed.format !== FORMAT_3 && parsed.format !== PREVIOUS_FORMAT && parsed.format !== LEGACY_FORMAT) return null;
-  const format: 1 | 2 | 3 | 4 = parsed.format === LEGACY_FORMAT ? 1 : parsed.format === PREVIOUS_FORMAT ? 2 : parsed.format === FORMAT_3 ? 3 : 4;
+  if (
+    parsed.format !== FORMAT &&
+    parsed.format !== FORMAT_5 &&
+    parsed.format !== FORMAT_4 &&
+    parsed.format !== FORMAT_3 &&
+    parsed.format !== PREVIOUS_FORMAT &&
+    parsed.format !== LEGACY_FORMAT
+  ) {
+    return null;
+  }
+  const format: 1 | 2 | 3 | 4 | 5 | 6 =
+    parsed.format === LEGACY_FORMAT ? 1 : parsed.format === PREVIOUS_FORMAT ? 2 : parsed.format === FORMAT_3 ? 3 : parsed.format === FORMAT_4 ? 4 : parsed.format === FORMAT_5 ? 5 : 6;
   if (typeof parsed.identity !== "string" || !HEX_64.test(parsed.identity)) return null;
   if (typeof parsed.sha256 !== "string" || !HEX_64.test(parsed.sha256)) return null;
   if (parsed.identity !== identityFor(key)) return null;
@@ -475,11 +521,24 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
 const LEGACY_BODY_KEYS = ["allocation", "admissionLogin", "sessions", "drafts"] as const;
 const PREVIOUS_BODY_KEYS = [...LEGACY_BODY_KEYS, "conversations", "selections"] as const;
 const FORMAT_3_BODY_KEYS = [...PREVIOUS_BODY_KEYS, "grants"] as const;
-const BODY_KEYS = [...FORMAT_3_BODY_KEYS, "permissions"] as const;
+const FORMAT_4_BODY_KEYS = [...FORMAT_3_BODY_KEYS, "permissions"] as const;
+const FORMAT_5_BODY_KEYS = [...FORMAT_4_BODY_KEYS, "profiles"] as const;
+const BODY_KEYS = [...FORMAT_5_BODY_KEYS, "profileRevisions"] as const;
 
-/** Parses a body written in `format`. A format-1 body is returned upgraded with empty conversations and selections. */
-function parseBody(value: unknown, format: 1 | 2 | 3 | 4): PublishedBody | null {
-  const keys = format === LEGACY_FORMAT ? LEGACY_BODY_KEYS : format === PREVIOUS_FORMAT ? PREVIOUS_BODY_KEYS : format === FORMAT_3 ? FORMAT_3_BODY_KEYS : BODY_KEYS;
+/** Parses a body written in `format`. Older formats are returned upgraded with empty lists for the keys they did not have. */
+function parseBody(value: unknown, format: 1 | 2 | 3 | 4 | 5 | 6): PublishedBody | null {
+  const keys =
+    format === LEGACY_FORMAT
+      ? LEGACY_BODY_KEYS
+      : format === PREVIOUS_FORMAT
+        ? PREVIOUS_BODY_KEYS
+        : format === FORMAT_3
+          ? FORMAT_3_BODY_KEYS
+          : format === FORMAT_4
+            ? FORMAT_4_BODY_KEYS
+            : format === FORMAT_5
+              ? FORMAT_5_BODY_KEYS
+              : BODY_KEYS;
   if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
   const allocation = parseWindow(value.allocation, MAX_ALLOCATION_COUNT);
   const admissionLogin = parseWindow(value.admissionLogin, MAX_SAFE);
@@ -511,7 +570,16 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4): PublishedBody | null 
         draft.confirmedUse === null &&
         draft.recommendationClaim === null,
     }));
-    return { ...(value as Omit<PublishedBody, "conversations" | "selections" | "drafts" | "grants" | "permissions">), drafts, conversations: [], selections: [], grants: [], permissions: [] };
+    return {
+      ...(value as Omit<PublishedBody, "conversations" | "selections" | "drafts" | "grants" | "permissions" | "profiles" | "profileRevisions">),
+      drafts,
+      conversations: [],
+      selections: [],
+      grants: [],
+      permissions: [],
+      profiles: [],
+      profileRevisions: [],
+    };
   }
   if (!Array.isArray(value.conversations) || !Array.isArray(value.selections)) return null;
   if (value.conversations.length > MAX_SESSIONS || value.selections.length > MAX_SESSIONS) return null;
@@ -527,7 +595,9 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4): PublishedBody | null 
     if (!selection || selecting.has(selection.sessionId)) return null;
     selecting.add(selection.sessionId);
   }
-  if (format === PREVIOUS_FORMAT) return { ...(value as Omit<PublishedBody, "grants" | "permissions">), grants: [], permissions: [] };
+  if (format === PREVIOUS_FORMAT) {
+    return { ...(value as Omit<PublishedBody, "grants" | "permissions" | "profiles" | "profileRevisions">), grants: [], permissions: [], profiles: [], profileRevisions: [] };
+  }
   if (!Array.isArray(value.grants) || value.grants.length > MAX_SESSIONS * MAX_ACTIVE_GRANTS_PER_SESSION * 4) return null;
   const grantIds = new Set<string>();
   const tokenDigests = new Set<string>();
@@ -547,7 +617,7 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4): PublishedBody | null 
       activeInstallations.add(grant.installationKey);
     }
   }
-  if (format === FORMAT_3) return { ...(value as Omit<PublishedBody, "permissions">), permissions: [] };
+  if (format === FORMAT_3) return { ...(value as Omit<PublishedBody, "permissions" | "profiles" | "profileRevisions">), permissions: [], profiles: [], profileRevisions: [] };
   if (!Array.isArray(value.permissions) || value.permissions.length > MAX_SESSIONS * 50) return null;
   const permissionIds = new Set<string>();
   const livePerSession = new Map<string, number>();
@@ -565,7 +635,48 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4): PublishedBody | null 
       liveBindings.add(permission.bindingKey);
     }
   }
+  if (format === FORMAT_4) return { ...(value as Omit<PublishedBody, "profiles" | "profileRevisions">), profiles: [], profileRevisions: [] };
+  if (!Array.isArray(value.profiles) || value.profiles.length > value.sessions.length) return null;
+  const profileSessions = new Set<string>();
+  for (const entry of value.profiles) {
+    const sessionId = profileIdentity(entry, ids);
+    if (!sessionId || profileSessions.has(sessionId)) return null;
+    profileSessions.add(sessionId);
+  }
+  if (format === FORMAT_5) return { ...(value as Omit<PublishedBody, "profileRevisions">), profileRevisions: [] };
+  if (!Array.isArray(value.profileRevisions) || value.profileRevisions.length > value.sessions.length) return null;
+  const revisionSessions = new Set<string>();
+  for (const entry of value.profileRevisions) {
+    const sessionId = revisionIdentity(entry, ids);
+    if (!sessionId || revisionSessions.has(sessionId) || profileSessions.has(sessionId)) return null;
+    revisionSessions.add(sessionId);
+  }
   return value as PublishedBody;
+}
+
+/** One marker per session, and not for a session that still has a profile. Version 0 and a version past the maximum are rejected. */
+function revisionIdentity(value: unknown, sessionIds: ReadonlySet<string>): string | null {
+  const keys = ["sessionId", "version"];
+  if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
+  if (typeof value.sessionId !== "string" || !sessionIds.has(value.sessionId)) return null;
+  if (!isBoundedInteger(value.version, 1, MAX_PROFILE_VERSION)) return null;
+  return value.sessionId;
+}
+
+function profileText(value: unknown): boolean {
+  if (value === null) return true;
+  return typeof value === "string" && value.length >= 1 && value.length <= MAX_PROFILE_TEXT && value.trim() === value && !PROFILE_CONTROL.test(value);
+}
+
+/** One profile per session. Version 0 and a version past the maximum are rejected, not wrapped. */
+function profileIdentity(value: unknown, sessionIds: ReadonlySet<string>): string | null {
+  const keys = ["sessionId", "version", "brand", "model"];
+  if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
+  if (typeof value.sessionId !== "string" || !sessionIds.has(value.sessionId)) return null;
+  if (!isBoundedInteger(value.version, 1, MAX_PROFILE_VERSION)) return null;
+  if (!profileText(value.brand) || !profileText(value.model)) return null;
+  if (value.brand === null && value.model === null) return null;
+  return value.sessionId;
 }
 
 /**
@@ -687,7 +798,7 @@ function sessionIdentity(value: unknown): { id: string; tokenDigest: string } | 
   return { id: value.id, tokenDigest: value.tokenDigest };
 }
 
-function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>, format: 1 | 2 | 3 | 4): { sessionId: string; draftId: string } | null {
+function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>, format: 1 | 2 | 3 | 4 | 5 | 6): { sessionId: string; draftId: string } | null {
   const legacyKeys = [
     "sessionId",
     "draftId",
@@ -785,6 +896,8 @@ function emptyBody(): PublishedBody {
     selections: [],
     grants: [],
     permissions: [],
+    profiles: [],
+    profileRevisions: [],
   };
 }
 

@@ -94,7 +94,7 @@ describe("snapshot format 4: purchase permissions", () => {
       if (opened.status !== "ready") return;
       const read = opened.value.readPublished();
       expect(read.status === "ready" && read.value.format).toBe(3);
-      expect(read.status === "ready" && canonicalJson(read.value.body)).toBe(canonicalJson({ ...body(undefined), permissions: [] }));
+      expect(read.status === "ready" && canonicalJson(read.value.body)).toBe(canonicalJson({ ...body(undefined), permissions: [], profiles: [], profileRevisions: [] }));
     }
     expect(fs.readFileSync(join(first.directory, "store.json")).equals(bytes)).toBe(true);
     if (first.opened.status !== "ready") return;
@@ -102,7 +102,7 @@ describe("snapshot format 4: purchase permissions", () => {
     if (read.status !== "ready") return;
     const committed = await first.opened.value.commit(read.value.body);
     expect(committed.status).toBe("ready");
-    expect(JSON.parse(fs.readFileSync(join(first.directory, "store.json"), "utf8")).format).toBe(4);
+    expect(JSON.parse(fs.readFileSync(join(first.directory, "store.json"), "utf8")).format).toBe(6);
   });
 
   it("a format-4 file with permissions in every state is accepted exactly as written", async () => {
