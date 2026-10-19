@@ -20,7 +20,7 @@ const EXT = `chrome-extension://${"a".repeat(32)}`;
 const API = `${SITE}/api/extension/v1`;
 const VERIFIER = "f".repeat(64);
 const CHALLENGE = createHash("sha256").update(VERIFIER).digest("hex");
-const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [] };
+const EMPTY: PublishedBody = { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [], chargerTracks: [] };
 
 function memoryRuntime(): Runtime {
   const time = createTestClock();

@@ -38,7 +38,7 @@ const legacyBody = () => {
   return { allocation, admissionLogin, sessions, drafts: drafts.map((draft) => Object.fromEntries(Object.entries(draft).filter(([key]) => key !== "interpretationPending"))) };
 };
 /** The same body in the current write format (3): format 2 plus an empty grant list. */
-const v3 = (value: Record<string, unknown>) => ({ ...value, grants: [], permissions: [], profiles: [], profileRevisions: [] });
+const v3 = (value: Record<string, unknown>) => ({ ...value, grants: [], permissions: [], profiles: [], profileRevisions: [], chargerTracks: [] });
 const identityFor = (key: Buffer) => createHash("sha256").update(Buffer.concat([Buffer.from("shopaccess.mock-store.v1"), Buffer.from([0]), key])).digest("hex");
 const checksum = (value: unknown) => createHash("sha256").update(canonicalJson(value), "utf8").digest("hex");
 const file = (format: number, value: unknown) => Buffer.from(JSON.stringify({ format, identity: identityFor(KEY), sha256: checksum(value), body: value }));
@@ -71,7 +71,7 @@ describe("snapshot format 2", () => {
     const committed = await opened.value.commit(v3(next));
     expect(committed.status).toBe("ready");
     const stored = JSON.parse(fs.readFileSync(join(directory, "store.json"), "utf8"));
-    expect(stored.format).toBe(6);
+    expect(stored.format).toBe(7);
     expect(canonicalJson(stored.body)).toBe(canonicalJson(v3(next)));
   });
 
@@ -117,12 +117,12 @@ describe("snapshot format 2", () => {
     if (opened.status !== "ready") return;
     const read = opened.value.readPublished();
     expect(read.status === "ready" && read.value.format).toBe(1);
-    expect(read.status === "ready" && canonicalJson(read.value.body)).toBe(canonicalJson({ ...legacy, drafts: legacy.drafts.map((d) => ({ ...d, interpretationPending: false })), conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [] }));
+    expect(read.status === "ready" && canonicalJson(read.value.body)).toBe(canonicalJson({ ...legacy, drafts: legacy.drafts.map((d) => ({ ...d, interpretationPending: false })), conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [], chargerTracks: [] }));
     expect(fs.readFileSync(join(directory, "store.json")).equals(bytes)).toBe(true);
     const committed = await opened.value.commit(v3(body()));
     expect(committed.status).toBe("ready");
     const stored = JSON.parse(fs.readFileSync(join(directory, "store.json"), "utf8"));
-    expect(stored.format).toBe(6);
+    expect(stored.format).toBe(7);
     expect(canonicalJson(stored.body)).toBe(canonicalJson(v3(body())));
     expect(stored.sha256).toBe(checksum(v3(body())));
   });

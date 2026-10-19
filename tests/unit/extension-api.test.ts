@@ -149,7 +149,7 @@ describe("extension API", () => {
     let refuse = false;
     let published: PublishedBody | null = null;
     const store: FoundationStore = {
-      readPublished: () => ({ status: "ready", value: { format: 3, identity: "0".repeat(64), sha256: "0".repeat(64), body: { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [] } } }),
+      readPublished: () => ({ status: "ready", value: { format: 3, identity: "0".repeat(64), sha256: "0".repeat(64), body: { allocation: { windowStartedAt: null, count: 0 }, admissionLogin: { windowStartedAt: null, count: 0 }, sessions: [], drafts: [], conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [], chargerTracks: [] } } }),
       async commit(body: unknown): Promise<CommitResult> {
         if (refuse) return { status: "unavailable", outcome: "definite" };
         published = structuredClone(body) as PublishedBody;

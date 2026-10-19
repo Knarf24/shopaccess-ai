@@ -1,5 +1,6 @@
 import { restorePermissions } from "../permissions/model";
 import { canonicalJson } from "../shared/canonical-json";
+import type { ChargerTrack } from "./charger-clarification";
 import type { ConversationState } from "./conversation";
 import type { CommitResult, FoundationStore, PublishedBody } from "./snapshot-store";
 import { SESSION_IDLE_TIMEOUT_MS } from "./service";
@@ -97,9 +98,14 @@ export interface DurableState {
   readonly permissions: readonly PersistedPermission[];
   readonly profiles: readonly PersistedDeviceProfile[];
   readonly profileRevisions: readonly PersistedProfileRevision[];
+  /** Charger clarification tracks (format 7, proposed), keyed by session and bound to that session's current draft. */
+  readonly chargerTracks: ReadonlyMap<string, ChargerTrack>;
 }
 
-/** Builds the body to commit. Entries whose session is gone, and conversations for a replaced draft, are left out. */
+/**
+ * Builds the body to commit. Entries whose session is gone, and conversations and charger tracks for a replaced or
+ * removed draft, are left out.
+ */
 export function bodyFromState(state: DurableState): PublishedBody {
   const ids = new Set(state.sessions.map((session) => session.id));
   const drafts = [...state.drafts].filter(([sessionId]) => ids.has(sessionId));
@@ -163,6 +169,9 @@ export function bodyFromState(state: DurableState): PublishedBody {
     profileRevisions: state.profileRevisions
       .filter((revision) => ids.has(revision.sessionId))
       .map((revision) => ({ sessionId: revision.sessionId, version: revision.version })),
+    chargerTracks: [...state.chargerTracks]
+      .filter(([sessionId, track]) => track.sessionId === sessionId && draftOf.get(sessionId) === track.draftId)
+      .map(([, track]) => ({ sessionId: track.sessionId, draftId: track.draftId, state: track.state, deviceId: track.deviceId, revision: track.revision })),
   };
 }
 
@@ -253,12 +262,30 @@ export function restoreState(body: PublishedBody, now: Date): RecoveredState {
   const profiles = body.profiles
     .filter((profile) => ids.has(profile.sessionId))
     .map((profile) => ({ sessionId: profile.sessionId, version: profile.version, brand: profile.brand, model: profile.model }));
+  // Charger tracks of restored drafts only, copied as stored: the state and revision are kept exactly, so a control issued
+  // before the restart stays valid only while nothing changed. A dead session's or expired draft's track is dropped.
+  const chargerTracks = new Map<string, ChargerTrack>();
+  for (const track of body.chargerTracks) {
+    if (drafts.get(track.sessionId)?.draftId !== track.draftId) continue;
+    chargerTracks.set(track.sessionId, { sessionId: track.sessionId, draftId: track.draftId, state: track.state, deviceId: track.deviceId, revision: track.revision });
+  }
   // Markers of restored sessions only. A dead session's marker is dropped with the session. Text is not stored here.
   const profileRevisions = body.profileRevisions
     .filter((revision) => ids.has(revision.sessionId))
     .map((revision) => ({ sessionId: revision.sessionId, version: revision.version }));
   return {
-    state: { sessions, drafts, conversations, selections, windows: { allocation: body.allocation, admissionLogin: body.admissionLogin }, grants, permissions, profiles, profileRevisions },
+    state: {
+      sessions,
+      drafts,
+      conversations,
+      selections,
+      windows: { allocation: body.allocation, admissionLogin: body.admissionLogin },
+      grants,
+      permissions,
+      profiles,
+      profileRevisions,
+      chargerTracks,
+    },
     interrupted: { interpretations, recommendations },
     droppedSessions,
   };

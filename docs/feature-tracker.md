@@ -1,6 +1,19 @@
 # ShopAccess AI feature and evidence tracker
 Updated October 16, 2026. Target: October 24. Initial status reflects published governance and owner-supplied reports, not a fresh implementation audit.
 
+## F03 charger clarification, slice 1: state, transitions and proposed snapshot format 7 — October 19, 2026 (uncommitted when written)
+
+The sections below stay dated history. This entry does not accept F03 or decide D-category, and it does not approve format 7.
+
+- **Source:** branch `feature/f03-charger-clarification-state` from `main` `37f6b30c7a811d538d0b92e1b4d88d9156991a1e` (PR #9 merged).
+- **Implemented (not wired):** a local reading of shopper text for charger clarification (charger, laptop, mixed, bare "adapter", none; a device only from an exact curated model identifier; Unicode NFC first); one charger clarification track per session, bound to its current draft, with states closed, task choice, awaiting model, candidate and confirmed; website-control transitions that must match the session, the draft and the exact current revision; revisions that only increase across Stop, task switching and reopening and are refused past the maximum; helpers for how laptop work that was already started is shown while a clarification is open. No handler, route, page, copy, extension mapping or provider calls any of it; the running app creates no track.
+- **Proposed snapshot format 7:** adds a strictly validated `chargerTracks` list and allows the five charger line keys in assistant conversation lines from format 7 on. Formats 1–6 load with an empty list. **Startup recovery rewrites an older store as format 7, and a reader that accepts only format 6 or older rejects a format-7 file.** No owner or rehearsal store has been opened or migrated. Merging format 7, rollout and rollback handling remain separately gated.
+- **Lifecycle:** a track is removed with its draft (deletion or replacement, in both snapshot and memory mode), at session expiry, and at logout (in snapshot mode in the same saved decision as the revocation; in memory mode after the revocation, so an intervening request must fail its liveness check). A refused snapshot save publishes nothing. `DurableHost.change` callbacks must be synchronous, enforced by the type (compile-time regression); awaited work stays outside the callback.
+- **Implementer-run checks (Claude, network-blocked runner):** see the work log entry of the same date. The last full suite is c2's; c3 (type-only) ran typecheck, focused tests and lint.
+- **Reviews:** an implementer self-review (not independent) led to correction c1. Codex then reviewed the source and saved evidence of each handoff; its review texts were relayed through the owner and recorded privately. Codex's c3 verdict, as relayed: the synchronous-callback contract finding is resolved, with no concrete c3 blocker. Codex inspected source and saved evidence only; it ran no checks.
+- **Evidence note:** the first private evidence manifest lists itself with the empty-file hash, so that one entry cannot verify; it is kept as written and a later manifest excludes checksum files.
+- **Not done:** slice 2 (handler routing, controls, copy, extension text), browser, screen-reader and native-speaker checks. F03 remains unaccepted; D-category open. October 24 and the full scope are unchanged.
+
 ## F03 device hand-off from the guided needs page — October 19, 2026 (uncommitted when written)
 
 The sections below stay dated history. This entry does not accept F03 or decide D-category.

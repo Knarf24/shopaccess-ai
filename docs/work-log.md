@@ -1,6 +1,21 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 19, 2026 — F03 charger clarification, slice 1 (state, transitions, proposed format 7; uncommitted when written)
+
+- **Baseline:** `main` `37f6b30c7a811d538d0b92e1b4d88d9156991a1e` (PR #9 merged); new worktree on `feature/f03-charger-clarification-state`.
+- **Scope:** new `src/lib/compatibility/charger-intent.ts` and `src/lib/session/charger-clarification.ts`; snapshot format 7 in `snapshot-store.ts`, `snapshot-state.ts` and `durable.ts`. Not wired into handlers, pages or the extension; no provider path.
+- **Format 7 compatibility:** startup recovery writes format 7; readers limited to format 6 or older reject it. No owner or rehearsal store was opened or migrated; merge, rollout and rollback remain gated.
+- **Regressions first:** red import-level run, then export-only stubs (32 failed, 6 passed), then green. Fifteen existing test files received fixture keys and "written as format 7" expectations only.
+- **Corrections:** c1 (self-review): NFC before cue matching; charger lines accepted from the format that introduced them; direct coverage of draft replacement and of charger lines without a track. c2: memory-mode changes remove a deleted or replaced draft's charger track and keep a valid track for the new draft; startup recovery of a format-6 store tested. c3: `DurableHost.change` callbacks are synchronous by type.
+- **Checks (Claude, network-blocked runner):**
+  - c2 (latest full run): full suite 66 files, 1,562 passed; focused 16 files, 243 passed; typecheck 0; lint 0 errors (9 existing warnings).
+  - c3 (type-only, full suite not rerun): typecheck first exited 2 with six unused `@ts-expect-error` directives (the red check), then 0; a scratch compile showed each of the six cases rejected; focused 9 files, 138 passed; lint first reported one `no-explicit-any` error in the new test, then 0 errors (9 existing warnings).
+  - No connection attempt was logged.
+- **Codex reviews (source and saved evidence only; Codex ran no checks; texts relayed through the owner):** the review of the handoff and c1 named an invalid manifest self-entry and led to c2; the c2 review found the memory-mode cleanup resolved and identified the synchronous-callback contract gap separately; c3 verdict: that finding is resolved, with no concrete c3 blocker.
+- **Evidence:** the first private manifest's self-entry (empty-file hash) cannot verify and is kept as written; later manifests exclude checksum files. All frozen handoffs and outputs are kept.
+- **Not done:** slice 2; browser, screen-reader and native-speaker checks. F03 unaccepted; D-category open.
+
 ## October 19, 2026 — F03 device hand-off from the guided needs page (uncommitted when written)
 
 - **Baseline:** `main` `ed027c13cfb635d4356a687480429573a7272a29` (PR #8 merged); new worktree on `feature/f03-device-handoff`.
