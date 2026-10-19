@@ -1,6 +1,12 @@
 # ShopAccess AI milestone plan
 Updated October 16, 2026. Owner decision: Frank Ncube. Dates use America/New_York.
 
+## Current evidence note — October 19, 2026 (F03 charger information slice)
+
+This note is later than the October 18 notes below, which remain dated history.
+
+An information-only F03 slice exists on `feature/f03-charger-info` (from `main` `bb878525f3c9bcf2bc90d47da5b681f58d73bab4`): an English/Spanish charger page for two exact Mac models and two Apple adapters with two cables each, linked from the guided needs page. MacBook Air (M2, 2022) results are Apple-listed or on Apple's fast-charge list; every MacBook Pro (Early 2015) result is unknown; no curated configuration is unsupported. It covers the milestone journey's compatibility explanation and comparison only in part: no purchase, no conversational integration (F01), no profile use. See the feature tracker entry of the same date for evidence, reviews and open items. D-category, F03 acceptance, October 24 and the full scope are unchanged.
+
 ## Current evidence note — October 18, 2026 (device profile)
 
 This note is later than the October 18 note below. That note and the October 17 note remain dated history.
