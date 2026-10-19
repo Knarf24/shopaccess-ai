@@ -148,7 +148,8 @@ const MESSAGES: Record<string, string> = {
 
 export function messageFor(code: string | undefined): string | null {
   if (!code) return null;
-  return MESSAGES[code] ?? "That action could not be completed.";
+  // Only the table's own keys are messages: an inherited name (__proto__, constructor, toString…) is an unknown code (finding 9).
+  return Object.hasOwn(MESSAGES, code) ? MESSAGES[code]! : "That action could not be completed.";
 }
 
 /**

@@ -1,6 +1,18 @@
 # ShopAccess AI feature and evidence tracker
 Updated October 16, 2026. Target: October 24. Initial status reflects published governance and owner-supplied reports, not a fresh implementation audit.
 
+## Finding 9: message lookup limited to own keys — October 18, 2026 (uncommitted when written)
+
+The sections below stay dated history; the earlier "Finding 9 (tracked, not fixed)" note is superseded by this entry.
+
+- **Source:** branch `fix/finding-9-message-lookup` from `main` `5dbd4d66ced5189505680276bca3d5d2ad3e6475`.
+- **Change:** `messageFor` (`src/server/views.ts`) now resolves only the message table's own keys. A URL `error` or `notice` named after an `Object.prototype` member (`__proto__`, `constructor`, `toString`, `hasOwnProperty`, `valueOf`) gets the existing generic message, "That action could not be completed." Recognized messages and `checkoutMessage` are unchanged.
+- **Affected callers covered by regressions:** `/shop` in mock mode (real in-memory runtime) and PostgreSQL mode, `/checkouts` and the PostgreSQL checkout. In the three PostgreSQL paths the `pg-views` reads were mocked: the PostgreSQL `/shop` view delegates to the in-memory shopping-view builder, and the other reads (cookie, session, checkout list, checkout view) return fixed test values. None connects to PostgreSQL.
+- **Before the fix:** the helper returned `Object.prototype` or native functions; on the pages `__proto__` made the content fail to render (only the loading fallback showed) and the other names rendered an empty alert.
+- **Implementer-run checks (Claude, network-blocked runner):** new regressions shown failing first (5 failed | 2 passed); after the fix, focused 94 passed, full unit suite 59 files and 1,470 passed, typecheck 0, lint 0 errors (9 existing warnings). No browser, service, database or provider run.
+- **Codex review (source and saved evidence; tests not rerun):** finding 9 resolved, no demonstrated commit blocker. Database behaviour remains unverified.
+- **No acceptance change:** F07, F08, F11 and A35 remain unaccepted; the October 24 target and full scope are unchanged.
+
 ## Optional device profile — October 18, 2026 (uncommitted when written)
 
 The sections below stay dated history. This entry does not rewrite them.
