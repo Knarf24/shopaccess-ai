@@ -1,6 +1,17 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 19, 2026 — F03 device hand-off from the guided needs page (uncommitted when written)
+
+- **Baseline:** `main` `ed027c13cfb635d4356a687480429573a7272a29` (PR #8 merged); new worktree on `feature/f03-device-handoff`.
+- **Change:** a native GET hand-off form on the guided needs page (new server component), with English/Spanish labels in the charger copy module; the existing charger link stays. It sends only the chosen exact model and the journey language to the existing charger page; nothing is saved.
+- **Regressions first:** a new test file covering the form's markup in both languages (only curated options, empty placeholder selected, hidden language), saved-draft language precedence, no pre-selection from needs text, a saved profile or a URL device, the charger page reached with the form's query, empty choice and unknown/prototype-named identifiers, no change to draft, conversation, profile, permission, grant or extension view, no provider call, and a source guard. Red: 5 failed (form absent), 3 passed (existing charger-page behaviour the hand-off relies on).
+- **Checks (Claude, network-blocked runner):** focused 8 files, 117 passed (hand-off, charger, needs-flow, current-step, SEC-01 and extension tests); full suite 63 files, 1,517 passed; typecheck exit 0 after a test-typing correction (the first typecheck exited 2 on the new test file; that output is kept); lint 0 errors (9 warnings in untouched files).
+- **Evidence correction:** Codex reviewed the saved Apple captures against the claims and reviewed the subsequent correction; it did not verify live pages or rerun tests. This replaces the "capture hashes verified" wording of the October 18–19 entries for future reference; those entries stay as written.
+- **Codex source review (relayed through ChatGPT; source and saved evidence only, no tests, browsers or services):** identity verified and unchanged; all 44 handoff checksum entries and six live-file hashes matched; no concrete defect or demonstrated commit blocker; the form sends only device and resolved language, starts with an empty placeholder, preserves saved-draft language precedence and is not nested inside another form; no profile inference, unrelated mutation or provider call introduced; tests render the actual needs and charger pages. This review preceded, and is separate from, the browser run below.
+- **Browser observations (mock-only, isolated headless contexts, loopback only):** 44 checks passed (EN/ES: empty initial selection, empty choice unidentified, both models reach their results, only model and language sent, keyboard reach/select/submit, saved-draft language precedence, no state-changing request besides the deliberate draft submission; first Tab after the native navigation reached the skip link). Three earlier attempts stopped on test-harness issues (route-announcer alert match, navigation timing, a screenshot-induced hydration warning); all kept.
+- **Not done:** screen-reader or native-speaker acceptance. F03 unaccepted.
+
 ## October 18–19, 2026 — F03 charger information slice (uncommitted when written)
 
 - **Baseline:** `main` `bb878525f3c9bcf2bc90d47da5b681f58d73bab4`; new worktree on `feature/f03-charger-info`.

@@ -9,6 +9,7 @@ import { InterpretedNeedsReview, NEEDS_REVIEW_HEADING_ID } from "@/components/mo
 import { NeedsConversation } from "@/components/mock-journey/NeedsConversation";
 import { PAIRED_ACCESS_RESULT_ID, PairedAccess } from "@/components/PairedAccess";
 import { PermissionRefusal } from "@/components/PermissionRefusal";
+import { ChargerDeviceHandoff } from "@/components/ChargerDeviceHandoff";
 import { chargerCopy } from "@/lib/i18n/charger-copy";
 import { isPermissionRefusal, permissionCopy } from "@/lib/i18n/permission-copy";
 import { revocationMessage } from "@/lib/i18n/extension-copy";
@@ -350,6 +351,7 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
           {chargerCopy(language).needsLink}
         </Link>
       </p>
+      <ChargerDeviceHandoff language={language} />
       <p>
         <Link href="/" prefetch={false} className="underline">
           {copy.navigationHome}
