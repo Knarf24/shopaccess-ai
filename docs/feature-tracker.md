@@ -1,6 +1,19 @@
 # ShopAccess AI feature and evidence tracker
 Updated October 16, 2026. Target: October 24. Initial status reflects published governance and owner-supplied reports, not a fresh implementation audit.
 
+## F03 device hand-off from the guided needs page — October 19, 2026 (uncommitted when written)
+
+The sections below stay dated history. This entry does not accept F03 or decide D-category.
+
+- **Source:** branch `feature/f03-device-handoff` from `main` `ed027c13cfb635d4356a687480429573a7272a29`.
+- **Change:** beside the existing "Explore charger information" link, the guided needs page shows a native GET form to `/shop/chargers`. The shopper chooses one exact curated model (MacBook Air (M2, 2022) `Mac14,2` or MacBook Pro (Retina, 13-inch, Early 2015) `MacBookPro12,1`) and presses the button; the empty placeholder is selected by default. The form sends only the chosen model and the journey's language (a saved draft's language still wins over the URL) to the existing results page, which validates the model as before. Nothing is saved or remembered.
+- **Boundaries:** no draft or snapshot change, no profile read, no conversation update, no extension change, no AI or product-search call, no purchase, catalogue or payment change. The needs text and any saved profile never choose or suggest a model. Unknown or prototype-named identifiers stay unidentified. Server-rendered; no client code; SEC-01 unchanged. English/Spanish labels live in the charger copy module.
+- **Evidence correction (supersedes the PR #8 wording "Codex verified the capture hashes"):** Codex reviewed the saved Apple captures against the claims and reviewed the subsequent correction. It did not verify live pages or rerun tests. Earlier dated entries and private handoffs are kept as written.
+- **Checks:** see the work log entry of the same date.
+- **Codex source review of the hand-off (relayed through ChatGPT; separate from the browser run below):** "Identity verified and unchanged at the end. All 44 handoff checksum entries and six live-file hashes matched. No concrete defect or demonstrated commit blocker found. The form sends only device and resolved language, starts with an empty placeholder, preserves saved-draft language precedence, and is not nested inside another form. No profile inference, unrelated mutation or provider call was introduced. Tests render the actual needs and charger pages. Codex inspected source and saved evidence only; it ran no tests, browsers or services."
+- **Browser observations (mock-only development server, isolated headless contexts, loopback only):** 44 checks passed in English and Spanish: nothing selected initially; an empty choice identifies no device; each curated model reaches its results; the form sends only the model and language; keyboard users reach the selector in 8 Tab presses, select by typing and submit with Enter; a saved draft's language wins over a conflicting URL language; the only state-changing request was the deliberate draft submission. After the form's native navigation the first Tab reached the charger page's skip link (recorded separately from the open client-link focus finding). Earlier attempts stopped on test-harness issues (Next.js route announcer matched as an alert; reading before navigation finished; a hydration warning caused by the screenshot tool's caret-hiding style) and are kept as evidence.
+- **Status:** F03 remains unaccepted; October 24 and the full scope are unchanged.
+
 ## F03 charger information slice — October 18–19, 2026 (uncommitted when written)
 
 The sections below stay dated history. This entry does not accept F03 or decide D-category.

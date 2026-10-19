@@ -50,6 +50,10 @@ export interface ChargerCopy {
   readonly unavailable: string;
   /** Link to this page from the guided needs page (in the journey's language). */
   readonly needsLink: string;
+  /** Hand-off form on the guided needs page: sends only the chosen exact model and the journey language. */
+  readonly handoffLabel: string;
+  readonly handoffPlaceholder: string;
+  readonly handoffButton: string;
 }
 
 const W = (watts: number, space: string) => `${watts}${space}W`;
@@ -138,6 +142,9 @@ const ENGLISH: ChargerCopy = {
   otherLanguage: "Español",
   unavailable: "Charger information is not available in this mode.",
   needsLink: "Explore charger information",
+  handoffLabel: "Which Mac is this for?",
+  handoffPlaceholder: "Choose an exact model",
+  handoffButton: "Show charger information for this Mac",
 };
 
 const SPANISH: ChargerCopy = {
@@ -214,6 +221,9 @@ const SPANISH: ChargerCopy = {
   otherLanguage: "English",
   unavailable: "La información de cargadores no está disponible en este modo.",
   needsLink: "Consultar información sobre cargadores",
+  handoffLabel: "¿Para qué Mac es?",
+  handoffPlaceholder: "Elija un modelo exacto",
+  handoffButton: "Mostrar información de cargadores para este Mac",
 };
 
 export function chargerCopy(language: JourneyLanguage): ChargerCopy {
