@@ -1,6 +1,17 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 18–19, 2026 — F03 charger information slice (uncommitted when written)
+
+- **Baseline:** `main` `bb878525f3c9bcf2bc90d47da5b681f58d73bab4`; new worktree on `feature/f03-charger-info`.
+- **Curation first:** eight public Apple pages saved privately with hashes; every cited excerpt matched in the saved copies. The 70W store page, first reported from a ChatGPT retrieval, was captured independently.
+- **Implementation:** evidence registry and rules (`src/lib/compatibility/`), the `/shop/chargers` page and component, English/Spanish copy, and a needs-page link. Regressions were written before each change and shown failing.
+- **Corrections after review:** Codex's raw-source finding (absence of "USB-C" had been treated as "no USB-C") → the 2015 USB-C rows are unknown and "unsupported" needs positive completeness evidence; Codex's disclaimer finding → neutral disclaimer (resolved); owner-requested cable qualification on the MacBook Air + 140W + USB-C charge-cable row; control-border correction after a measured 1:1 boundary on the identifier field.
+- **Codex final-delta review (relayed through ChatGPT; source and saved evidence only, no tests run):** identity checks passed; the cable disclosure is correctly scoped in both languages and invents no rating; the control styling preserves native semantics, labels, submission and focus behaviour; rules, evidence mappings and the needs link are unchanged; no concrete defect or demonstrated commit blocker. Accessibility limitations and F03 acceptance remain open.
+- **Session boundary:** the charger page applies the existing demo-admission cookie guard but resolves or creates no shopper session.
+- **Checks:** last full suite 62 files and 1,501 passed (before the disclaimer, cable-note and styling changes); final focused checks 4 files and 62 passed, typecheck 0, lint 0 errors (9 warnings in untouched files). Browser: 100 direct-load checks and 80 control checks passed (mock-only, development server, isolated contexts). Two superseded outputs were deleted during earlier reruns and remain unavailable.
+- **Open:** development-overlay focus after client-side navigation (production and screen-reader effects unverified); global focus-outline contrast 1.82:1; mobile selector truncation; 2px Spanish table scroll at 390px. No screen-reader, native-speaker or product acceptance; no purchasing or profile integration. F03 unaccepted.
+
 ## October 18, 2026 — finding 9: message lookup limited to own keys (uncommitted when written)
 
 - **Baseline:** `main` `5dbd4d66ced5189505680276bca3d5d2ad3e6475` (PR #6 merged), new worktree on `fix/finding-9-message-lookup`; `node_modules` linked to the existing install (no install).

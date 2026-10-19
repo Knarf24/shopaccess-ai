@@ -9,6 +9,7 @@ import { InterpretedNeedsReview, NEEDS_REVIEW_HEADING_ID } from "@/components/mo
 import { NeedsConversation } from "@/components/mock-journey/NeedsConversation";
 import { PAIRED_ACCESS_RESULT_ID, PairedAccess } from "@/components/PairedAccess";
 import { PermissionRefusal } from "@/components/PermissionRefusal";
+import { chargerCopy } from "@/lib/i18n/charger-copy";
 import { isPermissionRefusal, permissionCopy } from "@/lib/i18n/permission-copy";
 import { revocationMessage } from "@/lib/i18n/extension-copy";
 import "../../guided-presentation.css";
@@ -342,6 +343,11 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
       <p>
         <Link href={`/shop/permissions?lang=${language}`} prefetch={false} className="underline">
           {permissionCopy(language).managePermissions}
+        </Link>
+      </p>
+      <p>
+        <Link href={`/shop/chargers?lang=${language}`} prefetch={false} className="underline">
+          {chargerCopy(language).needsLink}
         </Link>
       </p>
       <p>
