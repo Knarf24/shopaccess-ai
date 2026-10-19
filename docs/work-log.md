@@ -1,6 +1,16 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 18, 2026 — finding 9: message lookup limited to own keys (uncommitted when written)
+
+- **Baseline:** `main` `5dbd4d66ced5189505680276bca3d5d2ad3e6475` (PR #6 merged), new worktree on `fix/finding-9-message-lookup`; `node_modules` linked to the existing install (no install).
+- **Regressions first** (`tests/unit/message-lookup.test.tsx`): the helper and four page paths, each with a recognized-message control. Red: 5 failed | 2 passed — the helper returned `Object.prototype` and native functions; `__proto__` stopped page content rendering; the other names gave empty alerts with React's "Functions are not valid as a React child".
+- **Fix:** own-key lookup in `messageFor`, generic fallback unchanged.
+- **Final (network-blocked runner):** focused 5 files, 94 passed; full suite 59 files, 1,470 passed; lint 0 errors (9 existing warnings). Typecheck first failed in the untouched `src/app/layout.tsx` (`LayoutProps` missing) because the new worktree had no generated Next route types; after `next typegen` (offline, same network block, ignored files only) typecheck exit 0.
+- **Test description correction:** in the PostgreSQL page tests the PostgreSQL `/shop` view mock delegates to the in-memory shopping-view builder; the cookie, session, checkout-list and checkout-view reads return fixed test values. None connects to PostgreSQL.
+- **Codex review (source and saved evidence; tests not rerun):** finding 9 resolved, no demonstrated commit blocker. Database behaviour remains unverified.
+- **Not run:** browsers, services, databases, providers. Acceptance unchanged.
+
 ## October 18, 2026 — optional device profile (documentation uncommitted when written)
 
 - **Source:** `feature/device-profile` `8059280bfb33558000477ef7cc2545b092109839`, parent and current `main` `e3c582967adb4897b144c2c4c7436eb137ffa035`. Pushed to `origin` without force. Not merged into `main`.
