@@ -1,6 +1,12 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 21, 2026 — wired-checkout launch wording (documentation only)
+
+- **Source:** `feature/f03-charger-conversation` after merge `931ca35`. No store was opened and no server was started. Product source and tests were not changed. Product tests were not rerun.
+- **Change:** the README now describes this branch's wired charger conversation. A rehearsal names its commit in writing and has no default. The October 21 tracker rule keeps the foundation history, including that the foundation build writes no charger track, and states that this branch's running checkout wires the conversation under the same memory-mode and fresh-store policy.
+- **Preserved:** the October 21 foundation entry below, the October 20 slice-2 evidence, and the language and accessibility limits. Spanish raw HTML still declares English before hydration. There is no screen-reader acceptance. F03 remains unaccepted. No deployment integration was found in the inspected repository and GitHub records. Externally configured hosting is unknown.
+
 ## October 21, 2026 — format-7 local launch rule (documentation only; uncommitted when written)
 
 - **Source:** PR #10 worktree `feature/f03-charger-clarification-state` at `a1120d6`. No store was opened, copied, decoded, hashed, or migrated. No server was started and no provider was called.

@@ -63,9 +63,9 @@ Required settings (there are no defaults; the flow is switched off without them)
 
 This milestone command is memory mode. The subshell unsets
 `SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE` before the
-server starts, so an inherited value does not select a store. On the format-7
-foundation, follow the store rule in the repository README: do not point it at
-an existing store. PR #11 is the separate integration and is not this command.
+server starts, so an inherited value does not select a store. Follow the store
+rule in the repository README: do not point it at an existing store. On this
+branch the same command launches the wired charger-conversation checkout.
 The key above is generated per run and never written to disk. `next start`
 (production mode) rejects the loopback origin, so the demo needs an HTTPS
 origin there.
