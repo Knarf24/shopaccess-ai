@@ -18,43 +18,89 @@ a deployment, or a database change, and it does not replace the evidence above.
 
 ## Run the demo locally
 
+This checkout is the unwired format-7 foundation, PR #10
+(`feature/f03-charger-clarification-state`, `a1120d6`). It can read snapshot
+formats 1–6. The next successful commit, including startup recovery, rewrites
+that file as format 7. No handler, route, page, or extension calls the
+clarification state, so the running application creates no charger track.
+
+PR #11 (`feature/f03-charger-conversation`) is a separate integration on top
+of this foundation. It wires the charger conversation, the skip-link
+correction, the needs-page export split, the needs workspace, and
+document-language synchronization. These instructions do not start or merge
+that pull request. Any build that contains this format-7 reader, including
+that later integration, follows the store rule below.
+
+Existing owner and rehearsal stores remain untouched and reserved for their
+current builds. Format-7 development uses memory mode, as in the command
+below, or a fresh disposable store initialized by `src/server/mock-store-init.mts`.
+Never point the new build at an existing store. Stop the previous server
+before starting another build, and confirm the intended port is free. For
+this command, `lsof -nP -iTCP:3000 -sTCP:LISTEN` prints nothing. Rolling the
+code back must use memory mode or a separate store compatible with that older
+build. Never restore an older backup over a store containing later writes. No
+supported format-7-to-6 downgrade is implemented. Any future migration or
+recovery of existing data requires a separate reviewed procedure.
+
 ```bash
-SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
-SHOPACCESS_TRUSTED_ORIGINS=http://localhost:3000 \
-PAYMENT_PROVIDER_MODE=mock \
-npm run dev
+(
+  unset SHOPACCESS_MOCK_STORE_DIR SHOPACCESS_MOCK_STORE_KEY_FILE
+  SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
+  SHOPACCESS_TRUSTED_ORIGINS=http://localhost:3000 \
+  PAYMENT_PROVIDER_MODE=mock \
+  exec npm run dev
+)
 ```
 
 Open http://localhost:3000 in Chrome or Firefox. All three settings are
 required; without them the shopping flow is switched off. State is held in
-memory and is lost when the server stops.
+memory and is lost when the server stops. The subshell unsets
+`SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE` before the
+server starts, so an inherited value does not select a store.
 
 ### Optional: keep shopper state across a restart (local mock only)
 
-Sessions, needs drafts, the guided conversation (language and the last eight
-lines), confirmation withdrawal, and the session-allocation and admission
-windows can be kept in one local snapshot file. Checkouts, quotes, payments
-and the audit log stay in memory: a checkout started before a restart does not
-resume. Use synthetic data only.
+A format-7 snapshot persists shopper state: the session-allocation and
+admission windows, sessions, needs drafts, the guided conversation (language
+and the last eight lines), confirmation-selection markers, extension grants,
+purchase permissions, device profiles, profile-revision markers, and
+charger-track records. This unwired foundation does not write a charger track;
+PR #11 is the integration that can. A purchase permission may store the
+checkout id that ended it. That id is not the checkout. Checkouts, quotes,
+payment states, payment operations, and the audit log remain in memory, so a
+checkout started before a restart does not resume. Use synthetic data only.
+The directory must be new. The initializer below is the supported way to
+create it. Do not pass an existing owner or rehearsal store as `--directory`
+or as `SHOPACCESS_MOCK_STORE_DIR`.
 
 ```bash
 # One private key file and one new store directory, outside the repository.
+# Stop the previous server and confirm the intended port is free first.
 umask 077
 openssl rand -out /path/to/private/shopaccess-store.key 32
 node --experimental-strip-types --import ./scripts/mock-store-load-hook.mjs \
   src/server/mock-store-init.mts --directory /path/to/private/shopaccess-store \
   --key-file /path/to/private/shopaccess-store.key
 
-# Then add both settings to the command above.
-SHOPACCESS_MOCK_STORE_DIR=/path/to/private/shopaccess-store \
-SHOPACCESS_MOCK_STORE_KEY_FILE=/path/to/private/shopaccess-store.key \
-...  npm run dev
+# Then start with only that new directory and its new key.
+(
+  unset SHOPACCESS_MOCK_STORE_DIR SHOPACCESS_MOCK_STORE_KEY_FILE
+  export SHOPACCESS_MOCK_STORE_DIR=/path/to/private/shopaccess-store
+  export SHOPACCESS_MOCK_STORE_KEY_FILE=/path/to/private/shopaccess-store.key
+  SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
+  SHOPACCESS_TRUSTED_ORIGINS=http://localhost:3000 \
+  PAYMENT_PROVIDER_MODE=mock \
+  exec npm run dev
+)
 ```
 
-With neither setting the demo is in memory, as before. With only one, or with
-a directory or key file that is not private (0700 directory, 0600 key file
-owned by you), or with `SHOPACCESS_PERSISTENCE_MODE=postgres`, the server
-refuses to start the shop rather than falling back to memory. If a save fails,
+The server uses memory when both store variables are absent from its
+environment. The memory-mode command under "Run the demo locally" unsets both
+names in its subshell. The command in this section unsets them and then
+exports only the new directory and its new key. With only one of those names
+set, or with a directory or key file that is not private (0700 directory,
+0600 key file owned by you), or with `SHOPACCESS_PERSISTENCE_MODE=postgres`,
+the server refuses to start the shop rather than falling back to memory. If a save fails,
 the shop stops accepting changes and shows "not available" until it is
 restarted. A request that was interrupted by a restart is never sent again: an
 interpretation shows the existing "could not be interpreted" notice, and
@@ -94,9 +140,16 @@ PAYPAL_CLIENT_SECRET=<sandbox app secret>
 PAYPAL_SANDBOX_MERCHANT_ID=<13-character sandbox business merchant ID>
 ```
 
+Stop the previous server and confirm port 3000 is free. This command is memory
+mode: after the private file is read, the subshell unsets
+`SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE`. A disposable
+snapshot store, when one is used, comes only from the initializer above, and
+those two names are then set to that new directory and its new key.
+
 ```bash
 (
   set -a; . /path/to/private/paypal-sandbox.env; set +a
+  unset SHOPACCESS_MOCK_STORE_DIR SHOPACCESS_MOCK_STORE_KEY_FILE
   SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
   SHOPACCESS_TRUSTED_ORIGINS=http://127.0.0.1:3000 \
   exec npm run dev -- -H 127.0.0.1 -p 3000
@@ -109,8 +162,12 @@ Open http://127.0.0.1:3000.
   `PAYMENT_PROVIDER_MODE=mock`, any `PAYPAL_*` setting is refused.
 - **Other providers:** leave the `SHOPACCESS_AI_*` settings unset (local
   assistant). Channel3 stays disabled in source.
-- **Storage:** Sandbox mode works with or without the local snapshot store,
-  which keeps only sessions and permissions. PostgreSQL mode refuses it.
+- **Storage:** Sandbox mode uses the memory-mode subshell above, or a fresh
+  disposable snapshot store created for that run with the initializer above.
+  The format-7 file persists the shopper state listed in the snapshot section.
+  Checkouts, quotes, payment states, payment operations, and the audit log
+  remain in memory. Do not point Sandbox mode at an existing owner or
+  rehearsal store. PostgreSQL mode refuses Sandbox mode.
 - **Payment steps:**
   - The shopper creates the order with **Continue to PayPal Sandbox**, then
     approves on `https://www.sandbox.paypal.com`.

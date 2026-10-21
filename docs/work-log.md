@@ -1,6 +1,14 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 21, 2026 — format-7 local launch rule (documentation only; uncommitted when written)
+
+- **Source:** PR #10 worktree `feature/f03-charger-clarification-state` at `a1120d6`. No store was opened, copied, decoded, hashed, or migrated. No server was started and no provider was called.
+- **Change:** README, `docs/paypal-sandbox-rehearsal-runbook.md` (including the snapshot-store prerequisite), `extension/README.md`, the security-foundation launch snippet, and the feature tracker now keep existing owner and rehearsal stores reserved for their current builds. Format-7 development uses memory mode or a fresh disposable store from `src/server/mock-store-init.mts`. Every memory-mode launch unsets `SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE` inside its launch subshell. The format-7 snapshot persists shopper state; checkout and payment execution, including the audit log, remain in memory. The previous server is stopped and the intended port confirmed free. Rollback uses memory mode or a separate compatible store. An older backup is not restored over later writes. There is no format-7-to-6 downgrade.
+- **Distinction:** this foundation is unwired and writes no charger track. PR #11 is the separate integration and is not started or merged here. The same store rule applies to any build that contains this format-7 reader.
+- **Deployment:** no deployment integration found in the inspected repository and GitHub records. Externally configured hosting is unknown.
+- **Not done:** the reader still rewrites formats 1–6 on the next successful commit, including startup recovery, if it is pointed at that file. No reviewed migration or recovery procedure exists. Neither pull request is merged. Product tests were not rerun.
+
 ## October 19, 2026 — F03 charger clarification, slice 1 (state, transitions, proposed format 7; uncommitted when written)
 
 - **Baseline:** `main` `37f6b30c7a811d538d0b92e1b4d88d9156991a1e` (PR #9 merged); new worktree on `feature/f03-charger-clarification-state`.

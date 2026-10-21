@@ -12,12 +12,17 @@ Mock mode only. Use synthetic data only.
 2. Start the demo with that exact origin allowed, bound to loopback:
 
    ```bash
-   SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
-   SHOPACCESS_TRUSTED_ORIGINS=http://127.0.0.1:3000 \
-   SHOPACCESS_EXTENSION_ORIGINS=chrome-extension://YOUR_EXTENSION_ID \
-   PAYMENT_PROVIDER_MODE=mock \
-   npm run dev -- --hostname 127.0.0.1 --port 3000
+   (
+     unset SHOPACCESS_MOCK_STORE_DIR SHOPACCESS_MOCK_STORE_KEY_FILE
+     SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
+     SHOPACCESS_TRUSTED_ORIGINS=http://127.0.0.1:3000 \
+     SHOPACCESS_EXTENSION_ORIGINS=chrome-extension://YOUR_EXTENSION_ID \
+     PAYMENT_PROVIDER_MODE=mock \
+     exec npm run dev -- --hostname 127.0.0.1 --port 3000
+   )
    ```
+
+   Stop any previous server first and confirm port 3000 is free. This command is memory mode: the subshell unsets `SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE` before the server starts. Do not point either name at an existing store. The format-7 rule for PR #10, and its separation from the PR #11 integration, is in the repository README.
 
 3. Open `http://127.0.0.1:3000`, start a needs conversation, then open the side panel from the toolbar.
 4. The panel's address defaults to `http://127.0.0.1:3000`. Change it under **Connection** if needed: loopback HTTP

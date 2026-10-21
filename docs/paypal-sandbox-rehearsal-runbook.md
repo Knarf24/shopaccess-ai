@@ -23,7 +23,7 @@ Product boundaries are unchanged: F07, F08, F11 and A35 are not accepted, and th
 | Capture | Only by the shopper's **Capture the approved payment** button (POST `/checkout/:id/capture`), only from `APPROVED_VERIFIED` with no permission refusal. The permission is saved as `executing` before the capture is sent. Success is shown only from verified evidence (`CAPTURED_VERIFIED`: matching order, amount, currency, payee and correlation ID). Nothing captures automatically. | `handlers.ts:811-831`, `src/lib/payment/orchestrator.ts:429-449` |
 | Resend or reconcile | Not reachable in Sandbox mode: the simulation and reconcile route answers "not found". | `handlers.ts:638-639` |
 | Cancel | Buyer cancel on PayPal returns to the read-only cancel-return page, whose wording and Cancel form follow the saved state. The checkout's own Cancel works only before any capture may have been sent. | `handlers.ts:787-846` |
-| Checkout state | Checkouts, quotes, payment states, operations and the audit log are **in memory only**, even with the snapshot store, which keeps sessions and permissions only. | `src/server/runtime.ts:156-163`, README |
+| Checkout state | Checkouts, quotes, payment states, operations and the audit log are **in memory only** (`InMemoryCheckoutStore`, `InMemoryOperationLedger`, `InMemoryAuditLog`). A format-7 snapshot persists shopper state: session-allocation and admission windows, sessions, needs drafts, conversations, confirmation-selection markers, extension grants, purchase permissions, device profiles, profile-revision markers, and charger-track records. A permission may store the checkout id that ended it; that id is not the checkout. This unwired foundation writes no charger track. | `src/server/runtime.ts`, `PublishedBody` in `src/lib/session/snapshot-store.ts`, README |
 
 ## 2. Hosts
 
@@ -76,17 +76,22 @@ The return and cancel URLs will be `http://127.0.0.1:3000/checkout/<id>/return` 
    - line 3: the client secret.
 
    It has no variable names, so it isn't sourced. Section 5 shows how to read it into the three variables without displaying the values. Don't copy or recreate it.
-4. **Source identity:** the worktree is clean and its tree equals `401556a`'s tree (`git rev-parse 'HEAD^{tree}' '401556aabfb52191917ff8bd92d90a0d1e72dd35^{tree}'`). No `.env*` file in it.
-5. **Port 3000 free:** `lsof -nP -iTCP:3000 -sTCP:LISTEN` prints nothing.
+4. **Source identity:** the worktree is clean and contains no `.env*` file. The October 18 runs used a tree equal to `401556a` (`git rev-parse 'HEAD^{tree}' '401556aabfb52191917ff8bd92d90a0d1e72dd35^{tree}'`); that check stays the record of those runs. A new rehearsal names its own commit. For this foundation that commit is `a1120d6` on `feature/f03-charger-clarification-state` unless the owner names another one in writing.
+5. **Previous server stopped, and port 3000 free:** stop any server already running this or another build. Then `lsof -nP -iTCP:3000 -sTCP:LISTEN` prints nothing. A different intended port is confirmed free the same way before that build starts.
 6. **Mode settings:** these stay unset: `SHOPACCESS_AI_*`, `SHOPACCESS_ADVISORY_BUDGET_*`, `SHOPACCESS_PERSISTENCE_MODE`, `SHOPACCESS_DATABASE_URL`, `SHOPACCESS_DEMO_ADMISSION`, `SHOPACCESS_EXTENSION_ORIGINS`.
-7. **Snapshot store (optional):** if the private store is used, take a fresh private copy first. It keeps only sessions and permissions; checkout state stays in memory.
+7. **Snapshot store:** leave every existing owner and rehearsal store untouched, including the store used on October 18. Those copies stay reserved for the builds that wrote them. This rehearsal uses memory mode, or a fresh disposable store initialized by `src/server/mock-store-init.mts` with a new key file, both outside the repository (the README initializer). Memory mode unsets `SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE` inside the launch subshell. A fresh store is selected only by setting those two names, after that unset, to the new directory and its new key. Do not point either name at an existing store, and do not take a working copy of one. The format-7 file persists the shopper state in the checkout-state row above. Checkouts, quotes, payment states, payment operations, and the audit log remain in memory. The October 18 words "snapshot store backed up first" in section 13 describe that earlier source. They are not the procedure for this format-7 build. Rolling the code back uses memory mode or a separate store compatible with that older build. Never restore an older backup over a store containing later writes. No supported format-7-to-6 downgrade is implemented. Any future migration or recovery of existing data requires a separate reviewed procedure.
+
+   This runbook's source for a new rehearsal is the unwired PR #10 foundation unless the owner names another commit. PR #11 is the separate charger-conversation integration. It is not started or merged by this step, and it follows the same store rule because it contains this format-7 reader.
 
 ## 5. Start (owner runs it; values are never echoed)
+
+Stop the previous server and confirm port 3000 is free before either command (section 4, step 5). Both commands are memory mode. After the credentials are read, each subshell unsets `SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE`, so an inherited value does not select a store. To keep shopper state across a restart, initialize a new disposable store with the README initializer and, after that unset, export only that new directory and its new key. Do not reuse an older directory.
 
 ```bash
 cd /path/to/worktree
 (
   set -a; . /path/to/private/paypal-sandbox.env; set +a
+  unset SHOPACCESS_MOCK_STORE_DIR SHOPACCESS_MOCK_STORE_KEY_FILE
   SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
   SHOPACCESS_TRUSTED_ORIGINS=http://127.0.0.1:3000 \
   NEXT_TELEMETRY_DISABLED=1 \
@@ -102,6 +107,7 @@ cd /path/to/worktree
   { IFS= read -r PAYPAL_SANDBOX_MERCHANT_ID; IFS= read -r PAYPAL_CLIENT_ID; IFS= read -r PAYPAL_CLIENT_SECRET; } < /path/to/private/values
   export PAYPAL_SANDBOX_MERCHANT_ID PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET
   export PAYMENT_PROVIDER_MODE=sandbox PAYPAL_API_BASE_URL=https://api-m.sandbox.paypal.com
+  unset SHOPACCESS_MOCK_STORE_DIR SHOPACCESS_MOCK_STORE_KEY_FILE
   SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
   SHOPACCESS_TRUSTED_ORIGINS=http://127.0.0.1:3000 \
   NEXT_TELEMETRY_DISABLED=1 \
@@ -195,7 +201,7 @@ There's no credential-free export of the in-memory payment ledger or audit log i
 
 ## 9. Shutdown
 
-1. Stop the server with Ctrl-C in its terminal. Confirm `lsof -nP -iTCP:3000 -sTCP:LISTEN` prints nothing and no `next dev` process remains.
+1. Stop the server with Ctrl-C in its terminal. Confirm `lsof -nP -iTCP:3000 -sTCP:LISTEN` prints nothing and no `next dev` process remains. Stopping the server does not authorize restoring a store backup, or pointing the next build at a store this process used.
 2. Close the test tab.
 3. Leave the credential file in place, private. Rotate or delete the Sandbox app secret afterwards if the owner wishes.
 4. Record the end time and the outcome: completed, stopped (with the condition), or uncertain.
@@ -276,6 +282,8 @@ Interpretation:
 ## 13. Results, October 18, 2026
 
 Both attempts ran on source `401556a` (worktree `f614006`, identical application tree `1f2b49e1bb26e13ce475069f78d0369ae9acf75b`; only this runbook and the README differed, uncommitted). Setup each time: Sandbox mode on `http://127.0.0.1:3000`, local assistant (no AI keys), Channel3 disabled, snapshot store backed up first, no database, no tunnel, credentials read from the private file and absent from the server logs. Detailed records, logs and checksums are private evidence outside Git; account identifiers, order and payer IDs are not reproduced here.
+
+*October 21 note:* "snapshot store backed up first" records the October 18 source. A format-7 build does not copy or reopen that store. Section 4, step 7 is the current rule.
 
 **Attempt 1 (window 10:30–11:30 EDT) — incomplete, kept as history.**
 - Observed: one order-creation press (10:33:45 EDT); the server redirected the browser to the PayPal Sandbox sign-in page. No return request and no capture request reached the app.
