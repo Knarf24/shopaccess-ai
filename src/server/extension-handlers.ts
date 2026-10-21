@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
 import { journeyCopy } from "@/lib/i18n/demo-copy";
+import { chargerCopy } from "@/lib/i18n/charger-copy";
+import { CHARGER_LINES } from "@/lib/session/charger-clarification";
 import type { NeedsNotice } from "@/lib/i18n/needs-notice";
 import { readConversation } from "@/lib/session/conversation";
 import { SESSION_IDLE_TIMEOUT_MS } from "@/lib/session/service";
@@ -99,9 +101,14 @@ export function extensionConversationView(runtime: Runtime, sessionId: string) {
       draft && conversation && conversation.draftId === draft.draftId
         ? {
             interfaceLanguage: conversation.interfaceLanguage,
-            turns: conversation.turns.map((turn) =>
-              turn.role === "assistant" && NOTICES.has(turn.text) ? { role: turn.role, text: journeyCopy(conversation.interfaceLanguage).notices[turn.text as NeedsNotice] } : turn,
-            ),
+            turns: conversation.turns.map((turn) => {
+              if (turn.role !== "assistant") return turn;
+              if (NOTICES.has(turn.text)) return { role: turn.role, text: journeyCopy(conversation.interfaceLanguage).notices[turn.text as NeedsNotice] };
+              if ((CHARGER_LINES as readonly string[]).includes(turn.text)) {
+                return { role: turn.role, text: chargerCopy(conversation.interfaceLanguage).conversationLines[turn.text as (typeof CHARGER_LINES)[number]] };
+              }
+              return turn;
+            }),
           }
         : null,
   };
@@ -176,6 +183,8 @@ export async function handleExtensionTurn(request: Request, runtime: Runtime): P
     text: shopperText.trim(),
     typedUse: null,
     typedBudget: null,
+    typedUseProvided: false,
+    typedBudgetProvided: false,
     expiresAtMs: liveUntil,
     live: () => runtime.checkout.sessionIsLive(sessionId),
   });

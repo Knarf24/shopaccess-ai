@@ -6,6 +6,7 @@ import "../../guided-presentation.css";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { extensionCopy } from "@/lib/i18n/extension-copy";
+import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import { allowlistedJourneyLanguage } from "@/lib/i18n/language";
 import { protectedAdmissionLocation } from "@/server/demo-admission";
 import { runtimeOf } from "@/server/runtime";
@@ -43,6 +44,7 @@ async function PairContentUnguarded({ searchParams }: { searchParams: SearchPara
 
   return (
     <div lang={language} className="flex flex-col gap-4">
+      <DocumentLanguageSync language={language} />
       <h1 id="pair-heading" tabIndex={-1} className="text-2xl font-semibold">
         {copy.pairHeading}
       </h1>

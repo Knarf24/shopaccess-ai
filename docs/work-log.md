@@ -1,6 +1,12 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 21, 2026 — wired-checkout launch wording (documentation only)
+
+- **Source:** `feature/f03-charger-conversation` after merge `931ca35`. No store was opened and no server was started. Product source and tests were not changed. Product tests were not rerun.
+- **Change:** the README now describes this branch's wired charger conversation. A rehearsal names its commit in writing and has no default. The October 21 tracker rule keeps the foundation history, including that the foundation build writes no charger track, and states that this branch's running checkout wires the conversation under the same memory-mode and fresh-store policy.
+- **Preserved:** the October 21 foundation entry below, the October 20 slice-2 evidence, and the language and accessibility limits. Spanish raw HTML still declares English before hydration. There is no screen-reader acceptance. F03 remains unaccepted. No deployment integration was found in the inspected repository and GitHub records. Externally configured hosting is unknown.
+
 ## October 21, 2026 — format-7 local launch rule (documentation only; uncommitted when written)
 
 - **Source:** PR #10 worktree `feature/f03-charger-clarification-state` at `a1120d6`. No store was opened, copied, decoded, hashed, or migrated. No server was started and no provider was called.
@@ -8,6 +14,14 @@ All dates use America/New_York. Claude maintains this log after each work sessio
 - **Distinction:** this foundation is unwired and writes no charger track. PR #11 is the separate integration and is not started or merged here. The same store rule applies to any build that contains this format-7 reader.
 - **Deployment:** no deployment integration found in the inspected repository and GitHub records. Externally configured hosting is unknown.
 - **Not done:** the reader still rewrites formats 1–6 on the next successful commit, including startup recovery, if it is pointed at that file. No reviewed migration or recovery procedure exists. Neither pull request is merged. Product tests were not rerun.
+
+## October 20, 2026 — F03 charger conversation, slice 2 (Codex implementation; uncommitted)
+
+- **Baseline:** branch `feature/f03-charger-conversation`, base `a1120d6db84689b53653089d172c8d27ae4dceb7`; worktree was clean before this task. The separate `main` checkout was not changed. PR #10 remains an unmerged draft.
+- **Scope:** wire charger intent and track to the existing needs draft/conversation lifecycle; website task/model/confirm/change/stop controls; shared website/extension text routing; bilingual lines; existing charger comparison after website confirmation; serialized recommendation gating and pending-laptop-result handling. No new extension structured fields/scopes; no payment, permission, profile or SEC-01 changes intended.
+- **Regressions first:** initial charger-request handler tests and a charger follow-up test failed before routing was added; the website-control test failed before the control handler existed; the task-choice text regression failed before the state transition was corrected. Test outputs, including red runs, are retained under fresh `/private/tmp/shopaccess-charger-conversation-*` labels and copied to the frozen handoff.
+- **Verification (Codex implementer-run, network-blocked runner):** final focused follow-up/page/extension/handler regressions: 4 files, 49 passed (r23); full unit suite: 68 files, 1,583 passed (r24); final-tree typecheck: exit 0 (r28; earlier successful r25 also covered the functional changes); lint: 0 errors, 9 existing warnings (r27). Red runs are retained, including the initial charger-routing failures, missing website handler, task-choice transition, and explicit-cleared-fields regression. The full suite initially exposed a missing mock-route inventory entry (r19); the test inventory was corrected and r24 passed. `git diff --check` passes. All project checks used the existing no-TCP preload. The initial non-escalated typecheck could not write `tsconfig.tsbuildinfo`; the authorized guarded rerun passed. Logs are copied into the frozen handoff. These are implementer results, not independent verification.
+- **Status/limits:** Codex is the implementer, not the independent reviewer. Format-7 merge/rollout and rollback remain gated, and no owner/rehearsal store was opened or migrated. F03 remains unaccepted; screen-reader, native-speaker and browser acceptance are not claimed. October 24 and the full scope are unchanged.
 
 ## October 19, 2026 — F03 charger clarification, slice 1 (state, transitions, proposed format 7; uncommitted when written)
 

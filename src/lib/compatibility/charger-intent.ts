@@ -7,7 +7,7 @@ import { selectDevice } from "./rules";
  * exact curated model identifier, checked by the existing `selectDevice`. A description, a year, a connector name such as
  * MagSafe or a partial identifier identifies nothing.
  *
- * Slice 1 defines this reading only. It is not wired into any handler yet.
+ * The guided website and existing extension text handlers use this local reading; no provider call is involved.
  */
 
 export type ChargerTextKind = "charger" | "laptop" | "mixed" | "ambiguous_adapter" | "none";
@@ -89,6 +89,25 @@ function hasCue(text: string, cues: readonly string[]): boolean {
   return cues.some((cue) => occurrences(text, cue).length > 0);
 }
 
+/** A conjunction only means two shopping tasks when it appears between a laptop and charger cue. */
+function asksForBothProducts(text: string): boolean {
+  const links = ["and", "but also", "but additionally", "plus", "as well as", "y", "pero", "además", "también", "tambien"];
+  for (const laptopCue of LAPTOP_CUES) {
+    for (const laptopAt of occurrences(text, laptopCue)) {
+      for (const chargerCue of CHARGER_CUES) {
+        for (const chargerAt of occurrences(text, chargerCue)) {
+          const start = Math.min(laptopAt + laptopCue.length, chargerAt + chargerCue.length);
+          const end = Math.max(laptopAt, chargerAt);
+          if (end < start || end - start > 100) continue;
+          const between = text.slice(start, end);
+          if (links.some((link) => occurrences(between, link).length > 0)) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 /** The text with every charger phrase blanked, so the "adapter" inside "power adapter" does not count as bare. */
 function withoutChargerPhrases(text: string): string {
   let rest = text;
@@ -114,7 +133,18 @@ export function classifyChargerText(text: string): ChargerTextReading {
   const normalized = normalize(text);
   const charger = hasCue(normalized, CHARGER_CUES);
   const laptop = hasCue(normalized, LAPTOP_CUES);
+  const bothProducts = charger && laptop && asksForBothProducts(normalized);
   const adapter = hasCue(withoutChargerPhrases(normalized), ADAPTER_CUES);
-  const kind: ChargerTextKind = charger ? (laptop ? "mixed" : "charger") : laptop ? (adapter ? "mixed" : "laptop") : adapter ? "ambiguous_adapter" : "none";
+  const kind: ChargerTextKind = bothProducts
+    ? "mixed"
+    : charger
+      ? "charger"
+      : laptop
+        ? adapter
+          ? "mixed"
+          : "laptop"
+        : adapter
+          ? "ambiguous_adapter"
+          : "none";
   return { kind, exactDevice: exactDeviceIn(text) };
 }

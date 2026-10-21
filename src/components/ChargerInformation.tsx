@@ -18,7 +18,18 @@ const CABLE_RATING_UNSPECIFIED: ReadonlySet<string> = new Set(["Mac14,2:A2452:us
  * F03 charger information (information only). Server-rendered: a native GET form and a table, no client code, no
  * session, profile, provider or payment use. Apple names and page titles are English and marked so on a Spanish page.
  */
-export function ChargerInformation({ language, selection }: { readonly language: JourneyLanguage; readonly selection: DeviceSelection }) {
+export function ChargerInformation({
+  language,
+  selection,
+  showDeviceSelector = true,
+  showScrollHint = false,
+}: {
+  readonly language: JourneyLanguage;
+  readonly selection: DeviceSelection;
+  readonly showDeviceSelector?: boolean;
+  /** Needs workspace only. The charger page leaves this off so its table markup stays as it was. */
+  readonly showScrollHint?: boolean;
+}) {
   const copy = chargerCopy(language);
   const english = (value: string): ReactNode => (language === "en" ? value : <span lang="en">{value}</span>);
   const device = selection.kind === "identified" ? EVIDENCE.devices[selection.device] : null;
@@ -49,20 +60,22 @@ export function ChargerInformation({ language, selection }: { readonly language:
     const basicText = result.basic.verdict === "unknown" ? copy.gap(result.basic.gap ?? "no-evidence", result.documentedPorts, result.cableConnector) : copy.basic[result.basic.verdict];
     return (
       <tr key={`${result.charger}:${result.cable}`} data-configuration={`${result.charger}:${result.cable}`}>
-        <th scope="row" className="pr-3 text-left align-top">
+        <th scope="row" className="needs-config pr-3 text-left align-top">
           {english(charger.name)} {copy.withCable} {english(cable.name)}
         </th>
-        <td className="pr-3 align-top">
+        <td className="needs-claim pr-3 align-top">
           {basicText}
           {sourceLinks(result.basic.sources)}
           {CABLE_RATING_UNSPECIFIED.has(`${result.device}:${result.charger}:${result.cable}`) ? <span className="block">{copy.cableRatingUnspecified}</span> : null}
         </td>
-        <td className="pr-3 align-top">
-          {copy.wattage(result.wattage.verdict, result.wattage.watts, result.wattage.includedWatts)}
-          {wattageOnly ? ` ${copy.wattageOnly}` : null}
+        <td className="needs-claim pr-3 align-top">
+          <span className="needs-figure">
+            {copy.wattage(result.wattage.verdict, result.wattage.watts, result.wattage.includedWatts)}
+            {wattageOnly ? ` ${copy.wattageOnly}` : null}
+          </span>
           {sourceLinks(result.wattage.sources)}
         </td>
-        <td className="align-top">
+        <td className="needs-claim align-top">
           {copy.fast[result.fast.verdict]}
           {sourceLinks(result.fast.sources)}
         </td>
@@ -75,7 +88,7 @@ export function ChargerInformation({ language, selection }: { readonly language:
     : [];
 
   return (
-    <div lang={language} className="flex flex-col gap-6">
+    <div lang={language} className="needs-comparison flex flex-col gap-6">
       <a className="skip-link" href={`#${skipTarget}`}>
         {copy.skip}
       </a>
@@ -91,7 +104,7 @@ export function ChargerInformation({ language, selection }: { readonly language:
         </a>
       </p>
 
-      <form method="get" action="/shop/chargers" className="flex flex-col gap-3">
+      {showDeviceSelector ? <form method="get" action="/shop/chargers" className="flex flex-col gap-3">
         <input type="hidden" name="lang" value={language} />
         <label htmlFor="charger-device">{copy.deviceLabel}</label>
         <select id="charger-device" name="device" defaultValue={device?.id ?? ""} className="rounded border border-zinc-500 bg-white px-2 py-2 text-black">
@@ -118,7 +131,7 @@ export function ChargerInformation({ language, selection }: { readonly language:
         <button type="submit" className="rounded bg-blue-800 px-4 py-2 font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
           {copy.submit}
         </button>
-      </form>
+      </form> : null}
 
       {selection.kind === "unidentified" ? (
         <p id={CHARGER_ALERT_ID} tabIndex={-1} role="alert" className="rounded border-2 border-red-700 p-3">
@@ -129,12 +142,18 @@ export function ChargerInformation({ language, selection }: { readonly language:
       {device ? (
         <section aria-labelledby={CHARGER_RESULTS_HEADING_ID} className="flex flex-col gap-4">
           <h2 id={CHARGER_RESULTS_HEADING_ID} tabIndex={-1} className="text-2xl font-semibold">
-            {copy.resultsHeading} {english(device.name)} ({device.id})
+            {copy.resultsHeading} {english(device.name)} (<span className="needs-identifier">{device.id}</span>)
           </h2>
           <p className="text-sm">{copy.claimsNote}</p>
           <p className="text-sm">{copy.disclaimer}</p>
           <p className="text-sm">{copy.modelNumberNote}</p>
-          <div className="overflow-x-auto">
+          {showScrollHint ? <p id="charger-scroll-hint" className="needs-scroll-hint">{copy.scrollHint}</p> : null}
+          <div
+            className={showScrollHint ? "needs-comparison-scroll overflow-x-auto" : "overflow-x-auto"}
+            tabIndex={showScrollHint ? 0 : undefined}
+            role={showScrollHint ? "region" : undefined}
+            aria-labelledby={showScrollHint ? "charger-scroll-hint" : undefined}
+          >
             <table className="w-full text-left text-sm">
               <caption className="text-left font-medium">{copy.tableCaption}</caption>
               <thead>

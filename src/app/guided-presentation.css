@@ -39,10 +39,14 @@
 }
 
 .guided-presentation .skip-link:focus-visible {
-  position: static;
+  /* Stay out of flow. A pointer click blurs the link, and a static position would collapse it and move the control under the pointer. */
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 30;
   width: auto;
   height: auto;
-  margin: 0 0 0.75rem;
+  margin: 0;
   padding: 0.5rem 0.75rem;
   overflow: visible;
   clip-path: none;

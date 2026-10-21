@@ -5,7 +5,7 @@ import { classifyChargerText } from "../../src/lib/compatibility/charger-intent"
 const kind = (text: string) => classifyChargerText(text).kind;
 const device = (text: string) => classifyChargerText(text).exactDevice;
 
-describe("charger text classification (local only; slice 1, not wired)", () => {
+describe("charger text classification used by the guided conversation", () => {
   it("recognises clear charger requests in English and Spanish", () => {
     for (const text of [
       "I need a backup charger for my MacBook",
@@ -40,6 +40,8 @@ describe("charger text classification (local only; slice 1, not wired)", () => {
 
   it("asks which task when charger and laptop cues are mixed, or when adapter has no power qualifier", () => {
     expect(kind("a laptop for school and a spare charger")).toBe("mixed");
+    expect(kind("I need a laptop, but also a charger")).toBe("mixed");
+    expect(kind("Necesito un portátil, pero quiero un cargador")).toBe("mixed");
     expect(kind("cargador y portátil")).toBe("mixed");
     expect(kind("an adapter for my laptop")).toBe("mixed");
     expect(kind("I need an adapter")).toBe("ambiguous_adapter");
@@ -47,6 +49,13 @@ describe("charger text classification (local only; slice 1, not wired)", () => {
     // A power-adapter phrase is a charger cue, not the ambiguous bare word.
     expect(kind("power adapter")).toBe("charger");
     expect(kind("adaptador de corriente y un adaptador HDMI")).toBe("charger");
+  });
+
+  it("treats a laptop as the charger's target, not a second laptop-shopping task", () => {
+    expect(kind("Charger for my laptop")).toBe("charger");
+    expect(kind("Cargador portátil")).toBe("charger");
+    expect(device("Cargador portátil")).toBeNull();
+    expect(kind("I need a laptop and a charger")).toBe("mixed");
   });
 
   it("normalizes decomposed accents (NFD) before matching Spanish cues", () => {

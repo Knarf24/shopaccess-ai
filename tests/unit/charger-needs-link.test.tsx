@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
 import { parseTrustedOrigins } from "@/lib/session/request-guard";
 import { needsDraftsFor } from "@/lib/session/store";
-import { handleNeedsSubmit, handleSessionStart } from "@/server/handlers";
+import { handleChargerControl, handleNeedsSubmit, handleSessionStart } from "@/server/handlers";
 import { createRuntime, type Runtime } from "@/server/runtime";
 import { createTestClock, TEST_SESSION_KEY } from "./helpers";
 
@@ -102,5 +102,98 @@ describe("guided needs page: charger information link", () => {
     expect(home).toBeGreaterThan(chargers);
     const source = readFileSync(join(process.cwd(), "src/app/shop/needs/page.tsx"), "utf8");
     expect(source).toMatch(/<Link href=\{`\/shop\/chargers\?lang=\$\{language\}`\} prefetch=\{false\} className="underline">\s*\{chargerCopy\(language\)\.needsLink\}\s*<\/Link>/);
+  });
+
+  it("renders the saved-language charger clarification, website controls and confirmed information comparison", async () => {
+    const buyer = await shopper();
+    await draftIn(buyer.runtime, buyer.csrfToken, "es");
+    const draft = [...needsDraftsFor(buyer.runtime.store).values()][0]!;
+    const submit = (fields: Record<string, string>) => new Request(`${ORIGIN}/shop/needs/submit`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN, "sec-fetch-site": "same-origin", cookie: page.cookie },
+      body: new URLSearchParams({ ...fields, csrfToken: buyer.csrfToken }).toString(),
+    });
+    await handleNeedsSubmit(submit({ lang: "es", draftId: draft.draftId, version: String(draft.version), shopperText: "Charger for my laptop", use: "schoolwork", budget: "600" }), buyer.runtime);
+    const awaiting = await render({ lang: "en" });
+    expect(awaiting).toContain("¿Para qué modelo exacto de Mac es este cargador?");
+    expect(awaiting).toContain('action="/shop/needs/charger-control"');
+    expect(awaiting).toContain('id="charger-conversation-model"');
+    expect(awaiting).not.toContain('name="use"');
+
+    const updated = [...needsDraftsFor(buyer.runtime.store).values()][0]!;
+    const control = (fields: Record<string, string>) => new Request(`${ORIGIN}/shop/needs/charger-control`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN, "sec-fetch-site": "same-origin", cookie: page.cookie },
+      body: new URLSearchParams({ ...fields, lang: "en", draftId: updated.draftId, csrfToken: buyer.csrfToken }).toString(),
+    });
+    await handleChargerControl(control({ revision: "1", action: "choose_model", device: "Mac14,2" }), buyer.runtime);
+    const candidate = await render({ lang: "en" });
+    expect(candidate).toContain("Modelo seleccionado:");
+    expect(candidate).toContain('lang="en">MacBook Air (M2, 2022) (Mac14,2)</span>');
+    expect(candidate).toContain("Confirme en este sitio web");
+    expect(candidate).toContain("Responda con el identificador exacto del modelo de Mac o elija un modelo abajo");
+    expect(candidate).not.toContain("no queda confirmada hasta que confirmes el resumen");
+
+    await handleChargerControl(control({ revision: "2", action: "confirm" }), buyer.runtime);
+    const confirmed = await render({ lang: "en" });
+    expect(confirmed).toContain('data-configuration="A2452:usb-c-charge-cable"');
+    expect(confirmed).toContain("Esta página solo da información");
+    expect(confirmed).not.toContain("Assessment summary");
+    expect(confirmed).toContain("Confirme el modelo en este sitio web");
+    expect(confirmed).not.toContain("confirmes el resumen");
+  });
+
+  it("replaces charger clarification wording in English but retains laptop clarification copy", async () => {
+    const buyer = await shopper();
+    const charger = await handleNeedsSubmit(
+      new Request(`${ORIGIN}/shop/needs/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN, "sec-fetch-site": "same-origin", cookie: page.cookie },
+        body: new URLSearchParams({ lang: "en", shopperText: "Charger for my laptop", csrfToken: buyer.csrfToken }).toString(),
+      }),
+      buyer.runtime,
+    );
+    expect(charger.status).toBe(303);
+    const chargerMarkup = await render({ lang: "en" });
+    expect(chargerMarkup).toContain("Reply with the exact Mac model identifier or choose a model below");
+    expect(chargerMarkup).toContain("Confirm the model on this website");
+    expect(chargerMarkup).not.toContain("A reply or a choice is not confirmed until you confirm the summary");
+
+    const laptopBuyer = await shopper();
+    await handleNeedsSubmit(
+      new Request(`${ORIGIN}/shop/needs/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN, "sec-fetch-site": "same-origin", cookie: page.cookie },
+        body: new URLSearchParams({ lang: "en", shopperText: "I need a laptop for school", csrfToken: laptopBuyer.csrfToken }).toString(),
+      }),
+      laptopBuyer.runtime,
+    );
+    const laptopMarkup = await render({ lang: "en" });
+    expect(laptopMarkup).toContain("A reply or a choice is not confirmed until you confirm the summary");
+    expect(laptopMarkup).not.toContain("Reply with the exact Mac model identifier");
+  });
+
+  it.each([
+    { language: "en" as const, text: "I need a laptop and a charger", label: "Which task should we work on now", laptop: "Continue laptop shopping", charger: "Continue charger information" },
+    { language: "es" as const, text: "Necesito una laptop y un cargador", label: "¿Qué tarea quiere continuar ahora", laptop: "Continuar con la búsqueda de un portátil", charger: "Continuar con la información de cargadores" },
+  ])("renders localized task-choice website controls in $language", async ({ language, text, label, laptop, charger }) => {
+    const buyer = await shopper();
+    const response = await handleNeedsSubmit(
+      new Request(`${ORIGIN}/shop/needs/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN, "sec-fetch-site": "same-origin", cookie: page.cookie },
+        body: new URLSearchParams({ lang: language, shopperText: text, csrfToken: buyer.csrfToken }).toString(),
+      }),
+      buyer.runtime,
+    );
+    expect(response.status).toBe(303);
+    const markup = await render({ lang: language });
+    expect(markup).toContain(label);
+    expect(markup).toContain(laptop);
+    expect(markup).toContain(charger);
+    expect(markup.indexOf(label)).toBeLessThan(markup.indexOf(laptop));
+    expect(markup.indexOf(laptop)).toBeLessThan(markup.indexOf('id="shopper-reply"'));
+    expect(markup).toContain('action="/shop/needs/charger-control"');
+    expect(markup).not.toContain("Confirm your laptop requirements");
   });
 });

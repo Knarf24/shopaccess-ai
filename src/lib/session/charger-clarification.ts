@@ -5,8 +5,8 @@ import type { NeedsNotice } from "../i18n/needs-notice";
 /**
  * Charger clarification state for one session's current needs draft (F03 conversation, slice 1).
  *
- * Slice 1 defines the state, its pure transitions and its persistence (snapshot format 7, proposed). Nothing here is wired
- * into a handler, route, page or extension view yet, and nothing here calls a provider.
+ * Slice 1 defines the state, pure transitions and snapshot format 7; slice 2 wires it into the guided website and the
+ * extension's existing text conversation. Charger clarification itself never calls a provider.
  *
  * One track per session, bound to that session's current draft. The track is kept after Stop or a switch to laptop
  * shopping as `closed`, and it is removed only with its draft or its session (draft expiry or replacement, logout,
@@ -83,8 +83,9 @@ export type ChargerTextRoute =
  * - Nothing open (no track, or `closed`): laptop text, plain text and a bare identifier stay on the laptop path. A clear
  *   charger request opens the clarification (`candidate` when an exact identifier is present). Mixed text, a bare
  *   "adapter", or a charger request whose structured laptop fields changed opens it as `task_choice`.
- * - Open: an exact identifier becomes the candidate (a correction from a confirmed model); laptop text, mixed text or
- *   changed laptop fields ask which task; anything else repeats the current question. Never the laptop path.
+ * - Open: an exact identifier becomes the candidate (a correction from a confirmed model); a clear charger reply can
+ *   resolve task_choice to awaiting_model or candidate. Laptop text, mixed text or changed laptop fields ask which task;
+ *   anything else repeats the current question. Never the laptop path.
  * `structuredChange` is true when posted laptop fields differ from the draft's prefilled values; they are never applied
  * to a charger request.
  */
@@ -106,6 +107,8 @@ export function routeChargerText(input: {
           ? { state: "candidate", deviceId: exactDevice }
           : { state: "awaiting_model", deviceId: null }
         : { state: "task_choice", deviceId: null };
+  } else if (existing.state === "task_choice" && kind === "charger" && !input.structuredChange) {
+    next = exactDevice ? { state: "candidate", deviceId: exactDevice } : { state: "awaiting_model", deviceId: null };
   } else if (kind === "laptop" || kind === "mixed" || input.structuredChange) {
     next = { state: "task_choice", deviceId: null };
   } else if (exactDevice) {

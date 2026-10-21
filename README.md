@@ -18,18 +18,19 @@ a deployment, or a database change, and it does not replace the evidence above.
 
 ## Run the demo locally
 
-This checkout is the unwired format-7 foundation, PR #10
-(`feature/f03-charger-clarification-state`, `a1120d6`). It can read snapshot
-formats 1–6. The next successful commit, including startup recovery, rewrites
-that file as format 7. No handler, route, page, or extension calls the
-clarification state, so the running application creates no charger track.
+This checkout is the wired charger conversation, PR #11
+(`feature/f03-charger-conversation`). The needs page runs task choice, model
+selection, confirmation, and Change as server-rendered controls bound to the
+draft revision. It also includes the skip-link correction, the needs-page
+export split, the needs workspace, and document-language synchronization. The
+format-7 reader can still load formats 1–6. The next successful commit,
+including startup recovery, rewrites that file as format 7.
 
-PR #11 (`feature/f03-charger-conversation`) is a separate integration on top
-of this foundation. It wires the charger conversation, the skip-link
-correction, the needs-page export split, the needs workspace, and
-document-language synchronization. These instructions do not start or merge
-that pull request. Any build that contains this format-7 reader, including
-that later integration, follows the store rule below.
+PR #10 (`feature/f03-charger-clarification-state`, `5883700`) is the unwired
+foundation included here. On that foundation alone, no handler, route, page,
+or extension calls the clarification state. These instructions launch this
+wired checkout. They do not merge either pull request. Any build that contains
+this format-7 reader follows the store rule below.
 
 Existing owner and rehearsal stores remain untouched and reserved for their
 current builds. Format-7 development uses memory mode, as in the command
@@ -64,8 +65,9 @@ A format-7 snapshot persists shopper state: the session-allocation and
 admission windows, sessions, needs drafts, the guided conversation (language
 and the last eight lines), confirmation-selection markers, extension grants,
 purchase permissions, device profiles, profile-revision markers, and
-charger-track records. This unwired foundation does not write a charger track;
-PR #11 is the integration that can. A purchase permission may store the
+charger-track records. This wired checkout can write a charger-track record
+when the shopper uses the charger conversation. The foundation commit alone
+does not. A purchase permission may store the
 checkout id that ended it. That id is not the checkout. Checkouts, quotes,
 payment states, payment operations, and the audit log remain in memory, so a
 checkout started before a restart does not resume. Use synthetic data only.

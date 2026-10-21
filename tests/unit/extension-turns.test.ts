@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
 import { purchaseSelectionsOpen, readConversation } from "@/lib/session/conversation";
+import { chargerTracksOf } from "@/lib/session/charger-clarification";
 import { parseTrustedOrigins } from "@/lib/session/request-guard";
 import { recoverStateGate } from "@/lib/session/snapshot-state";
 import type { CommitResult, FoundationStore, PublishedBody } from "@/lib/session/snapshot-store";
@@ -105,6 +106,38 @@ describe("panel turns on the shared conversation", () => {
     const notice = stored[assistant].text as keyof ReturnType<typeof journeyCopy>["notices"];
     expect(read.value.conversation.turns[assistant].text).toBe(journeyCopy("es").notices[notice]);
     expect(read.value.conversation.turns[assistant].text).not.toBe(notice);
+  });
+
+  it("lets extension text identify an exact charger candidate but never confirm or add device fields", async () => {
+    const runtime = memoryRuntime();
+    const buyer = await shopper(runtime);
+    await handleNeedsSubmit(site("/shop/needs/submit", { lang: "es", shopperText: "Necesito una laptop y un cargador", csrfToken: buyer.csrfToken }, buyer), runtime);
+    const before = needsDraftsFor(runtime.store).get(buyer.sessionId)!;
+    expect(chargerTracksOf(runtime.store).get(buyer.sessionId)?.state).toBe("task_choice");
+    const bearer = await pairedBearer(runtime, buyer.sessionId);
+    const interpret = vi.spyOn(runtime.ai, "interpretNeeds");
+    const suggest = vi.spyOn(runtime.ai, "suggestProducts");
+
+    const response = await handleExtensionTurn(turn(before.draftId, before.version, "I mean charger information", "req-charger01", bearer), runtime);
+    expect(response.status).toBe(200);
+    expect(chargerTracksOf(runtime.store).get(buyer.sessionId)).toMatchObject({ state: "awaiting_model", revision: 2 });
+    const body = await response.json();
+    expect(body.value.conversation.interfaceLanguage).toBe("es");
+    expect(body.value.conversation.turns.at(-1).text).toBe("¿Para qué modelo exacto de Mac es este cargador? Elija un modelo o responda con su identificador exacto.");
+    const identified = await handleExtensionTurn(turn(before.draftId, before.version, "Mac14,2", "req-charger02", bearer), runtime);
+    expect(identified.status).toBe(200);
+    expect(chargerTracksOf(runtime.store).get(buyer.sessionId)).toMatchObject({ state: "candidate", deviceId: "Mac14,2", revision: 3 });
+    const candidate = await identified.json();
+    expect(candidate.value.conversation.turns.at(-1).text).toBe("Revise el modelo de Mac identificado. Confirme en este sitio web para ver solo información; no se comprará nada.");
+    expect(interpret).not.toHaveBeenCalled();
+    expect(suggest).not.toHaveBeenCalled();
+
+    const injected = await handleExtensionTurn(
+      api("/conversation/turns", { draftId: before.draftId, version: before.version, shopperText: "Mac14,2", clientRequestId: "req-device03", deviceId: "Mac14,2" }, bearer),
+      runtime,
+    );
+    expect(injected.status).toBe(400);
+    expect(chargerTracksOf(runtime.store).get(buyer.sessionId)?.state).toBe("candidate");
   });
 
   it("refuses a stale version without changing anything", async () => {

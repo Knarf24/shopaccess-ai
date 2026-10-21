@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { needsCurrentTargetId, selectNeedsCurrentTarget } from "@/app/shop/needs/page";
+import { needsCurrentTargetId, selectNeedsCurrentTarget } from "@/app/shop/needs/current-step";
 import { PAIRED_ACCESS_RESULT_ID, PairedAccess } from "@/components/PairedAccess";
 import { revocationMessage } from "@/lib/i18n/extension-copy";
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";

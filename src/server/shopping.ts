@@ -25,6 +25,7 @@ import {
   type ReadinessStatus,
 } from "@/lib/readiness/engine";
 import type { NeedsNotice } from "@/lib/i18n/needs-notice";
+import { chargerTrackFor, deleteChargerTracks, laptopOutputAllowed, type ChargerTrack } from "@/lib/session/charger-clarification";
 import { readConversation, type ConversationState } from "@/lib/session/conversation";
 import type { Session } from "@/lib/session/service";
 import {
@@ -519,6 +520,7 @@ export async function loadNeedsJourney(
   suggestionSource: "mock" | "model" | null;
   listings: ReturnType<Runtime["channel3"]["read"]>;
   conversation: ConversationState | null;
+  chargerTrack: ChargerTrack | null;
 }> {
   const now = runtime.clock().getTime();
   const conversationFor = (draftId: string | null): ConversationState | null => {
@@ -531,28 +533,42 @@ export async function loadNeedsJourney(
     // Durable deletion of exactly the observed, still-expired draft. A replacement published meanwhile stays.
     await runtime.durable.change((host) => {
       const published = needsDraftsFor(host).get(session.id);
-      if (published && published.draftId === existing.draftId && published.version === existing.version && now >= published.expiresAtMs) {
+      const decisionNow = runtime.clock().getTime();
+      if (published && published.draftId === existing.draftId && published.version === existing.version && decisionNow >= published.expiresAtMs) {
         needsDraftsFor(host).delete(session.id);
+        deleteChargerTracks(host, [session.id]);
       }
     });
-    return { draft: null, lines: [], expiredDraft: true, suggestionSource: null, listings: null, conversation: null };
+    return { draft: null, lines: [], expiredDraft: true, suggestionSource: null, listings: null, conversation: null, chargerTrack: null };
   }
+  const trackFor = (draftId: string | null): ChargerTrack | null => draftId ? chargerTrackFor(runtime.store, session.id, draftId) : null;
   if (!existing || !existing.confirmedUse || !existing.confirmedBudgetDollars) {
-    return { draft: existing, lines: [], expiredDraft: false, suggestionSource: null, listings: null, conversation: conversationFor(existing?.draftId ?? null) };
+    return { draft: existing, lines: [], expiredDraft: false, suggestionSource: null, listings: null, conversation: conversationFor(existing?.draftId ?? null), chargerTrack: trackFor(existing?.draftId ?? null) };
   }
   // The claim is durable before the provider starts, and the provider input is taken from the saved claim.
   const claim = await runtime.durable.change((host) => {
-    const result = claimRecommendation(host, session.id, existing.draftId, existing.version, now);
-    return result === "claimed" ? { claimed: true as const, draft: needsDraftsFor(host).get(session.id) ?? null } : { claimed: false as const, draft: null };
+    const decisionNow = runtime.clock().getTime();
+    if (!runtime.checkout.sessionIsLive(session.id)) return { claimed: false as const, draft: null, blocked: true as const };
+    const current = needsDraftsFor(host).get(session.id) ?? null;
+    if (!current || decisionNow >= current.expiresAtMs || current.draftId !== existing.draftId || current.version !== existing.version) {
+      return { claimed: false as const, draft: null, blocked: true as const };
+    }
+    const track = chargerTrackFor(host, session.id, current.draftId);
+    if (!laptopOutputAllowed(track)) return { claimed: false as const, draft: current, blocked: true as const };
+    const result = claimRecommendation(host, session.id, current.draftId, current.version, decisionNow);
+    return result === "claimed"
+      ? { claimed: true as const, draft: needsDraftsFor(host).get(session.id) ?? null, blocked: false as const }
+      : { claimed: false as const, draft: needsDraftsFor(host).get(session.id) ?? current, blocked: false as const };
   });
   if (claim.claimed && claim.draft) {
     const claimedDraft = claim.draft;
     const preferences = parsePreferences(claimedDraft.confirmedUse, claimedDraft.confirmedBudgetDollars);
     const outcome = preferences ? await recommendConfirmedNeeds(runtime, preferences) : "failed";
-    const after = runtime.clock().getTime();
-    if (runtime.checkout.sessionIsLive(session.id)) {
-      // Rechecked against the claimed draft id and version, and durable before it is shown.
+    {
+      // Rechecked against the live session, claimed draft id and version inside the save-first decision.
       const written = await runtime.durable.change((host) => {
+        const after = runtime.clock().getTime();
+        if (!runtime.checkout.sessionIsLive(session.id)) return null;
         finishRecommendation(
           host,
           session.id,
@@ -582,14 +598,16 @@ export async function loadNeedsJourney(
     }
   }
   const draft = needsDraftsFor(runtime.store).get(session.id) ?? null;
-  const listings = draft?.confirmedUse && draft.confirmedBudgetDollars ? runtime.channel3.read(session.id, draft.draftId, draft.version) : null;
+  const chargerTrack = trackFor(draft?.draftId ?? null);
+  const outputAllowed = laptopOutputAllowed(chargerTrack);
+  const listings = outputAllowed && draft?.confirmedUse && draft.confirmedBudgetDollars ? runtime.channel3.read(session.id, draft.draftId, draft.version) : null;
   const suggestionSource =
     draft?.recommendationClaim === "completed" ? readSuggestionSource(runtime.store, session.id, draft.draftId, draft.version) : null;
   if (!draft?.confirmedUse || !draft.confirmedBudgetDollars || draft.recommendationClaim !== "completed" || !draft.recommendation) {
-    return { draft, lines: [], expiredDraft: false, suggestionSource, listings, conversation: conversationFor(draft?.draftId ?? null) };
+    return { draft, lines: [], expiredDraft: false, suggestionSource, listings, conversation: conversationFor(draft?.draftId ?? null), chargerTrack };
   }
   const preferences = parsePreferences(draft.confirmedUse, draft.confirmedBudgetDollars);
-  if (!preferences) return { draft, lines: [], expiredDraft: false, suggestionSource, listings, conversation: conversationFor(draft.draftId) };
+  if (!preferences || !outputAllowed) return { draft, lines: [], expiredDraft: false, suggestionSource, listings, conversation: conversationFor(draft.draftId), chargerTrack };
   return {
     draft,
     suggestionSource,
@@ -615,6 +633,7 @@ export async function loadNeedsJourney(
     })),
     expiredDraft: false,
     conversation: conversationFor(draft.draftId),
+    chargerTrack,
   };
 }
 

@@ -22,7 +22,7 @@ Mock mode only. Use synthetic data only.
    )
    ```
 
-   Stop any previous server first and confirm port 3000 is free. This command is memory mode: the subshell unsets `SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE` before the server starts. Do not point either name at an existing store. The format-7 rule for PR #10, and its separation from the PR #11 integration, is in the repository README.
+   Stop any previous server first and confirm port 3000 is free. This command is memory mode: the subshell unsets `SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE` before the server starts. Do not point either name at an existing store. The format-7 store rule for this wired checkout is in the repository README.
 
 3. Open `http://127.0.0.1:3000`, start a needs conversation, then open the side panel from the toolbar.
 4. The panel's address defaults to `http://127.0.0.1:3000`. Change it under **Connection** if needed: loopback HTTP
