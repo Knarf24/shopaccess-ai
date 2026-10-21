@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { ConfigNotice } from "@/components/ConfigNotice";
+import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import "../../guided-presentation.css";
 import { type AdmissionCopy } from "@/lib/i18n/demo-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
@@ -27,6 +28,7 @@ export function AdmissionScreen({ model }: { readonly model: AdmissionScreenMode
   return (
     <main className="guided-presentation">
       <div lang={language} className="presentation-column presentation-column-narrow admission-screen">
+        <DocumentLanguageSync language={language} />
         <h1 className="text-3xl font-semibold">{copy.title}</h1>
         <LanguageChoice language={language} copy={copy} />
         {model.kind === "closed" ? <p role="alert" className="journey-panel">{copy.closed}</p> : null}

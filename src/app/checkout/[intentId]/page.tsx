@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { Suspense, type ReactNode } from "react";
 import { CheckoutActions } from "@/components/CheckoutActions";
 import { ConfigNotice } from "@/components/ConfigNotice";
+import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import { ConfirmationSummary } from "@/components/ConfirmationSummary";
 import { GuidedProgress } from "@/components/mock-journey/GuidedProgress";
 import { MockReviewGuidance } from "@/components/mock-journey/MockReviewGuidance";
@@ -258,6 +259,7 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
 
   return (
     <main className="guided-presentation" lang={language}>
+      <DocumentLanguageSync language={language} />
       <div className="presentation-column presentation-column-narrow">
       <SkipToCurrentStep label={copy.skipToCurrentStep} targetId={skipTarget} />
       <h1 className="text-3xl font-semibold">{pageCopy.heading}</h1>

@@ -28,6 +28,10 @@ export interface JourneyCopy {
   readonly clarificationExplanation: string;
   readonly followUpLabel: string;
   readonly conversationHeading: string;
+  /** Visible name on the shopper's own messages. */
+  readonly speakerShopper: string;
+  /** Visible name on messages from this website. */
+  readonly speakerAssistant: string;
   readonly restartNeeds: string;
   readonly notices: Record<NeedsNotice, string>;
   readonly alerts: {
@@ -152,6 +156,8 @@ const ENGLISH: JourneyCopy = {
   clarificationExplanation: "You can reply in the box or use the choices below. A reply or a choice is not confirmed until you confirm the summary.",
   followUpLabel: "Reply or correction",
   conversationHeading: "Conversation",
+  speakerShopper: "You",
+  speakerAssistant: "ShopAccess",
   restartNeeds: "Start again",
   notices: {
     malformed: "That message could not be read as a use and a budget. Choose both below. Nothing was recommended.",
@@ -288,6 +294,8 @@ const SPANISH: JourneyCopy = {
   clarificationExplanation: "Puedes responder en el cuadro o usar las opciones de abajo. Una respuesta o una opción no queda confirmada hasta que confirmes el resumen.",
   followUpLabel: "Respuesta o corrección",
   conversationHeading: "Conversación",
+  speakerShopper: "Usted",
+  speakerAssistant: "ShopAccess",
   restartNeeds: "Empezar de nuevo",
   notices: {
     malformed: "No se pudo leer ese mensaje como un uso y un presupuesto. Elija ambos abajo. No se recomendó nada.",

@@ -2,23 +2,38 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
-import { Suspense, type ReactNode } from "react";
+import { Suspense } from "react";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { GuidedProgress, type GuidedStep } from "@/components/mock-journey/GuidedProgress";
-import { InterpretedNeedsReview, NEEDS_REVIEW_HEADING_ID } from "@/components/mock-journey/InterpretedNeedsReview";
+import { InterpretedNeedsReview } from "@/components/mock-journey/InterpretedNeedsReview";
 import { NeedsConversation } from "@/components/mock-journey/NeedsConversation";
-import { PAIRED_ACCESS_RESULT_ID, PairedAccess } from "@/components/PairedAccess";
+import { PairedAccess } from "@/components/PairedAccess";
 import { PermissionRefusal } from "@/components/PermissionRefusal";
 import { ChargerDeviceHandoff } from "@/components/ChargerDeviceHandoff";
+import { ChargerConversationControls } from "@/components/mock-journey/ChargerConversationControls";
+import { ChargerInformation } from "@/components/ChargerInformation";
+import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import { chargerCopy } from "@/lib/i18n/charger-copy";
+import { EVIDENCE } from "@/lib/compatibility/evidence";
+import { selectDevice } from "@/lib/compatibility/rules";
 import { isPermissionRefusal, permissionCopy } from "@/lib/i18n/permission-copy";
 import { revocationMessage } from "@/lib/i18n/extension-copy";
 import "../../guided-presentation.css";
+import "./needs-workspace.css";
 import { ExternalListings, type ListingNotice } from "@/components/mock-journey/ExternalListings";
 import { TranslatedAdvisory } from "@/components/mock-journey/TranslatedAdvisory";
 import { TranslatedCatalogList } from "@/components/mock-journey/TranslatedCatalogList";
-import { journeyCopy, type JourneyCopy } from "@/lib/i18n/demo-copy";
-import { allowlistedJourneyLanguage, guidedSessionEntry, type JourneyLanguage } from "@/lib/i18n/language";
+import { journeyCopy } from "@/lib/i18n/demo-copy";
+import { allowlistedJourneyLanguage, type JourneyLanguage } from "@/lib/i18n/language";
+import {
+  MissingSessionNeeds,
+  NEEDS_EXPIRED_ALERT_ID,
+  NEEDS_PAGE_HEADING_ID,
+  NEEDS_VALIDATION_ALERT_ID,
+  SkipToCurrentStep,
+  needsCurrentTargetId,
+  selectNeedsCurrentTarget,
+} from "./current-step";
 import { protectedAdmissionLocation } from "@/server/demo-admission";
 import { runtimeOf } from "@/server/runtime";
 import { guardPage, openApplication } from "@/server/runtime-access";
@@ -28,84 +43,8 @@ import { resolvePageSession } from "@/server/views";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-export const NEEDS_VALIDATION_ALERT_ID = "needs-validation-alert";
-export const NEEDS_EXPIRED_ALERT_ID = "needs-expired-alert";
-export const NEEDS_PAGE_HEADING_ID = "guided-page-title";
-export const NEEDS_SUGGESTIONS_HEADING_ID = "guided-advisory-heading";
-
-export type NeedsCurrentTarget = "expired" | "alert" | "revoked" | "notice" | "review" | "suggestions" | "heading";
-
-/**
- * One skip target. Expired alert, validation alert, the result of revoking a paired side panel (M2-2), notice, review,
- * suggestions, then the page heading.
- */
-export function selectNeedsCurrentTarget(state: {
-  readonly expiredDraft: boolean;
-  readonly validationAlert: boolean;
-  readonly revocationRendered?: boolean;
-  readonly noticeRendered: boolean;
-  readonly reviewRendered: boolean;
-  readonly suggestionsRendered: boolean;
-}): NeedsCurrentTarget {
-  if (state.expiredDraft) return "expired";
-  if (state.validationAlert) return "alert";
-  if (state.revocationRendered) return "revoked";
-  if (state.noticeRendered) return "notice";
-  if (state.reviewRendered) return "review";
-  if (state.suggestionsRendered) return "suggestions";
-  return "heading";
-}
-
-export function needsCurrentTargetId(target: NeedsCurrentTarget): string {
-  switch (target) {
-    case "expired":
-      return NEEDS_EXPIRED_ALERT_ID;
-    case "alert":
-      return NEEDS_VALIDATION_ALERT_ID;
-    case "revoked":
-      return PAIRED_ACCESS_RESULT_ID;
-    case "notice":
-      return "needs-notice";
-    case "review":
-      return NEEDS_REVIEW_HEADING_ID;
-    case "suggestions":
-      return NEEDS_SUGGESTIONS_HEADING_ID;
-    case "heading":
-      return NEEDS_PAGE_HEADING_ID;
-  }
-}
-
-/** First tab stop in the journey language. It does not submit a form. */
-export function SkipToCurrentStep({ copy, targetId }: { readonly copy: JourneyCopy; readonly targetId: string }) {
-  return (
-    <a className="skip-link" href={`#${targetId}`}>
-      {copy.skipToCurrentStep}
-    </a>
-  );
-}
-
 function languageFrom(value: string | string[] | undefined): JourneyLanguage {
   return allowlistedJourneyLanguage(typeof value === "string" ? value : undefined);
-}
-
-/** A page with no session either starts one or reports that the browser dropped the cookie. */
-export function MissingSessionNeeds({
-  started,
-  lang,
-}: {
-  readonly started: string | undefined;
-  readonly lang: string | undefined;
-}): ReactNode {
-  if (started === "1") {
-    const language = allowlistedJourneyLanguage(lang);
-    const copy = journeyCopy(language);
-    return (
-      <div lang={language}>
-        <p role="alert">{copy.alerts.COOKIE_DROPPED}</p>
-      </div>
-    );
-  }
-  redirect(guidedSessionEntry(lang));
 }
 
 async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
@@ -148,16 +87,18 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
     draft: journey.draft,
     queryNotice: typeof query.notice === "string" ? query.notice : null,
   });
+  const chargerTrack = journey.chargerTrack;
+  const chargerOpen = chargerTrack !== null && chargerTrack.state !== "closed";
   const expiredDraft = journey.expiredDraft || errorCode === "DRAFT_EXPIRED";
-  const showConfirm =
+  const showConfirm = !chargerOpen &&
     journey.draft !== null &&
     journey.draft.confirmedUse === null &&
     journey.draft.prefilledUse !== null &&
     journey.draft.prefilledBudgetDollars !== null &&
     journey.draft.notice === "review";
-  const showClarify =
+  const showClarify = !chargerOpen &&
     !expiredDraft && journey.draft !== null && journey.draft.confirmedUse === null && !showConfirm;
-  const showFirstAsk = !expiredDraft && journey.draft === null;
+  const showFirstAsk = !expiredDraft && !chargerOpen && journey.draft === null;
   const confirmedUse = journey.draft?.confirmedUse ?? null;
   const confirmedBudgetDollars = journey.draft?.confirmedBudgetDollars ?? null;
   const budgetCents = confirmedBudgetDollars === null ? null : Number(confirmedBudgetDollars) * 100;
@@ -169,9 +110,9 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
         );
   const excludedLines =
     budgetCents === null ? [] : journey.lines.filter((line) => !eligibleLines.some((eligible) => eligible.variantId === line.variantId));
-  const failureNotice = notice === "malformed" || notice === "unavailable" ? notice : null;
+  const failureNotice = !chargerOpen && (notice === "malformed" || notice === "unavailable") ? notice : null;
   const statusNotice =
-    notice && notice !== "malformed" && notice !== "unavailable" && (journey.draft?.confirmedUse === null || notice === "ambiguous") ? notice : null;
+    !chargerOpen && notice && notice !== "malformed" && notice !== "unavailable" && (journey.draft?.confirmedUse === null || notice === "ambiguous") ? notice : null;
   const validationAlertId = !expiredDraft && alert ? NEEDS_VALIDATION_ALERT_ID : undefined;
   const noticeRendered = !expiredDraft && (failureNotice !== null || statusNotice !== null);
   const suggestionsRendered = Boolean(journey.draft && confirmedUse && confirmedBudgetDollars);
@@ -187,11 +128,13 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
     revocationRendered: revocationMessage(language, revokedLabel, 0) !== null,
     noticeRendered,
     reviewRendered: showConfirm,
-    suggestionsRendered,
+    suggestionsRendered: suggestionsRendered && !chargerOpen,
   });
   const currentTargetId = needsCurrentTargetId(currentTarget);
   const currentStep: GuidedStep | null = expiredDraft
     ? null
+    : chargerOpen
+      ? "needs"
     : showFirstAsk || showClarify
       ? "needs"
       : showConfirm
@@ -201,7 +144,8 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
           : null;
 
   return (
-    <div lang={language} className="flex flex-col gap-6">
+    <div lang={language} className="needs-layout flex flex-col gap-6">
+      <DocumentLanguageSync language={language} />
       <SkipToCurrentStep copy={copy} targetId={currentTargetId} />
       <h1
         id={currentTarget === "heading" ? NEEDS_PAGE_HEADING_ID : undefined}
@@ -238,6 +182,35 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
         <p id="needs-notice" role="status" tabIndex={currentTarget === "notice" ? -1 : undefined}>
           {copy.notices[statusNotice]}
         </p>
+      ) : null}
+      {chargerOpen && journey.draft && chargerTrack ? (
+        <>
+          <NeedsConversation
+            copy={copy}
+            language={language}
+            csrfToken={session.csrfToken}
+            draft={journey.draft}
+            mode="reply"
+            turns={journey.conversation?.turns}
+            chargerClarification
+            afterHistory={
+              chargerTrack.state === "task_choice" ? (
+                <ChargerConversationControls csrfToken={session.csrfToken} language={language} track={chargerTrack} />
+              ) : null
+            }
+          />
+          {chargerTrack.state === "task_choice" ? null : (
+            <ChargerConversationControls csrfToken={session.csrfToken} language={language} track={chargerTrack} />
+          )}
+          {chargerTrack.state === "confirmed" && chargerTrack.deviceId ? (
+            <ChargerInformation
+              language={language}
+              selection={selectDevice(EVIDENCE, { identifier: chargerTrack.deviceId })}
+              showDeviceSelector={false}
+              showScrollHint
+            />
+          ) : null}
+        </>
       ) : null}
       {showFirstAsk ? (
         <NeedsConversation
@@ -289,7 +262,7 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
           />
         </>
       ) : null}
-      {journey.draft && confirmedUse && confirmedBudgetDollars ? (
+      {!chargerOpen && journey.draft && confirmedUse && confirmedBudgetDollars ? (
         <>
           <NeedsConversation
             copy={copy}
@@ -341,22 +314,26 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
           revokedLabel={revokedLabel}
         />
       ) : null}
-      <p>
-        <Link href={`/shop/permissions?lang=${language}`} prefetch={false} className="underline">
-          {permissionCopy(language).managePermissions}
-        </Link>
-      </p>
-      <p>
-        <Link href={`/shop/chargers?lang=${language}`} prefetch={false} className="underline">
-          {chargerCopy(language).needsLink}
-        </Link>
-      </p>
-      <ChargerDeviceHandoff language={language} />
-      <p>
-        <Link href="/" prefetch={false} className="underline">
-          {copy.navigationHome}
-        </Link>
-      </p>
+      <aside className="needs-side">
+        <p>
+          <Link href={`/shop/permissions?lang=${language}`} prefetch={false} className="underline">
+            {permissionCopy(language).managePermissions}
+          </Link>
+        </p>
+        <section className="needs-handoff" aria-labelledby="needs-handoff-heading">
+          <h2 id="needs-handoff-heading">
+            <Link href={`/shop/chargers?lang=${language}`} prefetch={false} className="underline">
+              {chargerCopy(language).needsLink}
+            </Link>
+          </h2>
+          <ChargerDeviceHandoff language={language} />
+        </section>
+        <p>
+          <Link href="/" prefetch={false} className="underline">
+            {copy.navigationHome}
+          </Link>
+        </p>
+      </aside>
     </div>
   );
 }
@@ -369,7 +346,7 @@ function listingNoticeFrom(value: string | string[] | undefined): ListingNotice 
 
 export default function NeedsPage({ searchParams }: { searchParams: SearchParams }) {
   return (
-    <main className="guided-presentation">
+    <main className="guided-presentation needs-workspace">
       <div className="presentation-column">
         <Suspense fallback={<p>Loading guided shopping…</p>}>
           <NeedsContent searchParams={searchParams} />

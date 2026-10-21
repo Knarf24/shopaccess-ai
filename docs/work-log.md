@@ -1,6 +1,14 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 20, 2026 — F03 charger conversation, slice 2 (Codex implementation; uncommitted)
+
+- **Baseline:** branch `feature/f03-charger-conversation`, base `a1120d6db84689b53653089d172c8d27ae4dceb7`; worktree was clean before this task. The separate `main` checkout was not changed. PR #10 remains an unmerged draft.
+- **Scope:** wire charger intent and track to the existing needs draft/conversation lifecycle; website task/model/confirm/change/stop controls; shared website/extension text routing; bilingual lines; existing charger comparison after website confirmation; serialized recommendation gating and pending-laptop-result handling. No new extension structured fields/scopes; no payment, permission, profile or SEC-01 changes intended.
+- **Regressions first:** initial charger-request handler tests and a charger follow-up test failed before routing was added; the website-control test failed before the control handler existed; the task-choice text regression failed before the state transition was corrected. Test outputs, including red runs, are retained under fresh `/private/tmp/shopaccess-charger-conversation-*` labels and copied to the frozen handoff.
+- **Verification (Codex implementer-run, network-blocked runner):** final focused follow-up/page/extension/handler regressions: 4 files, 49 passed (r23); full unit suite: 68 files, 1,583 passed (r24); final-tree typecheck: exit 0 (r28; earlier successful r25 also covered the functional changes); lint: 0 errors, 9 existing warnings (r27). Red runs are retained, including the initial charger-routing failures, missing website handler, task-choice transition, and explicit-cleared-fields regression. The full suite initially exposed a missing mock-route inventory entry (r19); the test inventory was corrected and r24 passed. `git diff --check` passes. All project checks used the existing no-TCP preload. The initial non-escalated typecheck could not write `tsconfig.tsbuildinfo`; the authorized guarded rerun passed. Logs are copied into the frozen handoff. These are implementer results, not independent verification.
+- **Status/limits:** Codex is the implementer, not the independent reviewer. Format-7 merge/rollout and rollback remain gated, and no owner/rehearsal store was opened or migrated. F03 remains unaccepted; screen-reader, native-speaker and browser acceptance are not claimed. October 24 and the full scope are unchanged.
+
 ## October 19, 2026 — F03 charger clarification, slice 1 (state, transitions, proposed format 7; uncommitted when written)
 
 - **Baseline:** `main` `37f6b30c7a811d538d0b92e1b4d88d9156991a1e` (PR #9 merged); new worktree on `feature/f03-charger-clarification-state`.

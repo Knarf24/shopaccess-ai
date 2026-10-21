@@ -28,7 +28,7 @@ import {
   SkipToCurrentStep,
   needsCurrentTargetId,
   selectNeedsCurrentTarget,
-} from "@/app/shop/needs/page";
+} from "@/app/shop/needs/current-step";
 import { handleCheckoutStart, handleConfirm, handleNeedsConfirm, handleNeedsSession, handleNeedsSubmit } from "@/server/handlers";
 import { createRuntime, type Runtime } from "@/server/runtime";
 import { loadNeedsJourney } from "@/server/shopping";
@@ -623,8 +623,8 @@ describe("guided needs flow", () => {
   });
 
   it("defaults an invalid language and does not accept it as a redirect", async () => {
-    const needsPage = readFileSync("src/app/shop/needs/page.tsx", "utf8");
-    expect(needsPage).toContain("redirect(guidedSessionEntry(");
+    const currentStep = readFileSync("src/app/shop/needs/current-step.tsx", "utf8");
+    expect(currentStep).toContain("redirect(guidedSessionEntry(");
     const invalid = ["", "fr", "EN", "ES", "es ", "https://evil.example/steal", "//evil.example", "/admin", "javascript:alert(1)", "<script>", "es&next=https://evil.example"];
     for (const value of invalid) {
       expect(guidedSessionEntry(value)).toBe("/session/needs?lang=en");
@@ -1789,7 +1789,9 @@ describe("guided needs flow", () => {
     expect(needsPage).toContain('headingTabIndex={currentTarget === "review" ? -1 : undefined}');
     expect(needsPage).toContain("reviewRendered: showConfirm,");
     const presentation = readFileSync("src/app/guided-presentation.css", "utf8");
-    expect(presentation).toMatch(/\.guided-presentation \.skip-link:focus-visible\s*\{/);
+    const focusedSkip = presentation.match(/\.guided-presentation \.skip-link:focus-visible\s*\{([^}]*)\}/);
+    expect(focusedSkip?.[1]).toMatch(/position:\s*(?:fixed|absolute)/);
+    expect(focusedSkip?.[1]).not.toMatch(/position:\s*static/);
     expect(presentation).not.toMatch(/\.skip-link[^{]*\{[^}]*display:\s*none/);
   });
 

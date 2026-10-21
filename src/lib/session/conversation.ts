@@ -1,5 +1,6 @@
 import type { JourneyLanguage } from "@/lib/i18n/language";
 import type { NeedsNotice } from "@/lib/i18n/needs-notice";
+import type { ChargerLine } from "./charger-clarification";
 import type { IntendedUse } from "@/lib/readiness/engine";
 import type { ConversationTurn } from "@/types/conversation-turn";
 
@@ -97,7 +98,7 @@ export function recordConversationTurn(
     readonly draftId: string;
     readonly interfaceLanguage: JourneyLanguage;
     readonly shopperText: string;
-    readonly assistantNotice: NeedsNotice | null;
+    readonly assistantNotice: NeedsNotice | ChargerLine | null;
   },
 ): ConversationState {
   const existing = conversationMap(store).get(sessionId) ?? null;

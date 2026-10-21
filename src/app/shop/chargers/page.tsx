@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import "../../guided-presentation.css";
 import { ChargerInformation } from "@/components/ChargerInformation";
+import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { EVIDENCE } from "@/lib/compatibility/evidence";
@@ -31,6 +32,7 @@ async function ChargersContentUnguarded({ searchParams }: { searchParams: Search
   if (opened.mode === "postgres") {
     return (
       <div lang={language}>
+        <DocumentLanguageSync language={language} />
         <h1 className="text-3xl font-semibold">{chargerCopy(language).pageTitle}</h1>
         <p role="alert">{chargerCopy(language).unavailable}</p>
       </div>
@@ -42,7 +44,12 @@ async function ChargersContentUnguarded({ searchParams }: { searchParams: Search
   const admissionLocation = protectedAdmissionLocation(runtime.value.admission, (await headers()).get("cookie"), runtime.value.clock().getTime(), language);
   if (admissionLocation) redirect(admissionLocation);
   const selection = selectDevice(EVIDENCE, { device: one(query.device, 40), identifier: one(query.identifier, 40) });
-  return <ChargerInformation language={language} selection={selection} />;
+  return (
+    <>
+      <DocumentLanguageSync language={language} />
+      <ChargerInformation language={language} selection={selection} />
+    </>
+  );
 }
 
 async function ChargersContent(props: { searchParams: SearchParams }) {

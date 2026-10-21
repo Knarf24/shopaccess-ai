@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import "../../guided-presentation.css";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { PurchasePermissions, type CatalogChoice, type PermissionResult, type PermissionReview, type ShownPermission } from "@/components/PurchasePermissions";
+import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { findMerchantVariant } from "@/lib/catalog/merchant-catalog";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
@@ -38,6 +39,7 @@ async function PermissionsContentUnguarded({ searchParams }: { searchParams: Sea
   if (opened.mode === "postgres") {
     return (
       <div lang={language}>
+        <DocumentLanguageSync language={language} />
         <h1 className="text-3xl font-semibold">{copy.pageTitle}</h1>
         <p role="alert">{copy.unavailablePostgres}</p>
       </div>
@@ -54,6 +56,7 @@ async function PermissionsContentUnguarded({ searchParams }: { searchParams: Sea
   if (!session) {
     return (
       <div lang={language} className="flex flex-col gap-4">
+        <DocumentLanguageSync language={language} />
         <h1 className="text-3xl font-semibold">{copy.pageTitle}</h1>
         <p>{copy.noSession}</p>
         <p>
@@ -121,6 +124,7 @@ async function PermissionsContentUnguarded({ searchParams }: { searchParams: Sea
 
   return (
     <>
+      <DocumentLanguageSync language={language} />
       <PurchasePermissions
         language={language}
         csrfToken={session.csrfToken}

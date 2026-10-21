@@ -1,7 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type Ref } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Ref } from "react";
 import type { JourneyLanguage } from "@/lib/i18n/language";
+
+/** Mirrors the route's already-resolved language to the document and restores the English shell on route exit. */
+export function syncDocumentLanguage(root: { lang: string }, language: JourneyLanguage): () => void {
+  const previous = root.lang;
+  root.lang = language;
+  return () => {
+    if (root.lang === language) root.lang = previous || "en";
+  };
+}
+
+/** Client-side bridge only: the server-rendered route remains the source of the language value. */
+export function DocumentLanguageSync({ language }: { readonly language: JourneyLanguage }) {
+  useLayoutEffect(() => syncDocumentLanguage(document.documentElement, language), [language]);
+  return null;
+}
 
 /**
  * Native POST to the listings route. Without JavaScript the browser submits

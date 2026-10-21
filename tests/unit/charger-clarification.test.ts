@@ -28,7 +28,7 @@ const route = (existing: ChargerTrack | null, text: string, structuredChange = f
 const control = (existing: ChargerTrack | null, revision: number, value: Parameters<typeof applyChargerControl>[1]["control"], draftId = D, sessionId = S) =>
   applyChargerControl(existing, { sessionId, draftId, revision, control: value });
 
-describe("charger clarification: text routing (slice 1, not wired to handlers)", () => {
+describe("charger clarification: text routing", () => {
   it("leaves laptop requests, plain text and a bare identifier on the laptop path when nothing is open", () => {
     for (const existing of [null, track("closed", 5)]) {
       expect(route(existing, "laptop for school under $500")).toEqual({ kind: "laptop" });
@@ -66,6 +66,15 @@ describe("charger clarification: text routing (slice 1, not wired to handlers)",
     expect(route(track("confirmed", 7, "Mac14,2"), "Mac14,2")).toEqual({ kind: "charger", track: track("confirmed", 7, "Mac14,2"), line: "charger_shown", changed: false });
   });
 
+  it("lets a clear charger reply resolve task_choice through text", () => {
+    expect(route(track("task_choice", 4), "I mean charger information")).toEqual({
+      kind: "charger",
+      track: track("awaiting_model", 5),
+      line: "charger_model",
+      changed: true,
+    });
+  });
+
   it("asks which task when an open clarification receives laptop text or changed laptop fields", () => {
     expect(route(track("confirmed", 7, "Mac14,2"), "actually a laptop for programming")).toMatchObject({ track: track("task_choice", 8), changed: true });
     expect(route(track("candidate", 2, "Mac14,2"), "more about it", true)).toMatchObject({ track: track("task_choice", 3) });
@@ -85,7 +94,7 @@ describe("charger clarification: text routing (slice 1, not wired to handlers)",
   });
 });
 
-describe("charger clarification: website controls (slice 1, not wired to routes)", () => {
+describe("charger clarification: website controls", () => {
   it("requires the session, the draft and the exact current revision", () => {
     const open = track("candidate", 4, "Mac14,2");
     expect(control(null, 4, { action: "confirm" })).toEqual({ kind: "stale" });
@@ -147,7 +156,7 @@ describe("charger clarification: website controls (slice 1, not wired to routes)
   });
 });
 
-describe("charger clarification: laptop work that was already started (slice 1 helpers, not wired)", () => {
+describe("charger clarification: laptop work that was already started", () => {
   it("keeps the laptop line only when no clarification is open", () => {
     expect(assistantLineAfterLaptopResult(null, "review")).toBe("review");
     expect(assistantLineAfterLaptopResult(track("closed", 3), "missing_budget")).toBe("missing_budget");

@@ -262,7 +262,7 @@ export function saveStructuredNeeds(
     readonly shopperText: string;
     readonly use: IntendedUse | null;
     readonly budgetDollars: string | null;
-    readonly notice: NeedsNotice;
+    readonly notice: NeedsNotice | null;
     readonly expiresAtMs: number;
     readonly now: number;
   },

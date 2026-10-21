@@ -1,6 +1,7 @@
 import type { ConnectorType } from "@/lib/compatibility/evidence";
 import type { BasicGap, FastVerdict, WattageVerdict } from "@/lib/compatibility/rules";
 import type { JourneyLanguage } from "./language";
+import type { ChargerLine } from "@/lib/session/charger-clarification";
 
 /** F03 charger information page (information only). Apple product names and page titles stay English and are marked so. */
 export interface ChargerCopy {
@@ -21,6 +22,8 @@ export interface ChargerCopy {
   /** Followed by the device's Apple name and model identifier. */
   readonly resultsHeading: string;
   readonly tableCaption: string;
+  /** Shown above the comparison scroller on the needs page. The charger page does not render it. */
+  readonly scrollHint: string;
   readonly columns: { readonly configuration: string; readonly basic: string; readonly wattage: string; readonly fast: string };
   readonly withCable: string;
   readonly basic: {
@@ -50,10 +53,21 @@ export interface ChargerCopy {
   readonly unavailable: string;
   /** Link to this page from the guided needs page (in the journey's language). */
   readonly needsLink: string;
+  /** Guidance shown instead of laptop-summary copy while charger clarification is active. */
+  readonly needsExplanation: string;
   /** Hand-off form on the guided needs page: sends only the chosen exact model and the journey language. */
   readonly handoffLabel: string;
   readonly handoffPlaceholder: string;
   readonly handoffButton: string;
+  readonly conversationLines: Readonly<Record<ChargerLine, string>>;
+  readonly taskChoiceLabel: string;
+  readonly chooseLaptopTask: string;
+  readonly chooseChargerTask: string;
+  readonly modelChoiceLabel: string;
+  readonly confirmModel: string;
+  readonly changeModel: string;
+  readonly stopChargerTask: string;
+  readonly currentModelLabel: string;
 }
 
 const W = (watts: number, space: string) => `${watts}${space}W`;
@@ -88,6 +102,7 @@ const ENGLISH: ChargerCopy = {
     "That does not identify one Mac model in this comparison. A description such as a year or a family name can match several models with different charging needs, so nothing is shown. Choose a model from the list or enter its exact model identifier.",
   resultsHeading: "Results for",
   tableCaption: "Two Apple power adapters, each with two cables",
+  scrollHint: "Scroll sideways inside this table to read every claim.",
   columns: { configuration: "Adapter and cable", basic: "Charging", wattage: "Wattage", fast: "Fast charging" },
   withCable: "with",
   basic: {
@@ -142,9 +157,25 @@ const ENGLISH: ChargerCopy = {
   otherLanguage: "Español",
   unavailable: "Charger information is not available in this mode.",
   needsLink: "Explore charger information",
+  needsExplanation: "Reply with the exact Mac model identifier or choose a model below. Confirm the model on this website to see an information-only comparison; nothing is purchased.",
   handoffLabel: "Which Mac is this for?",
   handoffPlaceholder: "Choose an exact model",
   handoffButton: "Show charger information for this Mac",
+  conversationLines: {
+    charger_task_choice: "Which task should we work on now: laptop shopping or charger information? Choose one to continue.",
+    charger_model: "Which exact Mac model is this charger for? Choose a model or reply with its exact identifier.",
+    charger_review: "Review this identified Mac model. Confirm on this website to see information only; this does not buy anything.",
+    charger_shown: "This is the information-only charger comparison for the confirmed Mac model.",
+    charger_closed: "Charger clarification stopped. Laptop requirements remain separate and unconfirmed.",
+  },
+  taskChoiceLabel: "Choose which task to continue",
+  chooseLaptopTask: "Continue laptop shopping",
+  chooseChargerTask: "Continue charger information",
+  modelChoiceLabel: "Choose the exact Mac model",
+  confirmModel: "Confirm model and show charger information",
+  changeModel: "Choose a different model",
+  stopChargerTask: "Stop charger clarification",
+  currentModelLabel: "Selected model:",
 };
 
 const SPANISH: ChargerCopy = {
@@ -167,6 +198,7 @@ const SPANISH: ChargerCopy = {
     "Eso no identifica un solo modelo de Mac en esta comparación. Una descripción como un año o el nombre de una familia puede corresponder a varios modelos con necesidades de carga distintas, así que no se muestra nada. Elija un modelo de la lista o escriba su identificador de modelo exacto.",
   resultsHeading: "Resultados para",
   tableCaption: "Dos adaptadores de corriente de Apple, cada uno con dos cables",
+  scrollHint: "Desplace hacia el lado dentro de esta tabla para leer cada afirmación.",
   columns: { configuration: "Adaptador y cable", basic: "Carga", wattage: "Potencia", fast: "Carga rápida" },
   withCable: "con",
   basic: {
@@ -221,9 +253,25 @@ const SPANISH: ChargerCopy = {
   otherLanguage: "English",
   unavailable: "La información de cargadores no está disponible en este modo.",
   needsLink: "Consultar información sobre cargadores",
+  needsExplanation: "Responda con el identificador exacto del modelo de Mac o elija un modelo abajo. Confirme el modelo en este sitio web para ver una comparación informativa; no se compra nada.",
   handoffLabel: "¿Para qué Mac es?",
   handoffPlaceholder: "Elija un modelo exacto",
   handoffButton: "Mostrar información de cargadores para este Mac",
+  conversationLines: {
+    charger_task_choice: "¿Qué tarea quiere continuar ahora: buscar un portátil o consultar información sobre cargadores? Elija una para seguir.",
+    charger_model: "¿Para qué modelo exacto de Mac es este cargador? Elija un modelo o responda con su identificador exacto.",
+    charger_review: "Revise el modelo de Mac identificado. Confirme en este sitio web para ver solo información; no se comprará nada.",
+    charger_shown: "Esta es la comparación informativa de cargadores para el modelo de Mac confirmado.",
+    charger_closed: "Se detuvo la aclaración sobre cargadores. Los requisitos del portátil siguen separados y sin confirmar.",
+  },
+  taskChoiceLabel: "Elija qué tarea desea continuar",
+  chooseLaptopTask: "Continuar con la búsqueda de un portátil",
+  chooseChargerTask: "Continuar con la información de cargadores",
+  modelChoiceLabel: "Elija el modelo exacto de Mac",
+  confirmModel: "Confirmar el modelo y mostrar información de cargadores",
+  changeModel: "Elegir otro modelo",
+  stopChargerTask: "Detener la aclaración sobre cargadores",
+  currentModelLabel: "Modelo seleccionado:",
 };
 
 export function chargerCopy(language: JourneyLanguage): ChargerCopy {

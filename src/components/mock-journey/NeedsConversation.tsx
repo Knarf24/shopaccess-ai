@@ -1,8 +1,10 @@
+import type { ReactNode } from "react";
 import type { JourneyCopy } from "@/lib/i18n/demo-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
 import type { NeedsNotice } from "@/lib/i18n/needs-notice";
 import { INTENDED_USES, type IntendedUse } from "@/lib/readiness/engine";
 import type { ConversationTurn } from "@/types/conversation-turn";
+import { chargerCopy } from "@/lib/i18n/charger-copy";
 
 interface NeedsFormDraft {
   readonly shopperText: string;
@@ -22,7 +24,9 @@ function isNeedsNotice(value: string): value is NeedsNotice {
   return value === "malformed" || value === "unavailable" || value === "missing_use" || value === "missing_budget" || value === "ambiguous" || value === "review";
 }
 
-function ConversationHistory({ copy, turns }: { readonly copy: JourneyCopy; readonly turns: readonly ConversationTurn[] }) {
+const CHARGER_LINES = ["charger_task_choice", "charger_model", "charger_review", "charger_shown", "charger_closed"] as const;
+
+function ConversationHistory({ copy, language, turns }: { readonly copy: JourneyCopy; readonly language: JourneyLanguage; readonly turns: readonly ConversationTurn[] }) {
   if (turns.length === 0) return null;
   return (
     <section aria-labelledby="conversation-heading" className="flex flex-col gap-2">
@@ -31,8 +35,15 @@ function ConversationHistory({ copy, turns }: { readonly copy: JourneyCopy; read
       </h2>
       <ol className="flex flex-col gap-2">
         {turns.map((turn, index) => (
-          <li key={`${turn.role}-${index}`} className="whitespace-pre-wrap">
-            {turn.role === "assistant" && isNeedsNotice(turn.text) ? copy.notices[turn.text] : turn.text}
+          <li key={`${turn.role}-${index}`} className={`needs-turn needs-turn-${turn.role}`}>
+            <span className="needs-speaker">{turn.role === "shopper" ? copy.speakerShopper : copy.speakerAssistant}</span>
+            <p className="needs-turn-text">
+              {turn.role === "assistant" && isNeedsNotice(turn.text)
+                ? copy.notices[turn.text]
+                : turn.role === "assistant" && (CHARGER_LINES as readonly string[]).includes(turn.text)
+                  ? chargerCopy(language).conversationLines[turn.text as (typeof CHARGER_LINES)[number]]
+                  : turn.text}
+            </p>
           </li>
         ))}
       </ol>
@@ -50,6 +61,8 @@ export function NeedsConversation({
   turns = [],
   validationAlertId,
   noticeRendered = false,
+  chargerClarification = false,
+  afterHistory = null,
 }: {
   readonly copy: JourneyCopy;
   readonly language: JourneyLanguage;
@@ -61,6 +74,10 @@ export function NeedsConversation({
   readonly validationAlertId?: string;
   /** Set only when the page is rendering the needs-notice element. */
   readonly noticeRendered?: boolean;
+  /** Uses charger-specific authority guidance and avoids implying a laptop summary is being confirmed. */
+  readonly chargerClarification?: boolean;
+  /** Separate forms rendered after the messages and before the reply box. They stay outside the reply form. */
+  readonly afterHistory?: ReactNode;
 }) {
   const useMissing = mode === "clarify" && (draft?.prefilledUse ?? null) === null;
   const budgetDisputed =
@@ -76,10 +93,12 @@ export function NeedsConversation({
   const showHistory = turns.length > 0;
 
   return (
-    <form method="post" action="/shop/needs/submit" className="journey-form flex max-w-xl flex-col gap-4">
+    <div className="needs-conversation">
       {mode === "first" ? <p>{copy.prompt}</p> : null}
-      {mode !== "first" && draft?.shopperText ? <p>{copy.clarificationExplanation}</p> : null}
-      {showHistory ? <ConversationHistory copy={copy} turns={turns} /> : null}
+      {mode !== "first" && (chargerClarification || draft?.shopperText) ? <p>{chargerClarification ? chargerCopy(language).needsExplanation : copy.clarificationExplanation}</p> : null}
+      {showHistory ? <ConversationHistory copy={copy} language={language} turns={turns} /> : null}
+      {afterHistory}
+      <form method="post" action="/shop/needs/submit" className="journey-form flex max-w-xl flex-col gap-4">
       {mode === "first" ? (
         <label className="flex flex-col gap-1 text-sm" htmlFor="shopper-text">
           {copy.shopperText}
@@ -151,6 +170,7 @@ export function NeedsConversation({
       <button type="submit" className="rounded bg-blue-800 px-4 py-2 font-medium text-white">
         {copy.submit}
       </button>
-    </form>
+      </form>
+    </div>
   );
 }

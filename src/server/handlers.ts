@@ -4,6 +4,18 @@ import { confirmPurchaseSummary } from "@/lib/confirmation/confirmation";
 import { formatAdvisoryFailureDiagnostic, interpretNeedsSafely } from "@/lib/providers/ai";
 import { INTENDED_USES, type IntendedUse } from "@/lib/readiness/engine";
 import { ShopperMessageSchema } from "@/lib/security/limits";
+import { classifyChargerText } from "@/lib/compatibility/charger-intent";
+import {
+  applyChargerControl,
+  assistantLineAfterLaptopResult,
+  chargerTrackFor,
+  deleteChargerTracks,
+  laptopOutputAllowed,
+  routeChargerText,
+  setChargerTrack,
+  type ChargerControl,
+  type ChargerLine,
+} from "@/lib/session/charger-clarification";
 import {
   cancelCheckout,
   dispatchCapture,
@@ -251,6 +263,77 @@ function needsBack(language: JourneyLanguage, code?: string, failure?: string | 
   return `/shop/needs?${query.toString()}`;
 }
 
+function chargerControlFromForm(form: URLSearchParams): ChargerControl | null {
+  const allowed = new Set(["csrfToken", "lang", "draftId", "revision", "action", "task", "device"]);
+  const values = new Map<string, string>();
+  for (const [key, value] of form) {
+    if (!allowed.has(key) || values.has(key)) return null;
+    values.set(key, value);
+  }
+  const action = values.get("action");
+  if (action === "choose_task") {
+    if (values.has("device")) return null;
+    const task = values.get("task");
+    return task === "charger" || task === "laptop" ? { action, task } : null;
+  }
+  if (action === "choose_model") {
+    if (values.has("task")) return null;
+    const device = values.get("device");
+    return device ? { action, device } : null;
+  }
+  if (action === "confirm" || action === "change" || action === "stop") {
+    return values.has("task") || values.has("device") ? null : { action };
+  }
+  return null;
+}
+
+/** POST /shop/needs/charger-control. Only explicit website actions can confirm a model. */
+export async function handleChargerControl(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.aiMessage);
+  if (!guarded.ok) return guarded.response;
+  const { session, form } = guarded;
+  const requestedLanguage = needsLanguage(form);
+  const draftId = form.get("draftId") ?? "";
+  const rawRevision = form.get("revision") ?? "";
+  const control = chargerControlFromForm(form);
+  if (!/^nd_[0-9a-f]{32}$/.test(draftId) || !/^[1-9][0-9]{0,8}$/.test(rawRevision) || !control) {
+    return seeOther(needsBack(requestedLanguage, "CLARIFICATION_INVALID"));
+  }
+
+  const result = await runtime.durable.change((host) => {
+    const now = runtime.clock().getTime();
+    if (!runtime.checkout.sessionIsLive(session.id)) return { kind: "session_dead" as const, language: requestedLanguage };
+    const draft = needsDraftsFor(host).get(session.id) ?? null;
+    if (!draft) return { kind: "missing" as const, language: requestedLanguage };
+    if (now >= draft.expiresAtMs) {
+      needsDraftsFor(host).delete(session.id);
+      deleteChargerTracks(host, [session.id]);
+      return { kind: "expired" as const, language: draft.language };
+    }
+    if (draft.draftId !== draftId) return { kind: "stale" as const, language: draft.language };
+    const applied = applyChargerControl(chargerTrackFor(host, session.id, draft.draftId), {
+      sessionId: session.id,
+      draftId,
+      revision: Number(rawRevision),
+      control,
+    });
+    if (applied.kind === "stale") return { kind: "stale" as const, language: draft.language };
+    if (applied.kind === "not_allowed") return { kind: "invalid" as const, language: draft.language };
+    if (applied.kind === "refused") return { kind: "limit" as const, language: draft.language };
+    setChargerTrack(host, applied.track);
+    rememberChargerTurn(host, session.id, draft, "", applied.line);
+    return { kind: "applied" as const, language: draft.language };
+  });
+  if (result.kind === "session_dead") return seeOther(needsBack(requestedLanguage));
+  if (result.kind === "missing") return seeOther(needsBack(requestedLanguage, "DRAFT_NOT_FOUND"));
+  if (result.kind === "expired") return seeOther(needsBack(result.language, "DRAFT_EXPIRED"));
+  if (result.kind === "stale") return seeOther(needsBack(result.language, "STALE_DRAFT"));
+  if (result.kind === "invalid" || result.kind === "limit") return seeOther(needsBack(result.language, "CLARIFICATION_INVALID"));
+  return seeOther(needsBack(result.language));
+}
+
 /**
  * GET /session/needs. Establishes the mock session, then opens the guided page.
  * The destination is always `guidedShopDestination`. No request field can replace that path.
@@ -280,6 +363,26 @@ function rememberNeedsTurn(store: object, sessionId: string, draft: NeedsDraft, 
   });
 }
 
+function rememberChargerTurn(store: object, sessionId: string, draft: NeedsDraft, shopperText: string, assistantLine: ChargerLine): void {
+  recordConversationTurn(store, sessionId, {
+    draftId: draft.draftId,
+    interfaceLanguage: draft.language,
+    shopperText,
+    assistantNotice: assistantLine,
+  });
+}
+
+function rememberLaptopResult(store: object, sessionId: string, draft: NeedsDraft, shopperText: string): void {
+  const track = chargerTrackFor(store, sessionId, draft.draftId);
+  const assistantLine = assistantLineAfterLaptopResult(track, draft.notice);
+  recordConversationTurn(store, sessionId, {
+    draftId: draft.draftId,
+    interfaceLanguage: draft.language,
+    shopperText: laptopOutputAllowed(track) ? shopperText : "",
+    assistantNotice: assistantLine,
+  });
+}
+
 function controlChange<T extends string>(posted: T | null, current: string | null): T | null {
   if (posted === null || posted === current) return null;
   return posted;
@@ -288,6 +391,7 @@ function controlChange<T extends string>(posted: T | null, current: string | nul
 export type FollowUpOutcome =
   | { readonly kind: "duplicate" }
   | { readonly kind: "session_dead" }
+  | { readonly kind: "charger" }
   | { readonly kind: "refused"; readonly code: "STALE_DRAFT" | "DRAFT_EXPIRED" | "CLARIFICATION_INVALID" | "DRAFT_NOT_FOUND" }
   | { readonly kind: "done"; readonly failure: "malformed" | "unavailable" | null };
 
@@ -306,6 +410,8 @@ export async function continueNeedsFollowUp(
     readonly text: string;
     readonly typedUse: IntendedUse | null;
     readonly typedBudget: string | null;
+    readonly typedUseProvided: boolean;
+    readonly typedBudgetProvided: boolean;
     readonly expiresAtMs: number;
     readonly live: () => boolean;
   },
@@ -313,9 +419,36 @@ export async function continueNeedsFollowUp(
   const message = ShopperMessageSchema.safeParse(input.text);
   if (!message.success) return { kind: "refused", code: "CLARIFICATION_INVALID" };
   // The claim is durable before the interpreter starts.
-  const claimed = await runtime.durable.change((host) =>
-    claimFollowUp(host, sessionId, { draftId: input.draftId, version: input.version, shopperText: message.data, expiresAtMs: input.expiresAtMs, now: runtime.clock().getTime() }, input.live),
-  );
+  const claimed = await runtime.durable.change((host) => {
+    const now = runtime.clock().getTime();
+    if (!input.live()) return { kind: "session_dead" as const };
+    const draft = needsDraftsFor(host).get(sessionId) ?? null;
+    if (!draft) return { kind: "refused" as const, code: "DRAFT_NOT_FOUND" as const };
+    if (now >= draft.expiresAtMs) {
+      needsDraftsFor(host).delete(sessionId);
+      return { kind: "refused" as const, code: "DRAFT_EXPIRED" as const };
+    }
+    if (draft.draftId !== input.draftId || draft.version !== input.version) return { kind: "refused" as const, code: "STALE_DRAFT" as const };
+
+    const routed = routeChargerText({
+      existing: chargerTrackFor(host, sessionId, draft.draftId),
+      sessionId,
+      draftId: draft.draftId,
+      reading: classifyChargerText(message.data),
+      structuredChange:
+        (input.typedUseProvided && input.typedUse !== draft.prefilledUse) ||
+        (input.typedBudgetProvided && input.typedBudget !== draft.prefilledBudgetDollars),
+    });
+    if (routed.kind === "refused") return { kind: "refused" as const, code: routed.code };
+    if (routed.kind === "charger") {
+      if (routed.changed) setChargerTrack(host, routed.track);
+      rememberChargerTurn(host, sessionId, draft, message.data, routed.line);
+      return { kind: "charger" as const };
+    }
+    return claimFollowUp(host, sessionId, { draftId: input.draftId, version: input.version, shopperText: message.data, expiresAtMs: input.expiresAtMs, now }, input.live);
+  });
+  if (claimed.kind === "charger") return { kind: "charger" };
+  if (claimed.kind === "refused") return { kind: "refused", code: claimed.code === "CHARGER_LIMIT" ? "CLARIFICATION_INVALID" : claimed.code };
   if (claimed.kind === "duplicate") return { kind: "duplicate" };
   if (claimed.kind === "session_dead") return { kind: "session_dead" };
   if (claimed.kind === "stale") return { kind: "refused", code: "STALE_DRAFT" };
@@ -349,7 +482,7 @@ export async function continueNeedsFollowUp(
   await runtime.durable.change((host) => {
     const written = commitFollowUp(host, sessionId, claimed.draft.draftId, claimed.draft.version, { ...merged, withdrawConfirmation }, runtime.clock().getTime());
     if (written && withdrawConfirmation) invalidatePurchaseSelections(host, sessionId);
-    if (written) rememberNeedsTurn(host, sessionId, written, claimedText);
+    if (written) rememberLaptopResult(host, sessionId, written, claimedText);
   });
   return { kind: "done", failure: model === "malformed" || model === "unavailable" ? model : null };
 }
@@ -410,11 +543,14 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
       text: reply,
       typedUse: needsUse(form.get("use")),
       typedBudget: needsBudget(form.get("budget")),
+      typedUseProvided: form.has("use"),
+      typedBudgetProvided: form.has("budget"),
       expiresAtMs,
       live,
     });
     if (outcome.kind === "duplicate" || outcome.kind === "session_dead") return seeOther(needsBack(language));
     if (outcome.kind === "refused") return seeOther(needsBack(language, outcome.code));
+    if (outcome.kind === "charger") return seeOther(needsBack(language));
     return seeOther(needsBack(language, undefined, outcome.failure));
   }
 
@@ -423,6 +559,45 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
   const typedUse = needsUse(form.get("use"));
   const typedBudget = needsBudget(form.get("budget"));
   const submittedVersion = needsVersion(form);
+  const message = ShopperMessageSchema.safeParse(text);
+  const reading = message.success ? classifyChargerText(message.data) : null;
+
+  // A first charger/ambiguous request creates its ordinary needs draft and clarification track in one
+  // serialized, save-first decision. Laptop fields are deliberately not inferred or attached to this task.
+  if (message.success && reading && reading.kind !== "laptop" && reading.kind !== "none") {
+    const started = await runtime.durable.change((host) => {
+      const now = runtime.clock().getTime();
+      if (!runtime.checkout.sessionIsLive(session.id)) return { kind: "session_dead" as const };
+      const saved = saveStructuredNeeds(host, session.id, {
+        submittedVersion,
+        language,
+        shopperText: message.data,
+        use: null,
+        budgetDollars: null,
+        notice: null,
+        expiresAtMs: draftExpiry(session),
+        now,
+      });
+      if (typeof saved === "string") return { kind: saved as "stale" | "expired" };
+      const routed = routeChargerText({
+        existing: chargerTrackFor(host, session.id, saved.draftId),
+        sessionId: session.id,
+        draftId: saved.draftId,
+        reading,
+        structuredChange: typedUse !== null || typedBudget !== null,
+      });
+      if (routed.kind === "refused") return { kind: "limit" as const };
+      if (routed.kind !== "charger") return { kind: "invalid" as const };
+      if (routed.changed) setChargerTrack(host, routed.track);
+      rememberChargerTurn(host, session.id, saved, message.data, routed.line);
+      return { kind: "saved" as const };
+    });
+    if (started.kind === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
+    if (started.kind === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));
+    if (started.kind !== "saved") return seeOther(needsBack(language));
+    return seeOther(needsBack(language));
+  }
+
   const now = runtime.clock().getTime();
 
   if (typedUse && typedBudget) {
@@ -445,7 +620,6 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
     return seeOther(needsBack(language));
   }
 
-  const message = ShopperMessageSchema.safeParse(text);
   if (!message.success) {
     const saved = await runtime.durable.change((host) => {
       const result = saveStructuredNeeds(host, session.id, {
@@ -494,7 +668,7 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
   await runtime.durable.change((host) => {
     const wrote = applyInterpretation(host, session.id, claimed.draft.draftId, claimed.draft.version, settled, runtime.clock().getTime());
     const drafted = needsDraftsFor(host).get(session.id);
-    if (wrote && drafted) rememberNeedsTurn(host, session.id, drafted, claimedText);
+    if (wrote && drafted) rememberLaptopResult(host, session.id, drafted, claimedText);
   });
   const failure = model === "malformed" || model === "unavailable" ? model : null;
   return seeOther(needsBack(language, undefined, failure));

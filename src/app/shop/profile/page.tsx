@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import "../../guided-presentation.css";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { DeviceProfileForm } from "@/components/DeviceProfileForm";
+import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { allowlistedJourneyLanguage, guidedSessionEntry } from "@/lib/i18n/language";
 import { isProfileErrorCode, isProfileResultCode, profileCopy, profileNotice } from "@/lib/i18n/profile-copy";
@@ -40,6 +41,7 @@ async function ProfileContentUnguarded({ searchParams }: { searchParams: SearchP
   if (opened.mode === "postgres") {
     return (
       <div lang={language}>
+        <DocumentLanguageSync language={language} />
         <h1 className="text-3xl font-semibold">{copy.pageTitle}</h1>
         <p role="alert">{copy.unavailablePostgres}</p>
       </div>
@@ -55,6 +57,7 @@ async function ProfileContentUnguarded({ searchParams }: { searchParams: SearchP
   if (!session) {
     return (
       <div lang={language} className="flex flex-col gap-4">
+        <DocumentLanguageSync language={language} />
         <h1 className="text-3xl font-semibold">{copy.pageTitle}</h1>
         <p>{copy.noSession}</p>
         <p>
@@ -68,6 +71,7 @@ async function ProfileContentUnguarded({ searchParams }: { searchParams: SearchP
   const code = isProfileErrorCode(error) ? error : isProfileResultCode(result) ? result : null;
   return (
     <>
+      <DocumentLanguageSync language={language} />
       <DeviceProfileForm language={language} csrfToken={session.csrfToken} profile={displayOf(runtime.value.profiles.read(session.id))} notice={profileNotice(copy, code)} />
       <p className="mt-6">
         <a href="/shop">{copy.backToShop}</a>
