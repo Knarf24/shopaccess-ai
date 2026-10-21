@@ -51,7 +51,7 @@ function state(patch: Partial<{ sessions: SessionRecord[]; drafts: Map<string, N
     conversations: new Map([[sid(1), conversation(1)]]),
     selections: new Map([[sid(1), { epoch: 3, closed: true }]]),
     windows,
-    grants: [], permissions: [], profiles: [], profileRevisions: [],
+    grants: [], permissions: [], profiles: [], profileRevisions: [], chargerTracks: new Map(),
     ...patch,
   };
 }

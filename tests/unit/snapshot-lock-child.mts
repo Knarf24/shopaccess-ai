@@ -53,6 +53,7 @@ if (mode === "uncertain") {
     permissions: published.value.body.permissions,
     profiles: published.value.body.profiles,
     profileRevisions: published.value.body.profileRevisions,
+    chargerTracks: published.value.body.chargerTracks,
   };
   const committed = await opened.value.commit(candidate);
   if (committed.status !== "unavailable" || committed.outcome !== "indeterminate") process.exit(1);
@@ -76,7 +77,7 @@ if (mode === "failed-write") {
     drafts: [],
     conversations: [],
     selections: [],
-    grants: [], permissions: [], profiles: [], profileRevisions: [],
+    grants: [], permissions: [], profiles: [], profileRevisions: [], chargerTracks: [],
   });
   if (failed.status !== "unavailable" || failed.outcome !== "definite") process.exit(1);
   process.stdout.write(createHash("sha256").update(canonicalJson(published.value.body), "utf8").digest("hex"));

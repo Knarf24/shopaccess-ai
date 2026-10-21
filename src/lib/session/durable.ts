@@ -1,4 +1,5 @@
 import { revokeSessionPermissions } from "../permissions/model";
+import { chargerTracksOf, deleteChargerTracks, replaceChargerTracks, type ChargerTrack } from "./charger-clarification";
 import { conversationStateOf, replaceConversationState } from "./conversation";
 import type { DurableState, PersistedDeviceProfile, PersistedGrant, PersistedPermission, PersistedProfileRevision, StateGate, Windows } from "./snapshot-state";
 import { needsDraftsFor, replaceNeedsDrafts, type InMemorySessionStore, type SessionRecord, type SessionStore } from "./store";
@@ -60,13 +61,21 @@ export interface LiveSessionStore extends SessionStore {
   liveUntil(sessionId: string, idleTimeoutMs: number): number | null;
 }
 
+/**
+ * The result type a `change` callback may have: `T` itself, or `never` when `T` is (or may be) a promise or other
+ * thenable. A callback runs as one synchronous decision (snapshot mode commits right after it returns; memory mode
+ * cleans up in the same step), so awaited work must stay outside it. `any` is rejected because it cannot be shown not to
+ * be a promise; `unknown` and every non-thenable type keep their exact type.
+ */
+export type SynchronousResult<T> = T & ([Extract<T, { readonly then: unknown }>] extends [never] ? unknown : never);
+
 export interface DurableHost {
   readonly mode: "memory" | "snapshot";
   /**
    * Runs a draft, conversation or selection change against `host`. In snapshot mode the change runs at the head of
    * the writer queue on a copy of the published state and is published only after it is durable.
    */
-  change<T>(change: (host: object) => T): Promise<T>;
+  change<T>(change: (host: object) => SynchronousResult<T>): Promise<T>;
   readonly sessionStore: LiveSessionStore;
   /** Durable before it is relied on. */
   spendAllocation(nowMs: number, policy: WindowPolicy): Promise<WindowDecision>;
@@ -104,7 +113,20 @@ export interface DurableHost {
   ): Promise<T>;
 }
 
-/** Today's behaviour, unchanged: one process, in memory. */
+/**
+ * Keeps only charger tracks whose session still has the draft they were made for. The same rule applies in both modes:
+ * `withHost` (snapshot) and every memory-mode change. A track installed for a replacement draft in the same change is
+ * kept; the old draft's track is removed.
+ */
+function tracksMatchingDrafts(host: object): Array<[string, ChargerTrack]> {
+  const drafts = needsDraftsFor(host);
+  return [...chargerTracksOf(host)].filter(([sessionId, track]) => drafts.get(sessionId)?.draftId === track.draftId);
+}
+
+/**
+ * Today's behaviour: one process, in memory. Logout and expiry also drop the session's charger track, and every change
+ * removes a track whose draft it deleted or replaced (format-7 slice 1).
+ */
 export function memoryDurableHost(store: object, sessionStore: InMemorySessionStore, admissionAttempts: { windowStartedAt: number | null; count: number }): DurableHost {
   let allocation: WindowState = { windowStartedAt: null, count: 0 };
   let grants: readonly PersistedGrant[] = [];
@@ -127,10 +149,12 @@ export function memoryDurableHost(store: object, sessionStore: InMemorySessionSt
     revoke: async (id, at) => {
       await sessionStore.revoke(id, at);
       dropProfiles([id]);
+      deleteChargerTracks(store, [id]);
     },
     deleteExpired: async (now, idleCutoff) => {
       const removed = await sessionStore.deleteExpired(now, idleCutoff);
       dropProfiles(removed);
+      deleteChargerTracks(store, removed);
       return removed;
     },
     count: () => sessionStore.count(),
@@ -141,7 +165,12 @@ export function memoryDurableHost(store: object, sessionStore: InMemorySessionSt
   return {
     mode: "memory",
     async change(change) {
-      return change(store);
+      try {
+        return change(store);
+      } finally {
+        // Memory mode has no rollback: even a change that throws after deleting a draft leaves no stale track.
+        replaceChargerTracks(store, tracksMatchingDrafts(store));
+      }
     },
     sessionStore: sessions,
     async spendAllocation(nowMs, policy) {
@@ -178,7 +207,7 @@ export function memoryDurableHost(store: object, sessionStore: InMemorySessionSt
   };
 }
 
-/** Copies a durable state's drafts, conversations and selections into a host object (scratch or published). */
+/** Copies a durable state's drafts, conversations, selections and charger tracks into a host object (scratch or published). */
 function load(host: object, state: DurableState): void {
   const ids = new Set(state.sessions.map((session) => session.id));
   replaceNeedsDrafts(host, [...state.drafts].filter(([sessionId]) => ids.has(sessionId)));
@@ -186,11 +215,16 @@ function load(host: object, state: DurableState): void {
     conversations: new Map([...state.conversations].filter(([sessionId]) => ids.has(sessionId))),
     selections: new Map([...state.selections].filter(([sessionId]) => ids.has(sessionId))),
   });
+  replaceChargerTracks(host, [...state.chargerTracks].filter(([sessionId]) => ids.has(sessionId)));
 }
 
+/**
+ * The next state from a scratch host. A charger track whose draft is gone or replaced in this same change is dropped
+ * here, so it never outlives its draft in the published state.
+ */
 function withHost(state: DurableState, host: object): DurableState {
   const conversation = conversationStateOf(host);
-  return { ...state, drafts: new Map(needsDraftsFor(host)), conversations: conversation.conversations, selections: conversation.selections };
+  return { ...state, drafts: new Map(needsDraftsFor(host)), conversations: conversation.conversations, selections: conversation.selections, chargerTracks: new Map(tracksMatchingDrafts(host)) };
 }
 
 /** Drops everything a removed session owned, in the same state. */
@@ -202,6 +236,7 @@ function withoutSessions(state: DurableState, removed: ReadonlySet<string>): Dur
     drafts: keep(state.drafts),
     conversations: keep(state.conversations),
     selections: keep(state.selections),
+    chargerTracks: keep(state.chargerTracks),
     grants: state.grants.filter((grant) => !removed.has(grant.sessionId)),
     permissions: state.permissions.filter((permission) => !removed.has(permission.sessionId)),
     profiles: state.profiles.filter((profile) => !removed.has(profile.sessionId)),
@@ -264,7 +299,9 @@ export function snapshotDurableHost(gate: StateGate, published: object): Durable
         const permissions = revokeSessionPermissions(state.permissions, id, at);
         const profiles = state.profiles.filter((profile) => profile.sessionId !== id);
         const profileRevisions = state.profileRevisions.filter((revision) => revision.sessionId !== id);
-        return { value: undefined, next: { ...replaceSession(state, { ...record, revokedAt: at }), grants, permissions, profiles, profileRevisions } };
+        // Logout removes the session's charger clarification in the same decision.
+        const chargerTracks = new Map([...state.chargerTracks].filter(([sessionId]) => sessionId !== id));
+        return { value: undefined, next: { ...replaceSession(state, { ...record, revokedAt: at }), grants, permissions, profiles, profileRevisions, chargerTracks } };
       }),
     deleteExpired: (now, idleCutoff) =>
       decide((state) => {

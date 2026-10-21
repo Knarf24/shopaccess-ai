@@ -31,6 +31,7 @@ const EMPTY: PublishedBody = {
   permissions: [],
   profiles: [],
   profileRevisions: [],
+  chargerTracks: [],
 };
 const directories: string[] = [];
 afterEach(() => {
@@ -171,7 +172,7 @@ describe("format 5 parsing and recovery", () => {
     expect(recovered.droppedSessions).toBe(1);
     const committed = await older.opened.value.commit(read.value.body);
     expect(committed.status).toBe("ready");
-    expect(JSON.parse(fs.readFileSync(join(older.directory, "store.json"), "utf8")).format).toBe(6);
+    expect(JSON.parse(fs.readFileSync(join(older.directory, "store.json"), "utf8")).format).toBe(7);
   });
 
   it("accepts one profile per session and refuses a wrapped, extra, or future format", async () => {
@@ -182,7 +183,7 @@ describe("format 5 parsing and recovery", () => {
     const marked = await open(file(6, { ...base, profiles: [], profileRevisions: [{ sessionId: sid(1), version: 4 }] }));
     expect(marked.opened.status).toBe("ready");
     const refused = [
-      file(7, { ...current, profileRevisions: [] }),
+      file(8, { ...current, profileRevisions: [], chargerTracks: [] }),
       file(6, current),
       file(6, { ...current, profileRevisions: [{ sessionId: sid(1), version: 4 }] }),
       file(6, { ...base, profiles: [], profileRevisions: [{ sessionId: sid(1), version: 0 }] }),
@@ -293,7 +294,7 @@ describe("format 5 parsing and recovery", () => {
     const committed = await older.opened.value.commit(read.value.body);
     expect(committed.status).toBe("ready");
     const written = JSON.parse(fs.readFileSync(join(older.directory, "store.json"), "utf8")) as { format: number; body: PublishedBody };
-    expect(written.format).toBe(6);
+    expect(written.format).toBe(7);
     expect(written.body.profiles).toEqual([profile]);
     expect(written.body.profileRevisions).toEqual([]);
   });

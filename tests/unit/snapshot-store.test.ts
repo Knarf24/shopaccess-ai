@@ -91,7 +91,7 @@ describe("snapshot foundation", () => {
             interpretationPending:
               draft.interpretationClaimVersion !== null && draft.interpretationClaimVersion === draft.version && draft.notice === null && draft.confirmedUse === null && draft.recommendationClaim === null,
           }));
-          expect(canonicalJson(published.value), row.id).toBe(canonicalJson({ ...file, body: { ...file.body, drafts, conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [] } }));
+          expect(canonicalJson(published.value), row.id).toBe(canonicalJson({ ...file, body: { ...file.body, drafts, conversations: [], selections: [], grants: [], permissions: [], profiles: [], profileRevisions: [], chargerTracks: [] } }));
           if (row.id === "F16") expect(stalenessDetectedByChecksum).toBe(false);
         } else {
           expect(opened.status, row.id).toBe("unavailable");
@@ -265,7 +265,7 @@ describe("snapshot foundation", () => {
   it("reopens one whole snapshot after the writing process has exited", async () => {
     const previous = current(bodyWith([session(4)], [draft(session(4).id)]));
     // Format 4 stays on disk. The served body adds an empty profile list and does not rewrite the file.
-    const served = { ...previous, profiles: [], profileRevisions: [] };
+    const served = { ...previous, profiles: [], profileRevisions: [], chargerTracks: [] };
     const failed = fixture(pack2(previous));
     const failedKey = writeKey(failed);
     const failedChild = spawnChild("failed-write", failed, failedKey);
@@ -695,7 +695,7 @@ function omit(value: object, key: string): Record<string, unknown> {
 
 /** A format-5 commit body: the format-4 shape plus an empty profile list. */
 function writing(body: Record<string, unknown>): Record<string, unknown> {
-  return { ...body, profiles: [], profileRevisions: [] };
+  return { ...body, profiles: [], profileRevisions: [], chargerTracks: [] };
 }
 
 /** A format-2 body: the format-1 fields plus empty (or given) conversations and selections. */

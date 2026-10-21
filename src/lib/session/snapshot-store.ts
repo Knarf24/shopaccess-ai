@@ -8,6 +8,13 @@ import { canonicalJson } from "../shared/canonical-json";
 import type { NeedsDraft, RetainedRecommendation, SessionRecord } from "./store";
 
 /**
+ * Format 7 (proposed, F03 conversation slice 1; merge separately gated) appends `chargerTracks`: one charger
+ * clarification record per session, bound to that session's current draft (see charger-clarification.ts). It also lets
+ * an assistant conversation line hold one of the five charger line keys. Formats 1–6 are still read and upgrade with
+ * an empty track list; a format-6 file holds no charger line, so none is accepted there. A program that accepts only
+ * format 6 or older cannot read a format-7 file and stays unavailable. No owner or rehearsal store migration is
+ * authorized by this change.
+ *
  * Format 6 appends `profileRevisions`: the last issued profile version for a session whose profile row is gone.
  * A marker is `{ sessionId, version }` only. It stores no brand and no model. Formats 1–5 are still read.
  * Formats 1–4 upgrade with empty profiles and empty markers. Format 5 upgrades with an empty marker list,
@@ -19,7 +26,9 @@ import type { NeedsDraft, RetainedRecommendation, SessionRecord } from "./store"
  * and revision markers saved in the same file. Do not restore that copy while payment or checkout activity
  * is still going on.
  */
-const FORMAT = 6;
+const FORMAT = 7;
+/** Format 6: revision markers, no charger tracks. Read upgraded with an empty track list. */
+const FORMAT_6 = 6;
 /** Format 5: device profiles, no revision markers. Read upgraded with an empty marker list. */
 const FORMAT_5 = 5;
 /** Format 4 (M2-3): purchase permissions, no device profiles. Read upgraded with an empty profile list. */
@@ -28,7 +37,7 @@ const FORMAT_4 = 4;
 const FORMAT_3 = 3;
 /** Format 2 (M2-1): no extension grants. Read upgraded with empty grant and permission lists. */
 const PREVIOUS_FORMAT = 2;
-/** Format-1 files (sessions and drafts only) are still read; they are upgraded in memory and rewritten as format 6 on the next commit. */
+/** Format-1 files (sessions and drafts only) are still read; they are upgraded in memory and rewritten as the current format on the next commit. */
 const LEGACY_FORMAT = 1;
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
@@ -79,6 +88,18 @@ const MAX_PROFILE_TEXT = 80;
 const MAX_PROFILE_VERSION = 999_999_999;
 const USES = new Set(["programming", "schoolwork", "general_productivity"]);
 const NOTICES = new Set(["malformed", "missing_use", "missing_budget", "ambiguous", "review", "unavailable"]);
+/**
+ * Charger clarification (format 7). Kept here, as literals, so this module stays self-contained. Tests check that every
+ * value of CHARGER_LINES, DEVICE_IDS and MAX_CHARGER_REVISION (charger-clarification.ts, evidence.ts) is accepted here
+ * and that other values are rejected.
+ */
+const CHARGER_LINES = new Set(["charger_task_choice", "charger_model", "charger_review", "charger_shown", "charger_closed"]);
+const CHARGER_DEVICES = new Set(["Mac14,2", "MacBookPro12,1"]);
+const CHARGER_STATES_WITHOUT_DEVICE = new Set(["closed", "task_choice", "awaiting_model"]);
+const CHARGER_STATES_WITH_DEVICE = new Set(["candidate", "confirmed"]);
+const MAX_CHARGER_REVISION = 999_999_999;
+/** The format that introduced charger line keys. A later format keeps accepting them; unknown formats are still refused at decode. */
+const CHARGER_LINES_SINCE_FORMAT = 7;
 const CLAIMS = new Set(["pending", "completed", "failed"]);
 
 const OPEN_FLAGS = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
@@ -91,7 +112,7 @@ const DIRECTORY_MODE = 0o700;
 
 export type PublishedSnapshot = {
   /** The format the file was written in. Older bodies are returned upgraded, with empty lists for keys they did not have. */
-  readonly format: 1 | 2 | 3 | 4 | 5 | 6;
+  readonly format: Format;
   readonly identity: string;
   readonly sha256: string;
   readonly body: PublishedBody;
@@ -106,9 +127,11 @@ type SnapshotSession = {
   readonly revokedAt: string | null;
 };
 
+type Format = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
 type SnapshotDraft = NeedsDraft & { readonly sessionId: string };
 
-/** One shopper line, or one assistant line holding a NeedsNotice token. */
+/** One shopper line, or one assistant line holding a NeedsNotice token (or, from format 7, a charger line key). */
 type SnapshotTurn = { readonly role: "shopper" | "assistant"; readonly text: string };
 
 /** The guided conversation for a session's current draft. */
@@ -163,6 +186,16 @@ export type PublishedBody = {
   readonly permissions: readonly SnapshotPermission[];
   readonly profiles: readonly SnapshotProfile[];
   readonly profileRevisions: readonly SnapshotProfileRevision[];
+  readonly chargerTracks: readonly SnapshotChargerTrack[];
+};
+
+/** One charger clarification record (format 7). `deviceId` is set exactly for `candidate` and `confirmed`. */
+export type SnapshotChargerTrack = {
+  readonly sessionId: string;
+  readonly draftId: string;
+  readonly state: "closed" | "task_choice" | "awaiting_model" | "candidate" | "confirmed";
+  readonly deviceId: "Mac14,2" | "MacBookPro12,1" | null;
+  readonly revision: number;
 };
 
 /** Last issued version after the profile row was removed. No brand and no model. */
@@ -498,6 +531,7 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
   if (!isRecord(parsed) || !hasExactKeys(parsed, ["format", "identity", "sha256", "body"])) return null;
   if (
     parsed.format !== FORMAT &&
+    parsed.format !== FORMAT_6 &&
     parsed.format !== FORMAT_5 &&
     parsed.format !== FORMAT_4 &&
     parsed.format !== FORMAT_3 &&
@@ -506,8 +540,20 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
   ) {
     return null;
   }
-  const format: 1 | 2 | 3 | 4 | 5 | 6 =
-    parsed.format === LEGACY_FORMAT ? 1 : parsed.format === PREVIOUS_FORMAT ? 2 : parsed.format === FORMAT_3 ? 3 : parsed.format === FORMAT_4 ? 4 : parsed.format === FORMAT_5 ? 5 : 6;
+  const format: Format =
+    parsed.format === LEGACY_FORMAT
+      ? 1
+      : parsed.format === PREVIOUS_FORMAT
+        ? 2
+        : parsed.format === FORMAT_3
+          ? 3
+          : parsed.format === FORMAT_4
+            ? 4
+            : parsed.format === FORMAT_5
+              ? 5
+              : parsed.format === FORMAT_6
+                ? 6
+                : 7;
   if (typeof parsed.identity !== "string" || !HEX_64.test(parsed.identity)) return null;
   if (typeof parsed.sha256 !== "string" || !HEX_64.test(parsed.sha256)) return null;
   if (parsed.identity !== identityFor(key)) return null;
@@ -523,10 +569,11 @@ const PREVIOUS_BODY_KEYS = [...LEGACY_BODY_KEYS, "conversations", "selections"] 
 const FORMAT_3_BODY_KEYS = [...PREVIOUS_BODY_KEYS, "grants"] as const;
 const FORMAT_4_BODY_KEYS = [...FORMAT_3_BODY_KEYS, "permissions"] as const;
 const FORMAT_5_BODY_KEYS = [...FORMAT_4_BODY_KEYS, "profiles"] as const;
-const BODY_KEYS = [...FORMAT_5_BODY_KEYS, "profileRevisions"] as const;
+const FORMAT_6_BODY_KEYS = [...FORMAT_5_BODY_KEYS, "profileRevisions"] as const;
+const BODY_KEYS = [...FORMAT_6_BODY_KEYS, "chargerTracks"] as const;
 
 /** Parses a body written in `format`. Older formats are returned upgraded with empty lists for the keys they did not have. */
-function parseBody(value: unknown, format: 1 | 2 | 3 | 4 | 5 | 6): PublishedBody | null {
+function parseBody(value: unknown, format: Format): PublishedBody | null {
   const keys =
     format === LEGACY_FORMAT
       ? LEGACY_BODY_KEYS
@@ -538,7 +585,9 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4 | 5 | 6): PublishedBody
             ? FORMAT_4_BODY_KEYS
             : format === FORMAT_5
               ? FORMAT_5_BODY_KEYS
-              : BODY_KEYS;
+              : format === FORMAT_6
+                ? FORMAT_6_BODY_KEYS
+                : BODY_KEYS;
   if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
   const allocation = parseWindow(value.allocation, MAX_ALLOCATION_COUNT);
   const admissionLogin = parseWindow(value.admissionLogin, MAX_SAFE);
@@ -571,7 +620,7 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4 | 5 | 6): PublishedBody
         draft.recommendationClaim === null,
     }));
     return {
-      ...(value as Omit<PublishedBody, "conversations" | "selections" | "drafts" | "grants" | "permissions" | "profiles" | "profileRevisions">),
+      ...(value as Omit<PublishedBody, "conversations" | "selections" | "drafts" | "grants" | "permissions" | "profiles" | "profileRevisions" | "chargerTracks">),
       drafts,
       conversations: [],
       selections: [],
@@ -579,13 +628,14 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4 | 5 | 6): PublishedBody
       permissions: [],
       profiles: [],
       profileRevisions: [],
+      chargerTracks: [],
     };
   }
   if (!Array.isArray(value.conversations) || !Array.isArray(value.selections)) return null;
   if (value.conversations.length > MAX_SESSIONS || value.selections.length > MAX_SESSIONS) return null;
   const talking = new Set<string>();
   for (const entry of value.conversations) {
-    const conversation = conversationIdentity(entry, draftOf);
+    const conversation = conversationIdentity(entry, draftOf, format);
     if (!conversation || talking.has(conversation.sessionId)) return null;
     talking.add(conversation.sessionId);
   }
@@ -596,7 +646,14 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4 | 5 | 6): PublishedBody
     selecting.add(selection.sessionId);
   }
   if (format === PREVIOUS_FORMAT) {
-    return { ...(value as Omit<PublishedBody, "grants" | "permissions" | "profiles" | "profileRevisions">), grants: [], permissions: [], profiles: [], profileRevisions: [] };
+    return {
+      ...(value as Omit<PublishedBody, "grants" | "permissions" | "profiles" | "profileRevisions" | "chargerTracks">),
+      grants: [],
+      permissions: [],
+      profiles: [],
+      profileRevisions: [],
+      chargerTracks: [],
+    };
   }
   if (!Array.isArray(value.grants) || value.grants.length > MAX_SESSIONS * MAX_ACTIVE_GRANTS_PER_SESSION * 4) return null;
   const grantIds = new Set<string>();
@@ -617,7 +674,9 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4 | 5 | 6): PublishedBody
       activeInstallations.add(grant.installationKey);
     }
   }
-  if (format === FORMAT_3) return { ...(value as Omit<PublishedBody, "permissions" | "profiles" | "profileRevisions">), permissions: [], profiles: [], profileRevisions: [] };
+  if (format === FORMAT_3) {
+    return { ...(value as Omit<PublishedBody, "permissions" | "profiles" | "profileRevisions" | "chargerTracks">), permissions: [], profiles: [], profileRevisions: [], chargerTracks: [] };
+  }
   if (!Array.isArray(value.permissions) || value.permissions.length > MAX_SESSIONS * 50) return null;
   const permissionIds = new Set<string>();
   const livePerSession = new Map<string, number>();
@@ -635,7 +694,7 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4 | 5 | 6): PublishedBody
       liveBindings.add(permission.bindingKey);
     }
   }
-  if (format === FORMAT_4) return { ...(value as Omit<PublishedBody, "profiles" | "profileRevisions">), profiles: [], profileRevisions: [] };
+  if (format === FORMAT_4) return { ...(value as Omit<PublishedBody, "profiles" | "profileRevisions" | "chargerTracks">), profiles: [], profileRevisions: [], chargerTracks: [] };
   if (!Array.isArray(value.profiles) || value.profiles.length > value.sessions.length) return null;
   const profileSessions = new Set<string>();
   for (const entry of value.profiles) {
@@ -643,7 +702,7 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4 | 5 | 6): PublishedBody
     if (!sessionId || profileSessions.has(sessionId)) return null;
     profileSessions.add(sessionId);
   }
-  if (format === FORMAT_5) return { ...(value as Omit<PublishedBody, "profileRevisions">), profileRevisions: [] };
+  if (format === FORMAT_5) return { ...(value as Omit<PublishedBody, "profileRevisions" | "chargerTracks">), profileRevisions: [], chargerTracks: [] };
   if (!Array.isArray(value.profileRevisions) || value.profileRevisions.length > value.sessions.length) return null;
   const revisionSessions = new Set<string>();
   for (const entry of value.profileRevisions) {
@@ -651,7 +710,36 @@ function parseBody(value: unknown, format: 1 | 2 | 3 | 4 | 5 | 6): PublishedBody
     if (!sessionId || revisionSessions.has(sessionId) || profileSessions.has(sessionId)) return null;
     revisionSessions.add(sessionId);
   }
+  if (format === FORMAT_6) return { ...(value as Omit<PublishedBody, "chargerTracks">), chargerTracks: [] };
+  if (!Array.isArray(value.chargerTracks) || value.chargerTracks.length > value.sessions.length) return null;
+  const trackSessions = new Set<string>();
+  for (const entry of value.chargerTracks) {
+    const sessionId = chargerTrackIdentity(entry, draftOf);
+    if (!sessionId || trackSessions.has(sessionId)) return null;
+    trackSessions.add(sessionId);
+  }
   return value as PublishedBody;
+}
+
+/**
+ * One charger track per session, bound to that session's draft in the same body. The device is a canonical curated
+ * identifier exactly for `candidate` and `confirmed`, and null otherwise. Revision 0 and a revision past the maximum are
+ * rejected, not wrapped.
+ */
+function chargerTrackIdentity(value: unknown, draftOf: ReadonlyMap<string, string>): string | null {
+  if (!isRecord(value) || !hasExactKeys(value, ["sessionId", "draftId", "state", "deviceId", "revision"])) return null;
+  if (typeof value.sessionId !== "string" || typeof value.draftId !== "string") return null;
+  if (!draftOf.has(value.sessionId) || draftOf.get(value.sessionId) !== value.draftId) return null;
+  if (typeof value.state !== "string") return null;
+  if (CHARGER_STATES_WITHOUT_DEVICE.has(value.state)) {
+    if (value.deviceId !== null) return null;
+  } else if (CHARGER_STATES_WITH_DEVICE.has(value.state)) {
+    if (typeof value.deviceId !== "string" || !CHARGER_DEVICES.has(value.deviceId)) return null;
+  } else {
+    return null;
+  }
+  if (!isBoundedInteger(value.revision, 1, MAX_CHARGER_REVISION)) return null;
+  return value.sessionId;
 }
 
 /** One marker per session, and not for a session that still has a profile. Version 0 and a version past the maximum are rejected. */
@@ -745,8 +833,8 @@ function grantIdentity(
   };
 }
 
-/** A conversation belongs to a stored session and to that session's current draft. */
-function conversationIdentity(value: unknown, draftOf: ReadonlyMap<string, string>): { sessionId: string } | null {
+/** A conversation belongs to a stored session and to that session's current draft. Charger line keys need format 7. */
+function conversationIdentity(value: unknown, draftOf: ReadonlyMap<string, string>, format: Format): { sessionId: string } | null {
   if (!isRecord(value) || !hasExactKeys(value, ["sessionId", "draftId", "interfaceLanguage", "turns"])) return null;
   if (typeof value.sessionId !== "string" || typeof value.draftId !== "string") return null;
   if (draftOf.get(value.sessionId) !== value.draftId) return null;
@@ -755,7 +843,7 @@ function conversationIdentity(value: unknown, draftOf: ReadonlyMap<string, strin
   for (const turn of value.turns) {
     if (!isRecord(turn) || !hasExactKeys(turn, ["role", "text"]) || typeof turn.text !== "string") return null;
     if (turn.role === "assistant") {
-      if (!NOTICES.has(turn.text)) return null;
+      if (!NOTICES.has(turn.text) && !(format >= CHARGER_LINES_SINCE_FORMAT && CHARGER_LINES.has(turn.text))) return null;
     } else if (turn.role === "shopper") {
       if (turn.text.length < 1 || turn.text.length > MAX_SHOPPER_LINE || turn.text !== turn.text.trim() || CONTROL.test(turn.text)) return null;
     } else {
@@ -798,7 +886,7 @@ function sessionIdentity(value: unknown): { id: string; tokenDigest: string } | 
   return { id: value.id, tokenDigest: value.tokenDigest };
 }
 
-function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>, format: 1 | 2 | 3 | 4 | 5 | 6): { sessionId: string; draftId: string } | null {
+function draftIdentity(value: unknown, sessionIds: ReadonlySet<string>, format: Format): { sessionId: string; draftId: string } | null {
   const legacyKeys = [
     "sessionId",
     "draftId",
@@ -898,6 +986,7 @@ function emptyBody(): PublishedBody {
     permissions: [],
     profiles: [],
     profileRevisions: [],
+    chargerTracks: [],
   };
 }
 
