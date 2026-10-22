@@ -504,7 +504,7 @@ describe("Channel3 discovery", () => {
       runtime,
     );
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toBe("/shop/needs?lang=en&listings=unavailable");
+    expect(response.headers.get("location")).toBe("/en/shop/needs?listings=unavailable");
     expect(runtime.channel3.search).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(needsDraftsFor(runtime.store).get(session.value.id)?.confirmedUse).toBe("schoolwork");
@@ -576,8 +576,8 @@ describe("Channel3 discovery", () => {
     if (!release) throw new Error("gate missing");
     release();
     release = undefined;
-    expect((await first).headers.get("location")).toBe("/shop/needs?lang=en&listings=error");
-    expect((await repeat).headers.get("location")).toBe("/shop/needs?lang=en&listings=error");
+    expect((await first).headers.get("location")).toBe("/en/shop/needs?listings=error");
+    expect((await repeat).headers.get("location")).toBe("/en/shop/needs?listings=error");
     expect(calls.searches).toBe(1);
 
     expect((await handleNeedsListings(listingPost(buyer, draft.draftId, draft.version), runtime)).headers.get("location")).toContain("listings=error");
@@ -648,7 +648,7 @@ describe("Channel3 discovery", () => {
     });
     if (typeof movedConfirmed === "string") throw new Error(movedConfirmed);
     const stale = await handleNeedsListings(listingPost(movedBuyer, movedDraft.draftId, movedDraft.version), staleRuntime);
-    expect(stale.headers.get("location")).toBe("/shop/needs?lang=en&listings=stale");
+    expect(stale.headers.get("location")).toBe("/en/shop/needs?listings=stale");
     expect(staleRuntime.channel3.read(movedBuyer.sessionId, movedDraft.draftId, movedDraft.version)?.status).not.toBe("ready");
   });
 });

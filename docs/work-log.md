@@ -1,6 +1,15 @@
 # ShopAccess AI work log
 All dates use America/New_York. Claude maintains this log after each work session; other contributors provide their handoff evidence. Do not log credentials, cookies or private customer data.
 
+## October 21, 2026 — localized document language (uncommitted)
+
+- **Source:** `feature/localized-document-language` from `df69cb4`, worktree `/Users/frankncube/ownpay/shopaccess-localized-routes`. Not committed. No existing store was opened. Store variables stayed unset. No live provider was called. The no-TCP preload recorded no connect attempt.
+- **Build:** `npx next build --webpack` succeeded. Turbopack still cannot follow the symlinked `node_modules`; dependencies were not changed. Typecheck exited 0 after that build. Lint exited 0 with the same 9 warnings.
+- **Tests:** the default full unit run was 1,606 passed and 1 failed. `tests/unit/pg-static.test.ts` PGT-157 exceeded 5 seconds while 71 files ran together. That file was not part of the routing change. Run alone, its 53 tests passed in 3.74 seconds. The new locale-route tests and the updated page tests passed, including an unauthorized checkout that must not reveal the other session’s purchase language.
+- **Production server:** memory mode on `127.0.0.1:3221`, with a disposable admission secret created for that process. `/fr/shop/needs` and `/en-US/shop/needs` were HTTP 404, `<html id="__next_error__">`, no `lang`, and no shopping text. `/en/shop/needs` and `/es/shop/needs` documents used `lang=en` and `lang=es` with the matching visible language. A Spanish draft redirected `/en/shop/needs` to `/es/shop/needs`. A second session did not receive that draft or the Spanish purchase heading. POST `/shop/needs/submit` returned 303 to `/es/shop/needs`. POST `/checkout/start` returned 303 to the unprefixed `/checkout/{id}`, which then redirected to the stored Spanish checkout. A plain-HTTP `Origin` on an admitted POST was HTTP 403. The server was stopped afterward.
+- **Browser:** the same production server showed the 404 for `/fr/shop/needs` and `/en-US/shop/needs`. Back returned from the English homepage to the Spanish admission page, and forward returned to the homepage. Unauthenticated `/shop` opened English admission. Choosing Español and submitting the language form opened `/es/demo/admission` with `lang=es`. With JavaScript disabled, `/es/shop/needs` still reached that Spanish admission heading.
+- **Estimate:** 42–74 hours is the current unfinished sum. 33–61 hours is the superseded calculation. The October 16 136–239 hour partial total stays historical. F03 remains unaccepted. D-category remains open. There is no screen-reader acceptance.
+
 ## October 21, 2026 — wired-checkout launch wording (documentation only)
 
 - **Source:** `feature/f03-charger-conversation` after merge `931ca35`. No store was opened and no server was started. Product source and tests were not changed. Product tests were not rerun.

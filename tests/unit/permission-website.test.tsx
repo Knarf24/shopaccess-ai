@@ -94,7 +94,7 @@ describe("create route", () => {
     const response = await create(world.runtime, buyer, { total: "879.99" });
     expect(response.status).toBe(303);
     const back = location(response);
-    expect(back.pathname).toBe("/shop/permissions");
+    expect(back.pathname).toBe("/en/shop/permissions");
     expect(back.hash).toBe("");
     const [made] = listOf(world.runtime, buyer);
     // Browser finding (slice 3): no permission identifier in the address bar or on the page.
@@ -187,7 +187,7 @@ describe("create route", () => {
     const guest = await shopper(admitted.runtime, cookie);
     const withoutAdmission = await create(admitted.runtime, { ...guest, cookie: guest.cookie.split("; ")[0] });
     expect(withoutAdmission.status).toBe(303);
-    expect(location(withoutAdmission).pathname).toBe("/demo/admission");
+    expect(location(withoutAdmission).pathname).toBe("/en/demo/admission");
     expect(listOf(admitted.runtime, guest)).toEqual([]);
   });
 
@@ -245,7 +245,7 @@ describe("revoke route", () => {
     for (const language of ["en", "es"] as const) {
       const html = renderToStaticMarkup(<PermissionRefusal language={language} code={view!.permissionRefusal!} />);
       expect(html).toContain(permissionCopy(language).refusals.PERMISSION_REVOKED);
-      expect(html).toContain(`href="/shop/permissions?lang=${language}">${permissionCopy(language).managePermissions}</a>`);
+      expect(html).toContain(`href="/${language}/shop/permissions">${permissionCopy(language).managePermissions}</a>`);
     }
   });
 
@@ -366,7 +366,7 @@ describe("permissions page", () => {
     for (const text of ["ShopAccess Demo Store (simulated)", "Acer Aspire 14 AI", "16 GB LPDDR5X", "$1799.98", "USD", "2026-10-17 12:00 UTC"]) expect(html, text).toContain(text);
     expect(html).toContain('action="/shop/permissions/create"');
     expect(html).toContain('name="csrfToken" value="csrf-test"');
-    expect(html).toMatch(/<form [^>]*action="\/shop\/permissions" method="get">/);
+    expect(html).toMatch(/<form [^>]*action="\/en\/shop\/permissions" method="get">/);
     expect(html).toContain('href="#permission-review-heading"');
   });
 
@@ -435,7 +435,7 @@ describe("refusal and uncertainty wording", () => {
       }
       const html = renderToStaticMarkup(<PermissionRefusal language={language} code="CONFIRMATION_REQUIRED" />).replaceAll("&#x27;", "'");
       expect(html).toContain(copy.refusals.CONFIRMATION_REQUIRED);
-      expect(html).toContain(`href="/shop/permissions?lang=${language}"`);
+      expect(html).toContain(`href="/${language}/shop/permissions"`);
       const review = renderToStaticMarkup(<PermissionRefusal language={language} code="PERMISSION_UNAVAILABLE" underReview />);
       expect(review).toContain(copy.outcomeUnderReview);
       expect(review).not.toContain("/shop/permissions");

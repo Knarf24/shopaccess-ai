@@ -751,7 +751,9 @@ describe("shop rendering", () => {
     );
     expect(localPanel).toContain("Assistant explanation (local mock, advisory only): ");
 
-    const page = readFileSync(join(process.cwd(), "src", "app", "shop", "page.tsx"), "utf8");
+    const page = readFileSync(join(process.cwd(), "src", "app", "(english)", "shop", "shop-listing.tsx"), "utf8");
+    const shopPage = readFileSync(join(process.cwd(), "src", "app", "(english)", "shop", "page.tsx"), "utf8");
+    expect(shopPage).toContain("ShopListing");
     expect(page).toContain("AdvisoryRecommendations");
     expect(page).toContain("Assistant (local mock, advisory only): ");
     expect(page).toContain('action="/checkout/start"');

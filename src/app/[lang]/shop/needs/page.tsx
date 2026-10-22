@@ -18,13 +18,14 @@ import { EVIDENCE } from "@/lib/compatibility/evidence";
 import { selectDevice } from "@/lib/compatibility/rules";
 import { isPermissionRefusal, permissionCopy } from "@/lib/i18n/permission-copy";
 import { revocationMessage } from "@/lib/i18n/extension-copy";
-import "../../guided-presentation.css";
+import "../../../guided-presentation.css";
 import "./needs-workspace.css";
 import { ExternalListings, type ListingNotice } from "@/components/mock-journey/ExternalListings";
 import { TranslatedAdvisory } from "@/components/mock-journey/TranslatedAdvisory";
 import { TranslatedCatalogList } from "@/components/mock-journey/TranslatedCatalogList";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
-import { allowlistedJourneyLanguage, type JourneyLanguage } from "@/lib/i18n/language";
+import { savedLanguageRedirect } from "@/lib/i18n/locale-path";
+import { documentLocale } from "@/lib/i18n/locale-segment";
 import {
   MissingSessionNeeds,
   NEEDS_EXPIRED_ALERT_ID,
@@ -42,13 +43,13 @@ import { loadNeedsJourney, visibleNeedsNotice } from "@/server/shopping";
 import { resolvePageSession } from "@/server/views";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+type PageParams = Promise<{ lang: string }>;
 
-function languageFrom(value: string | string[] | undefined): JourneyLanguage {
-  return allowlistedJourneyLanguage(typeof value === "string" ? value : undefined);
-}
-
-async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
+async function NeedsContentUnguarded({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   await connection();
+  const [{ lang }, query] = await Promise.all([params, searchParams]);
+  const pathLanguage = documentLocale(lang);
+  if (!pathLanguage) notFound();
   const opened = await openApplication();
   if (opened === "unavailable") return <StoreUnavailable />;
   const application = opened;
@@ -57,12 +58,11 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
   const runtime = runtimeOf(application);
   if (!runtime.ok) return <ConfigNotice errors={runtime.error} />;
 
-  const query = await searchParams;
   const admissionLocation = protectedAdmissionLocation(
     runtime.value.admission,
     (await headers()).get("cookie"),
     runtime.value.clock().getTime(),
-    typeof query.lang === "string" ? query.lang : undefined,
+    pathLanguage,
   );
   if (admissionLocation) redirect(admissionLocation);
   const session = await resolvePageSession(runtime.value);
@@ -70,13 +70,15 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
     return (
       <MissingSessionNeeds
         started={query.started === "1" ? "1" : undefined}
-        lang={typeof query.lang === "string" ? query.lang : undefined}
+        lang={pathLanguage}
       />
     );
   }
 
   const journey = await loadNeedsJourney(runtime.value, session);
-  const language = journey.draft?.language ?? languageFrom(query.lang);
+  const canonical = journey.draft ? savedLanguageRedirect(pathLanguage, journey.draft.language, "/shop/needs", query) : null;
+  if (canonical) redirect(canonical);
+  const language = journey.draft?.language ?? pathLanguage;
   const copy = journeyCopy(language);
   const errorCode = typeof query.error === "string" ? query.error : undefined;
   const alert = errorCode && errorCode in copy.alerts ? copy.alerts[errorCode as keyof typeof copy.alerts] : null;
@@ -161,7 +163,7 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
             {copy.alerts.DRAFT_EXPIRED}
           </p>
           <p>
-            <Link href={`/shop/needs?lang=${language}`} prefetch={false} className="underline">
+            <Link href={`/${language}/shop/needs`} prefetch={false} className="underline">
               {copy.restartNeeds}
             </Link>
           </p>
@@ -316,13 +318,13 @@ async function NeedsContentUnguarded({ searchParams }: { searchParams: SearchPar
       ) : null}
       <aside className="needs-side">
         <p>
-          <Link href={`/shop/permissions?lang=${language}`} prefetch={false} className="underline">
+          <Link href={`/${language}/shop/permissions`} prefetch={false} className="underline">
             {permissionCopy(language).managePermissions}
           </Link>
         </p>
         <section className="needs-handoff" aria-labelledby="needs-handoff-heading">
           <h2 id="needs-handoff-heading">
-            <Link href={`/shop/chargers?lang=${language}`} prefetch={false} className="underline">
+            <Link href={`/${language}/shop/chargers`} prefetch={false} className="underline">
               {chargerCopy(language).needsLink}
             </Link>
           </h2>
@@ -344,12 +346,12 @@ function listingNoticeFrom(value: string | string[] | undefined): ListingNotice 
   return null;
 }
 
-export default function NeedsPage({ searchParams }: { searchParams: SearchParams }) {
+export default function NeedsPage({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   return (
     <main className="guided-presentation needs-workspace">
       <div className="presentation-column">
         <Suspense fallback={<p>Loading guided shopping…</p>}>
-          <NeedsContent searchParams={searchParams} />
+          <NeedsContent params={params} searchParams={searchParams} />
         </Suspense>
       </div>
     </main>

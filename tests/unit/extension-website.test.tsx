@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { needsCurrentTargetId, selectNeedsCurrentTarget } from "@/app/shop/needs/current-step";
+import { needsCurrentTargetId, selectNeedsCurrentTarget } from "@/app/[lang]/shop/needs/current-step";
 import { PAIRED_ACCESS_RESULT_ID, PairedAccess } from "@/components/PairedAccess";
 import { revocationMessage } from "@/lib/i18n/extension-copy";
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
@@ -61,7 +61,7 @@ describe("pairing approval on the website", () => {
     const pairing = await startPairing(runtime);
     const decided = await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "es" }, buyer.cookie), runtime);
     expect(decided.status).toBe(303);
-    expect(decided.headers.get("location")).toBe("/extension/pair?lang=es&result=approved");
+    expect(decided.headers.get("location")).toBe("/es/extension/pair?result=approved");
     expect(await status(runtime, pairing)).toBe("approved");
     const grant = await exchange(runtime, pairing);
     expect((await read(runtime, grant.bearer)).status).toBe(200);
@@ -72,7 +72,7 @@ describe("pairing approval on the website", () => {
     const buyer = await shopper(runtime);
     const pairing = await startPairing(runtime);
     const decided = await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "deny", lang: "en" }, buyer.cookie), runtime);
-    expect(decided.headers.get("location")).toBe("/extension/pair?lang=en&result=denied");
+    expect(decided.headers.get("location")).toBe("/en/extension/pair?result=denied");
     expect(await status(runtime, pairing)).toBe("denied");
     expect(await exchange(runtime, pairing)).toBeUndefined();
   });
@@ -98,7 +98,7 @@ describe("pairing approval on the website", () => {
     const buyer = await shopper(runtime);
     for (const pairingId of ["0".repeat(64), "not-a-pairing"]) {
       const response = await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId, decision: "approve", lang: "en" }, buyer.cookie), runtime);
-      expect(response.headers.get("location")).toBe("/extension/pair?lang=en&result=failed");
+      expect(response.headers.get("location")).toBe("/en/extension/pair?result=failed");
     }
   });
 
@@ -128,7 +128,7 @@ describe("pairing approval on the website", () => {
       site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "en" }, `${buyer.cookie}; ${admissionCookie}`),
       runtime,
     );
-    expect(decided.headers.get("location")).toBe("/extension/pair?lang=en&result=approved");
+    expect(decided.headers.get("location")).toBe("/en/extension/pair?result=approved");
     const grant = await exchange(runtime, pairing);
     expect(grant.expiresAt).toBeLessThanOrEqual(nowMs + 600_000);
   });
@@ -148,7 +148,7 @@ describe("paired access and revocation", () => {
     const [first, second] = grants;
     const revoked = await handleExtensionRevoke(site("/extension/revoke", { csrfToken: buyer.csrfToken, grantId: first.grantId, lang: "en" }, buyer.cookie), runtime);
     expect(revoked.status).toBe(303);
-    expect(revoked.headers.get("location")).toBe(`/shop/needs?lang=en&revoked=${first.grantId.slice(4, 12)}`);
+    expect(revoked.headers.get("location")).toBe(`/en/shop/needs?revoked=${first.grantId.slice(4, 12)}`);
     expect((await read(runtime, first.bearer)).status).toBe(401);
     expect((await read(runtime, second.bearer)).status).toBe(200);
     expect(runtime.pairing.list(buyer.sessionId, runtime.clock()).map((g) => g.grantId)).toEqual([second.grantId]);

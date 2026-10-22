@@ -1,6 +1,17 @@
 # ShopAccess AI feature and evidence tracker
 Updated October 16, 2026. Target: October 24. Initial status reflects published governance and owner-supplied reports, not a fresh implementation audit.
 
+## October 21, 2026 — localized document language (uncommitted)
+
+The sections below stay dated history. This entry does not accept F03, decide D-category, authorize a store migration, or replace the October 16 estimate.
+
+- **Source:** worktree `/Users/frankncube/ownpay/shopaccess-localized-routes`, branch `feature/localized-document-language`, base `df69cb4`. Nothing here is committed. The separate conversation worktree’s documentation was not edited.
+- **Routes:** English `/`, `/shop`, and `/checkouts` use a root layout with `<html lang="en">`. Guided needs, chargers, permissions, profile, checkout, demo admission, and extension pairing are under `/en` and `/es`, with `<html lang>` set from that segment. POST handlers stay on their existing unprefixed paths. A legacy GET or HEAD to an exact page on the allowlist redirects once; a POST is not retargeted.
+- **Language:** a saved needs draft or an owned checkout redirects to its stored language only after the existing admission, session, and ownership checks. A missing session uses the path language and does not create a session. URL-driven pages use the path. An unsupported segment is not rendered as English: the layout calls `notFound()` when the value is not exactly `en` or `es`.
+- **Framework 404:** with Cache Components, a prefix outside `generateStaticParams` does not reach that layout. `/fr/shop/needs` and `/en-US/shop/needs` return HTTP 404. The framework error document is `<html id="__next_error__">` and has no `lang` attribute. It does not render shopping content. A missing route such as `/fr/probe` is a separate `<html>` document, also without `lang`. The layout’s rejection branch was not executed and no custom marker was added.
+- **Remaining work:** the October 16 partial total of 136–239 hours, plus 8–11 hours of M1 experiments, and the 77–126 hour critical path stay that date’s historical estimate. The superseded unfinished sum is **33–61 hours**: document language 5–9, voice 6–11, supported-store mechanics 11–21, and submission 11–20. Replacing the 5–9 hour document-language item with this 14–22 hour localized-route slice makes the current sum **42–74 hours**. The separate 5–9 hour wake-word experiment, agent-completed checkout, and repeat-order revalidation stay outside that sum. October 24 and the full scope are unchanged.
+- **Open:** F03 remains unaccepted. D-category remains open. Product acceptance remains open. There is no screen-reader acceptance. Existing stores stay reserved. No deployment.
+
 ## F03 charger clarification, slice 1: state, transitions and proposed snapshot format 7 — October 19, 2026 (uncommitted when written)
 
 The sections below stay dated history. This entry does not accept F03 or decide D-category, and it does not approve format 7.

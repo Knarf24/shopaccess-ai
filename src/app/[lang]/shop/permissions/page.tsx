@@ -1,15 +1,16 @@
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import "../../guided-presentation.css";
+import "../../../guided-presentation.css";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { PurchasePermissions, type CatalogChoice, type PermissionResult, type PermissionReview, type ShownPermission } from "@/components/PurchasePermissions";
 import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { findMerchantVariant } from "@/lib/catalog/merchant-catalog";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
-import { allowlistedJourneyLanguage, guidedSessionEntry } from "@/lib/i18n/language";
+import { guidedSessionEntry } from "@/lib/i18n/language";
+import { documentLocale } from "@/lib/i18n/locale-segment";
 import { isPermissionFormCode, permissionCopy } from "@/lib/i18n/permission-copy";
 import { sellerName } from "@/lib/i18n/seller-name";
 import { resolveExpiry } from "@/lib/permissions/model";
@@ -20,6 +21,7 @@ import { guardPage, openApplication } from "@/server/runtime-access";
 import { resolvePageSession } from "@/server/views";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+type PageParams = Promise<{ lang: string }>;
 
 /** A short query value, or "". Echoed values are only ever shown back in form fields. */
 const one = (value: string | string[] | undefined, max = 80) => (typeof value === "string" && value.length <= max ? value : "");
@@ -29,10 +31,11 @@ const one = (value: string | string[] | undefined, max = 80) => (typeof value ==
  * session. Rendering (including the review of a draft) changes nothing; creating and revoking are CSRF-protected POSTs.
  * PostgreSQL mode: the feature is unavailable there and says so.
  */
-async function PermissionsContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
+async function PermissionsContentUnguarded({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   await connection();
-  const query = await searchParams;
-  const language = allowlistedJourneyLanguage(one(query.lang));
+  const [{ lang }, query] = await Promise.all([params, searchParams]);
+  const language = documentLocale(lang);
+  if (!language) notFound();
   const copy = permissionCopy(language);
   const opened = await openApplication();
   if (opened === "unavailable") return <StoreUnavailable />;
@@ -136,22 +139,22 @@ async function PermissionsContentUnguarded({ searchParams }: { searchParams: Sea
         entered={values}
       />
       <p className="mt-6">
-        <a href={`/shop/needs?lang=${language}`}>{copy.backToShopping}</a>
+        <a href={`/${language}/shop/needs`}>{copy.backToShopping}</a>
       </p>
     </>
   );
 }
 
-async function PermissionsContent(props: { searchParams: SearchParams }) {
+async function PermissionsContent(props: { params: PageParams; searchParams: SearchParams }) {
   return guardPage(() => PermissionsContentUnguarded(props), () => <StoreUnavailable />);
 }
 
-export default function PermissionsPage({ searchParams }: { searchParams: SearchParams }) {
+export default function PermissionsPage({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   return (
     <main className="guided-presentation">
       <div className="presentation-column">
         <Suspense fallback={<p>Loading…</p>}>
-          <PermissionsContent searchParams={searchParams} />
+          <PermissionsContent params={params} searchParams={searchParams} />
         </Suspense>
       </div>
     </main>

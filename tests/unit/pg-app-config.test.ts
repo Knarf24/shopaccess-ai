@@ -426,7 +426,7 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
   });
 
   it("A34: the simulated payment panel is rendered by the mock branch alone", () => {
-    const page = read("app", "checkout", "[intentId]", "page.tsx");
+    const page = read("app", "[lang]", "checkout", "[intentId]", "page.tsx");
     const postgres = page.slice(page.indexOf("async function PgCheckoutContent"), page.indexOf("async function CheckoutContent"));
     expect(postgres).not.toMatch(/SimulatedPaymentPanel|\/simulate/);
     expect(postgres).toContain("Payment simulation is not part of this mode");
@@ -434,7 +434,7 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
   });
 
   it("the mode is read at request time on every page, so a page built for one mode is never served in another", () => {
-    for (const parts of [["app", "page.tsx"], ["app", "shop", "page.tsx"], ["app", "checkout", "[intentId]", "page.tsx"], ["app", "checkouts", "page.tsx"], ["app", "demo", "admission", "page.tsx"]]) {
+    for (const parts of [["app", "(english)", "page.tsx"], ["app", "(english)", "shop", "page.tsx"], ["app", "[lang]", "checkout", "[intentId]", "page.tsx"], ["app", "(english)", "checkouts", "page.tsx"], ["app", "[lang]", "demo", "admission", "page.tsx"]]) {
       const text = read(...parts);
       const connection = text.indexOf("await connection();");
       // M2-1: pages reach the process application only through openApplication (runtime-access.ts), after connection().
@@ -443,9 +443,9 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
       expect(application, parts.join("/")).toBeGreaterThan(connection);
       expect(text, parts.join("/")).not.toMatch(/getApplication\(|getRuntime\(/);
     }
-    expect(read("app", "shop", "needs", "page.tsx")).not.toMatch(/getApplication\(|getRuntime\(/);
+    expect(read("app", "[lang]", "shop", "needs", "page.tsx")).not.toMatch(/getApplication\(|getRuntime\(/);
     // In PostgreSQL mode the start page shows the database's catalog or the notice, never the fixture catalog.
-    const home = read("app", "page.tsx");
+    const home = read("app", "(english)", "page.tsx");
     expect(home.match(/DEMO_MERCHANT_CATALOG/g)).toHaveLength(2);
     const mockBranch = home.slice(home.indexOf('if (application.mode === "mock")'), home.indexOf('if (application.mode === "invalid")'));
     expect(mockBranch).toContain("<GuidedLanguageChoice />");
@@ -455,7 +455,7 @@ describe("boundaries of the PostgreSQL wiring, checked on the source text (A20, 
     expect(postgresBranch).not.toContain('action="/session/needs"');
     expect(postgresBranch).toContain("<Storefront catalog={catalog} />");
     // The owner list does not exist in the mock.
-    expect(read("app", "checkouts", "page.tsx")).toMatch(/if \(application\.mode === "mock"\) notFound\(\);/);
+    expect(read("app", "(english)", "checkouts", "page.tsx")).toMatch(/if \(application\.mode === "mock"\) notFound\(\);/);
   });
 
   it("states the timeout limitation as it is, and adds no race or timer that would abandon a call", () => {

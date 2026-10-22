@@ -91,7 +91,7 @@ describe("guided draft sharing", () => {
   });
 
   it("keeps shopper text and the structured review when interpretation is malformed, and shows a safe notice when the draft is missing", async () => {
-    const page = readFileSync("src/app/shop/needs/page.tsx", "utf8");
+    const page = readFileSync("src/app/[lang]/shop/needs/page.tsx", "utf8");
     const body = page.slice(page.indexOf("async function NeedsContent"));
     expect(body.indexOf("resolvePageSession")).toBeGreaterThan(-1);
     expect(body.indexOf("resolvePageSession")).toBeLessThan(body.indexOf("visibleNeedsNotice"));
@@ -115,7 +115,7 @@ describe("guided draft sharing", () => {
       guided,
     );
     const location = submitted.headers.get("location") ?? "";
-    expect(location).toBe("/shop/needs?lang=es&notice=malformed");
+    expect(location).toBe("/es/shop/needs?notice=malformed");
     expect(location).not.toContain(SHOPPER_TEXT);
     expect(location).not.toContain(secret);
     expect(location).not.toContain(buyer.sessionId);
@@ -197,7 +197,7 @@ describe("guided draft sharing", () => {
       ),
       runtime,
     );
-    expect(stale.headers.get("location")).toBe("/shop/needs?lang=es&error=STALE_DRAFT");
+    expect(stale.headers.get("location")).toBe("/es/shop/needs?error=STALE_DRAFT");
     expect(needsDraftsFor(runtime.store).get(buyer.sessionId)?.notice).toBe("malformed");
 
     const incomplete = await handleNeedsConfirm(
@@ -208,7 +208,7 @@ describe("guided draft sharing", () => {
       ),
       runtime,
     );
-    expect(incomplete.headers.get("location")).toBe("/shop/needs?lang=es&error=CONFIRM_INCOMPLETE");
+    expect(incomplete.headers.get("location")).toBe("/es/shop/needs?error=CONFIRM_INCOMPLETE");
     expect(needsDraftsFor(runtime.store).get(buyer.sessionId)?.notice).toBe("malformed");
     expect(alertFor("malformed")).toContain(copy.notices.malformed);
 
@@ -220,7 +220,7 @@ describe("guided draft sharing", () => {
       ),
       runtime,
     );
-    expect(confirmed.headers.get("location")).toBe("/shop/needs?lang=es");
+    expect(confirmed.headers.get("location")).toBe("/es/shop/needs");
     const kept = needsDraftsFor(runtime.store).get(buyer.sessionId);
     expect(kept?.notice).toBeNull();
     expect(kept?.confirmedUse).toBe("schoolwork");
@@ -237,7 +237,7 @@ describe("guided draft sharing", () => {
       ),
       runtime,
     );
-    expect(conflict.headers.get("location")).toBe("/shop/needs?lang=es&error=STALE_DRAFT");
+    expect(conflict.headers.get("location")).toBe("/es/shop/needs?error=STALE_DRAFT");
     expect(needsDraftsFor(runtime.store).get(buyer.sessionId)?.notice).toBeNull();
     expect(needsDraftsFor(runtime.store).get(buyer.sessionId)?.confirmedUse).toBe("schoolwork");
     expect(needsDraftsFor(runtime.store).get(buyer.sessionId)?.confirmedBudgetDollars).toBe("500");
@@ -279,10 +279,10 @@ describe("guided draft sharing", () => {
       ),
       guided,
     );
-    expect(replaced.headers.get("location")).toBe("/shop/needs?lang=es");
+    expect(replaced.headers.get("location")).toBe("/es/shop/needs");
     release();
     const late = await pending;
-    expect(late.headers.get("location")).toBe("/shop/needs?lang=es");
+    expect(late.headers.get("location")).toBe("/es/shop/needs");
     const draft = needsDraftsFor(runtime.store).get(buyer.sessionId);
     expect(draft?.prefilledUse).toBe("schoolwork");
     expect(draft?.prefilledBudgetDollars).toBe("500");
@@ -319,7 +319,7 @@ describe("guided draft sharing", () => {
     expiredWorld.time.advance(2 * HOUR);
     releaseExpired();
     const refused = await hanging;
-    expect(refused.headers.get("location")).toBe("/shop/needs?lang=es&error=DRAFT_EXPIRED");
+    expect(refused.headers.get("location")).toBe("/es/shop/needs?error=DRAFT_EXPIRED");
     expect(refused.headers.get("location")).not.toContain("notice=");
     expect(needsDraftsFor(expiredWorld.runtime.store).get(other.sessionId)?.notice).toBeNull();
     expect(needsDraftsFor(expiredWorld.runtime.store).get(other.sessionId)?.prefilledUse).toBeNull();

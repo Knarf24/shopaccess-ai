@@ -387,7 +387,7 @@ describe("SQL-01: SQL injection is rejected through parameterized queries", () =
       join(ROOT, "src", "lib", "pg", "session-service.ts"),
       join(ROOT, "src", "lib", "pg", "client.ts"),
       join(ROOT, "src", "server", "handlers.ts"),
-      join(ROOT, "src", "app", "page.tsx"),
+      join(ROOT, "src", "app", "(english)", "page.tsx"),
     ];
     const cases: Array<[string, string]> = [
       ["lower case, one line", 'const q = "select id from quotes where id = $1";'],
@@ -557,7 +557,7 @@ describe("SEC-01: no sensitive credentials in client output or logs", () => {
     expect(sec01Report(collectSec01Sources(join(ROOT, "src")), ROOT)).toEqual({
       clientModules: [join(ROOT, "src", "components", "FocusOnArrival.tsx"), join(ROOT, "src", "components", "mock-journey", "ListingSearchForm.tsx")].sort(),
       focusOnArrivalImporters: [join(ROOT, "src", "components", "PurchasePermissions.tsx")],
-      purchasePermissionsImporters: [join(ROOT, "src", "app", "shop", "permissions", "page.tsx")],
+      purchasePermissionsImporters: [join(ROOT, "src", "app", "[lang]", "shop", "permissions", "page.tsx")],
       computedSpecifiers: [],
     });
   });

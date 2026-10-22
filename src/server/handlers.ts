@@ -162,7 +162,7 @@ export async function handleCheckoutStart(request: Request, runtime: Runtime): P
 
   const preferences = parsePreferences(form.get("use"), form.get("budget"));
   const interfaceLanguage = explicitJourneyLanguage(form.get("lang"));
-  const back = interfaceLanguage ? "/shop/needs?" : preferences ? `/shop?${preferencesQuery(preferences)}&` : "/shop?";
+  const back = interfaceLanguage ? `/${interfaceLanguage}/shop/needs?` : preferences ? `/shop?${preferencesQuery(preferences)}&` : "/shop?";
   const needsDraft = needsDraftsFor(runtime.store).get(session.id) ?? null;
   const needsMatched = Boolean(
     preferences &&
@@ -176,7 +176,7 @@ export async function handleCheckoutStart(request: Request, runtime: Runtime): P
     needsDraft &&
     (!purchaseSelectionsOpen(runtime.store, session.id) || (needsDraft.confirmedUse !== null && !needsMatched))
   ) {
-    return seeOther(`/shop/needs?lang=${interfaceLanguage ?? needsDraft.language}&error=STALE_DRAFT`);
+    return seeOther(`/${interfaceLanguage ?? needsDraft.language}/shop/needs?error=STALE_DRAFT`);
   }
 
   // Only these three fields are read. Any price or total in the form is never looked at.
@@ -256,11 +256,12 @@ function draftExpiry(session: Session): number {
 }
 
 function needsBack(language: JourneyLanguage, code?: string, failure?: string | null): string {
-  const query = new URLSearchParams({ lang: language });
+  const query = new URLSearchParams();
   if (code) query.set("error", code);
   const notice = failureNoticeCode(failure);
   if (notice) query.set("notice", notice);
-  return `/shop/needs?${query.toString()}`;
+  const search = query.toString();
+  return `/${language}/shop/needs${search ? `?${search}` : ""}`;
 }
 
 function chargerControlFromForm(form: URLSearchParams): ChargerControl | null {
@@ -746,7 +747,7 @@ export async function handleNeedsListings(request: Request, runtime: Runtime): P
 }
 
 function listingsBack(language: JourneyLanguage, listings: "unavailable" | "limit" | "error" | "stale"): string {
-  return `/shop/needs?${new URLSearchParams({ lang: language, listings }).toString()}`;
+  return `/${language}/shop/needs?${new URLSearchParams({ listings }).toString()}`;
 }
 
 async function runSimulationStep(runtime: Runtime, session: Session, intentId: string, step: SimulationStep): Promise<string | null> {
@@ -1044,14 +1045,14 @@ export async function handleExtensionPairDecision(request: Request, runtime: Run
   const language = needsLanguage(form);
   const pairingId = form.get("pairingId") ?? "";
   const decision = form.get("decision");
-  if (!/^[0-9a-f]{64}$/.test(pairingId) || (decision !== "approve" && decision !== "deny")) return seeOther(`/extension/pair?lang=${language}&result=failed`);
+  if (!/^[0-9a-f]{64}$/.test(pairingId) || (decision !== "approve" && decision !== "deny")) return seeOther(`/${language}/extension/pair?result=failed`);
   const nowMs = runtime.clock().getTime();
   const decided = runtime.pairing.approve(
     { pairingId, sessionId: session.id, deny: decision === "deny", boundMs: admissionExpiryMs(runtime.admission, request.headers.get("cookie"), nowMs) },
     nowMs,
   );
   const result = decided.ok ? decided.value.status : "failed";
-  return seeOther(`/extension/pair?lang=${language}&result=${result}`);
+  return seeOther(`/${language}/extension/pair?result=${result}`);
 }
 
 /** POST /extension/revoke (M2-2). Revokes one of this session's grants; durable before the page reports it. */
@@ -1067,12 +1068,12 @@ export async function handleExtensionRevoke(request: Request, runtime: Runtime):
   if (!/^grt_[0-9a-f]{32}$/.test(grantId)) return seeOther(needsBack(language));
   const revoked = await runtime.pairing.revoke(session.id, grantId, runtime.clock());
   if (revoked !== "revoked") return seeOther(needsBack(language));
-  return seeOther(`/shop/needs?lang=${language}&revoked=${grantId.slice(4, 12)}`);
+  return seeOther(`/${language}/shop/needs?revoked=${grantId.slice(4, 12)}`);
 }
 
 /** Where the permissions page reports a create or revoke outcome, with the entered values echoed back (never secrets). */
 function permissionsBack(language: JourneyLanguage, outcome: Record<string, string>): string {
-  return `/shop/permissions?${new URLSearchParams({ lang: language, ...outcome }).toString()}`;
+  return `/${language}/shop/permissions?${new URLSearchParams(outcome).toString()}`;
 }
 
 const MODEL_TO_FORM: Record<string, PermissionFormCode> = {
@@ -1163,7 +1164,7 @@ async function auditBestEffort(runtime: Runtime, session: Session, eventType: st
 }
 
 function profileBack(language: JourneyLanguage, outcome: Record<string, string>): string {
-  return `/shop/profile?${new URLSearchParams({ lang: language, ...outcome }).toString()}`;
+  return `/${language}/shop/profile?${new URLSearchParams(outcome).toString()}`;
 }
 
 /**

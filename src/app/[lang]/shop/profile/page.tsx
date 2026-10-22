@@ -1,13 +1,15 @@
+import Link from "next/link";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import "../../guided-presentation.css";
+import "../../../guided-presentation.css";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { DeviceProfileForm } from "@/components/DeviceProfileForm";
 import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
-import { allowlistedJourneyLanguage, guidedSessionEntry } from "@/lib/i18n/language";
+import { guidedSessionEntry } from "@/lib/i18n/language";
+import { documentLocale } from "@/lib/i18n/locale-segment";
 import { isProfileErrorCode, isProfileResultCode, profileCopy, profileNotice } from "@/lib/i18n/profile-copy";
 import type { DeviceProfileDisplay } from "@/types/device-profile";
 import { protectedAdmissionLocation } from "@/server/demo-admission";
@@ -16,6 +18,7 @@ import { guardPage, openApplication } from "@/server/runtime-access";
 import { resolvePageSession } from "@/server/views";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+type PageParams = Promise<{ lang: string }>;
 
 const one = (value: string | string[] | undefined, max = 40) => (typeof value === "string" && value.length <= max ? value : "");
 
@@ -31,10 +34,11 @@ function displayOf(profile: { readonly version: number; readonly brand: string |
 }
 
 /** GET /shop/profile. Rendering does not save. PostgreSQL mode says the feature is unavailable and does not connect. */
-async function ProfileContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
+async function ProfileContentUnguarded({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   await connection();
-  const query = await searchParams;
-  const language = allowlistedJourneyLanguage(one(query.lang, 8));
+  const [{ lang }, query] = await Promise.all([params, searchParams]);
+  const language = documentLocale(lang);
+  if (!language) notFound();
   const copy = profileCopy(language);
   const opened = await openApplication();
   if (opened === "unavailable") return <StoreUnavailable />;
@@ -74,22 +78,22 @@ async function ProfileContentUnguarded({ searchParams }: { searchParams: SearchP
       <DocumentLanguageSync language={language} />
       <DeviceProfileForm language={language} csrfToken={session.csrfToken} profile={displayOf(runtime.value.profiles.read(session.id))} notice={profileNotice(copy, code)} />
       <p className="mt-6">
-        <a href="/shop">{copy.backToShop}</a>
+        <Link href="/shop" prefetch={false}>{copy.backToShop}</Link>
       </p>
     </>
   );
 }
 
-async function ProfileContent(props: { searchParams: SearchParams }) {
+async function ProfileContent(props: { params: PageParams; searchParams: SearchParams }) {
   return guardPage(() => ProfileContentUnguarded(props), () => <StoreUnavailable />);
 }
 
-export default function ProfilePage({ searchParams }: { searchParams: SearchParams }) {
+export default function ProfilePage({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   return (
     <main className="guided-presentation">
       <div className="presentation-column">
         <Suspense fallback={<p>Loading…</p>}>
-          <ProfileContent searchParams={searchParams} />
+          <ProfileContent params={params} searchParams={searchParams} />
         </Suspense>
       </div>
     </main>

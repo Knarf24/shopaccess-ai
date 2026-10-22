@@ -10,8 +10,8 @@ import {
   CHECKOUT_QUOTE_HEADING_ID,
   CHECKOUT_QUOTE_PROBLEM_ID,
   checkoutCurrentTargetId,
-} from "@/app/checkout/[intentId]/page";
-import { SHOP_ALERT_ID, SHOP_STEP_HEADING_ID, ShopListing } from "@/app/shop/page";
+} from "@/app/[lang]/checkout/[intentId]/checkout-targets";
+import { SHOP_ALERT_ID, SHOP_STEP_HEADING_ID, ShopListing } from "@/app/(english)/shop/shop-listing";
 import { ConfirmationSummary } from "@/components/ConfirmationSummary";
 import { FocusOnArrival, focusArrivalTarget } from "@/components/FocusOnArrival";
 import {
@@ -153,7 +153,7 @@ describe("/shop skip link", () => {
     const refusal = tagWithId(html, SHOP_ALERT_ID);
     expect(refusal).toMatch(/^<p\b[^>]*tabindex="-1"[^>]*role="alert"/);
     expect(html.match(new RegExp(`id="${SHOP_ALERT_ID}"`, "g"))).toHaveLength(1);
-    expect(html).toContain('href="/shop/permissions?lang=en"');
+    expect(html).toContain('href="/en/shop/permissions"');
     expect(html.indexOf(`id="${SHOP_ALERT_ID}"`)).toBeLessThan(html.indexOf("<form"));
   });
 
@@ -208,7 +208,7 @@ describe("checkout skip link", () => {
   });
 
   it("puts the skip link first in both modes and gives the page's own targets tabIndex -1", () => {
-    const page = readFileSync("src/app/checkout/[intentId]/page.tsx", "utf8");
+    const page = readFileSync("src/app/[lang]/checkout/[intentId]/page.tsx", "utf8");
     const mock = page.slice(page.indexOf("async function CheckoutContentUnguarded"));
     expect(mock.indexOf("<SkipToCurrentStep")).toBeGreaterThan(-1);
     expect(mock.indexOf("<SkipToCurrentStep")).toBeLessThan(mock.indexOf("<h1"));
@@ -255,7 +255,7 @@ describe("seller name language", () => {
   });
 
   it("is used for every seller the permissions page shows", () => {
-    const page = readFileSync("src/app/shop/permissions/page.tsx", "utf8");
+    const page = readFileSync("src/app/[lang]/shop/permissions/page.tsx", "utf8");
     expect(page.match(/seller: sellerName\(catalog\.merchant\.displayName, language\)/g)).toHaveLength(3);
     expect(page).not.toMatch(/seller: catalog\.merchant\.displayName/);
   });

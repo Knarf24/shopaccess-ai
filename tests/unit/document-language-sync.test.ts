@@ -29,14 +29,14 @@ describe("document language synchronization", () => {
 
   it("mounts the synchronizer on routes using their existing resolved language", () => {
     const routes = [
-      "src/app/shop/needs/page.tsx",
-      "src/app/shop/needs/current-step.tsx",
-      "src/app/shop/chargers/page.tsx",
-      "src/app/shop/permissions/page.tsx",
-      "src/app/shop/profile/page.tsx",
-      "src/app/checkout/[intentId]/page.tsx",
-      "src/app/extension/pair/page.tsx",
-      "src/app/demo/admission/page.tsx",
+      "src/app/[lang]/shop/needs/page.tsx",
+      "src/app/[lang]/shop/needs/current-step.tsx",
+      "src/app/[lang]/shop/chargers/page.tsx",
+      "src/app/[lang]/shop/permissions/page.tsx",
+      "src/app/[lang]/shop/profile/page.tsx",
+      "src/app/[lang]/checkout/[intentId]/page.tsx",
+      "src/app/[lang]/extension/pair/page.tsx",
+      "src/app/[lang]/demo/admission/admission-screen.tsx",
     ];
 
     for (const route of routes) {
@@ -46,6 +46,9 @@ describe("document language synchronization", () => {
     }
     const clientSource = readFileSync("src/components/mock-journey/ListingSearchForm.tsx", "utf8");
     expect(clientSource).toMatch(/useLayoutEffect\(\(\) => syncDocumentLanguage\(document\.documentElement, language\), \[language\]\)/);
-    expect(readFileSync("src/app/layout.tsx", "utf8")).toContain('<html lang="en"');
+    expect(readFileSync("src/app/(english)/layout.tsx", "utf8")).toContain('<html lang="en"');
+    const localized = readFileSync("src/app/[lang]/layout.tsx", "utf8");
+    expect(localized).toContain("if (!locale) notFound()");
+    expect(localized).toContain("lang={locale}");
   });
 });

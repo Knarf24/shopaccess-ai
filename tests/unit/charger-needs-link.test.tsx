@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { cloneElement, Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getURLFromRedirectError } from "next/dist/client/components/redirect";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
 import { parseTrustedOrigins } from "@/lib/session/request-guard";
@@ -21,7 +23,7 @@ vi.mock("@/server/runtime-access", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/server/runtime-access")>()),
   openApplication: async () => ({ mode: "mock", runtime: { ok: true, value: page.runtime } }),
 }));
-const { default: NeedsPage } = await import("@/app/shop/needs/page");
+const { default: NeedsPage } = await import("@/app/[lang]/shop/needs/page");
 
 async function resolveServer(node: ReactNode): Promise<ReactNode> {
   if (Array.isArray(node)) return Promise.all(node.map(resolveServer));
@@ -35,10 +37,18 @@ async function resolveServer(node: ReactNode): Promise<ReactNode> {
   const resolved = Array.isArray(children) ? await Promise.all(children.map(resolveServer)) : [await resolveServer(children)];
   return cloneElement(element, undefined, ...resolved);
 }
-const render = async (query: Record<string, string>) =>
-  renderToStaticMarkup(<Fragment>{await resolveServer(NeedsPage({ searchParams: Promise.resolve(query) }))}</Fragment>);
+const render = async (query: Record<string, string>, pathLang: "en" | "es" = query.lang === "es" ? "es" : "en"): Promise<string> => {
+  try {
+    return renderToStaticMarkup(<Fragment>{await resolveServer(NeedsPage({ params: Promise.resolve({ lang: pathLang }), searchParams: Promise.resolve(query) }))}</Fragment>);
+  } catch (error) {
+    const url = isRedirectError(error) ? getURLFromRedirectError(error) : null;
+    const next = url?.startsWith("/es/") ? "es" : url?.startsWith("/en/") ? "en" : null;
+    if (!next || next === pathLang) throw error;
+    return render(query, next);
+  }
+};
 const chargerLinks = (html: string) =>
-  [...html.matchAll(/<a\b[^>]*href="(\/shop\/chargers[^"]*)"[^>]*>([\s\S]*?)<\/a>/g)].map((m) => ({ href: m[1].replace(/&amp;/g, "&"), label: m[2] }));
+  [...html.matchAll(/<a\b[^>]*href="(\/(?:en|es)\/shop\/chargers[^"]*)"[^>]*>([\s\S]*?)<\/a>/g)].map((m) => ({ href: m[1].replace(/&amp;/g, "&"), label: m[2] }));
 
 const LABEL = { en: "Explore charger information", es: "Consultar información sobre cargadores" };
 
@@ -64,7 +74,7 @@ async function draftIn(runtime: Runtime, csrfToken: string, lang: "en" | "es") {
     }),
     runtime,
   );
-  expect(response.headers.get("location")).toBe(`/shop/needs?lang=${lang}`);
+  expect(response.headers.get("location")).toBe(`/${lang}/shop/needs`);
   expect([...needsDraftsFor(runtime.store).values()].map((d) => d.language)).toEqual([lang]);
 }
 
@@ -76,32 +86,32 @@ beforeEach(() => {
 describe("guided needs page: charger information link", () => {
   it("English and Spanish without a saved draft: one link in the URL language", async () => {
     await shopper();
-    expect(chargerLinks(await render({ lang: "en" }))).toEqual([{ href: "/shop/chargers?lang=en", label: LABEL.en }]);
-    expect(chargerLinks(await render({ lang: "es" }))).toEqual([{ href: "/shop/chargers?lang=es", label: LABEL.es }]);
+    expect(chargerLinks(await render({ lang: "en" }))).toEqual([{ href: "/en/shop/chargers", label: LABEL.en }]);
+    expect(chargerLinks(await render({ lang: "es" }))).toEqual([{ href: "/es/shop/chargers", label: LABEL.es }]);
   });
 
   it("a saved Spanish draft wins over ?lang=en, and a saved English draft over ?lang=es", async () => {
     const spanish = await shopper();
     await draftIn(spanish.runtime, spanish.csrfToken, "es");
-    expect(chargerLinks(await render({ lang: "en" }))).toEqual([{ href: "/shop/chargers?lang=es", label: LABEL.es }]);
-    expect(chargerLinks(await render({}))).toEqual([{ href: "/shop/chargers?lang=es", label: LABEL.es }]);
+    expect(chargerLinks(await render({ lang: "en" }))).toEqual([{ href: "/es/shop/chargers", label: LABEL.es }]);
+    expect(chargerLinks(await render({}))).toEqual([{ href: "/es/shop/chargers", label: LABEL.es }]);
 
     const english = await shopper();
     await draftIn(english.runtime, english.csrfToken, "en");
-    expect(chargerLinks(await render({ lang: "es" }))).toEqual([{ href: "/shop/chargers?lang=en", label: LABEL.en }]);
+    expect(chargerLinks(await render({ lang: "es" }))).toEqual([{ href: "/en/shop/chargers", label: LABEL.en }]);
   });
 
   it("sits between the purchase-permissions link and the home link, uses prefetch={false} and the charger copy module", async () => {
     await shopper();
     const html = await render({ lang: "en" });
-    const permissions = html.indexOf('href="/shop/permissions?lang=en"');
-    const chargers = html.indexOf('href="/shop/chargers?lang=en"');
+    const permissions = html.indexOf('href="/en/shop/permissions"');
+    const chargers = html.indexOf('href="/en/shop/chargers"');
     const home = html.lastIndexOf('href="/"');
     expect(permissions).toBeGreaterThan(-1);
     expect(chargers).toBeGreaterThan(permissions);
     expect(home).toBeGreaterThan(chargers);
-    const source = readFileSync(join(process.cwd(), "src/app/shop/needs/page.tsx"), "utf8");
-    expect(source).toMatch(/<Link href=\{`\/shop\/chargers\?lang=\$\{language\}`\} prefetch=\{false\} className="underline">\s*\{chargerCopy\(language\)\.needsLink\}\s*<\/Link>/);
+    const source = readFileSync(join(process.cwd(), "src/app/[lang]/shop/needs/page.tsx"), "utf8");
+    expect(source).toMatch(/<Link href=\{`\/\$\{language\}\/shop\/chargers`\} prefetch=\{false\} className="underline">\s*\{chargerCopy\(language\)\.needsLink\}\s*<\/Link>/);
   });
 
   it("renders the saved-language charger clarification, website controls and confirmed information comparison", async () => {

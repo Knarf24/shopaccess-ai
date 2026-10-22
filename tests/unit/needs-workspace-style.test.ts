@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 import { NeedsConversation } from "@/components/mock-journey/NeedsConversation";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
 
-const css = readFileSync("src/app/shop/needs/needs-workspace.css", "utf8");
-const needsPage = readFileSync("src/app/shop/needs/page.tsx", "utf8");
+const css = readFileSync("src/app/[lang]/shop/needs/needs-workspace.css", "utf8");
+const needsPage = readFileSync("src/app/[lang]/shop/needs/page.tsx", "utf8");
 const conversation = readFileSync("src/components/mock-journey/NeedsConversation.tsx", "utf8");
 
 describe("needs workspace presentation", () => {
@@ -16,14 +16,14 @@ describe("needs workspace presentation", () => {
     expect(needsPage).toContain('className="guided-presentation needs-workspace"');
     expect(needsPage).not.toContain("use client");
     for (const file of [
-      "src/app/page.tsx",
-      "src/app/shop/page.tsx",
-      "src/app/shop/chargers/page.tsx",
-      "src/app/shop/profile/page.tsx",
-      "src/app/shop/permissions/page.tsx",
-      "src/app/checkout/[intentId]/page.tsx",
-      "src/app/extension/pair/page.tsx",
-      "src/app/demo/admission/page.tsx",
+      "src/app/(english)/page.tsx",
+      "src/app/(english)/shop/page.tsx",
+      "src/app/[lang]/shop/chargers/page.tsx",
+      "src/app/[lang]/shop/profile/page.tsx",
+      "src/app/[lang]/shop/permissions/page.tsx",
+      "src/app/[lang]/checkout/[intentId]/page.tsx",
+      "src/app/[lang]/extension/pair/page.tsx",
+      "src/app/[lang]/demo/admission/page.tsx",
       "src/app/guided-presentation.css",
     ]) {
       expect(readFileSync(file, "utf8")).not.toContain("needs-workspace");
@@ -58,7 +58,7 @@ describe("needs workspace presentation", () => {
       "./fonts/ibm-plex-mono/IBMPlexMono-Bold.ttf",
     ]);
     for (const family of ["plus-jakarta-sans", "dm-sans", "ibm-plex-mono"]) {
-      const dir = join("src/app/shop/needs/fonts", family);
+      const dir = join("src/app/[lang]/shop/needs/fonts", family);
       const names = readdirSync(dir);
       expect(names).toContain("OFL.txt");
       expect(readFileSync(join(dir, "OFL.txt"), "utf8")).toContain("SIL Open Font License, Version 1.1");

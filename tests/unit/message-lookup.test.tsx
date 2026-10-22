@@ -59,9 +59,9 @@ vi.mock("@/server/pg-views", async (importOriginal) => ({
   buildPgCheckoutList: async () => ({ kind: "OK", value: [] }),
   buildPgCheckoutView: async () => ({ kind: "OK", value: PG_CHECKOUT }),
 }));
-const { default: ShopPage } = await import("@/app/shop/page");
-const { default: CheckoutsPage } = await import("@/app/checkouts/page");
-const { default: CheckoutPage } = await import("@/app/checkout/[intentId]/page");
+const { default: ShopPage } = await import("@/app/(english)/shop/page");
+const { default: CheckoutsPage } = await import("@/app/(english)/checkouts/page");
+const { default: CheckoutPage } = await import("@/app/[lang]/checkout/[intentId]/page");
 
 /** Resolves the async server components in a page tree (the page, its guarded content, PgShopContent…), then renders. */
 async function resolveServer(node: ReactNode): Promise<ReactNode> {
@@ -163,12 +163,12 @@ describe("pages that show URL codes through messageFor", () => {
 
   it("PostgreSQL checkout (pg-views reads canned): prototype-named error and notice show the generic text", async () => {
     page.mode = "postgres";
-    const known = await render(CheckoutPage({ params: Promise.resolve({ intentId: PG_CHECKOUT.intentId }), searchParams: Promise.resolve({ notice: "CONFIRMED", error: "CANCELED" }) }));
+    const known = await render(CheckoutPage({ params: Promise.resolve({ lang: "en", intentId: PG_CHECKOUT.intentId }), searchParams: Promise.resolve({ notice: "CONFIRMED", error: "CANCELED" }) }));
     expect(byRole(known, "status")).toEqual(["Your confirmation of this purchase summary was recorded. No payment has been taken."]);
     expect(byRole(known, "alert")).toEqual(["This checkout was canceled."]);
     const seen: Array<[string, { alert: string[]; status: string[] }]> = [];
     for (const code of PROTOTYPE_NAMES) {
-      const html = await render(CheckoutPage({ params: Promise.resolve({ intentId: PG_CHECKOUT.intentId }), searchParams: Promise.resolve({ error: code, notice: code }) }));
+      const html = await render(CheckoutPage({ params: Promise.resolve({ lang: "en", intentId: PG_CHECKOUT.intentId }), searchParams: Promise.resolve({ error: code, notice: code }) }));
       seen.push([code, { alert: byRole(html, "alert"), status: byRole(html, "status") }]);
     }
     expect(Object.fromEntries(seen)).toEqual(EXPECTED_BOTH);

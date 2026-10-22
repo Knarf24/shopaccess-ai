@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { MerchantProductCard } from "@/components/MerchantProductCard";
-import "./guided-presentation.css";
+import "../guided-presentation.css";
 import { PreferencesForm } from "@/components/PreferencesForm";
 import { SessionNotice } from "@/components/SessionNotice";
 import { GuidedLanguageChoice } from "@/components/mock-journey/GuidedLanguageChoice";

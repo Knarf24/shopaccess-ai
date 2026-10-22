@@ -36,7 +36,8 @@ export function ChargerInformation({
   const results = device ? CHARGER_IDS.flatMap((charger) => CABLE_IDS.map((cable) => evaluateCombination(EVIDENCE, device.id, charger, cable))) : [];
   const skipTarget = selection.kind === "unidentified" ? CHARGER_ALERT_ID : device ? CHARGER_RESULTS_HEADING_ID : CHARGER_HEADING_ID;
   const otherLanguage = language === "en" ? "es" : "en";
-  const switchQuery = new URLSearchParams({ lang: otherLanguage, ...(device ? { device: device.id } : {}) });
+  const switchQuery = new URLSearchParams(device ? { device: device.id } : {});
+  const switchHref = `/${otherLanguage}/shop/chargers${switchQuery.toString() ? `?${switchQuery.toString()}` : ""}`;
 
   const sourceLinks = (sources: readonly SourceId[]): ReactNode =>
     sources.length ? (
@@ -99,13 +100,12 @@ export function ChargerInformation({
       <p>{copy.infoOnly}</p>
       <p className="text-sm">{copy.affiliation}</p>
       <p>
-        <a href={`/shop/chargers?${switchQuery.toString()}`} lang={otherLanguage}>
+        <a href={switchHref} lang={otherLanguage}>
           {copy.otherLanguage}
         </a>
       </p>
 
-      {showDeviceSelector ? <form method="get" action="/shop/chargers" className="flex flex-col gap-3">
-        <input type="hidden" name="lang" value={language} />
+      {showDeviceSelector ? <form method="get" action={`/${language}/shop/chargers`} className="flex flex-col gap-3">
         <label htmlFor="charger-device">{copy.deviceLabel}</label>
         <select id="charger-device" name="device" defaultValue={device?.id ?? ""} className="rounded border border-zinc-500 bg-white px-2 py-2 text-black">
           <option value="">{copy.devicePlaceholder}</option>

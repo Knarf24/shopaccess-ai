@@ -1,6 +1,8 @@
 import { Fragment, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getURLFromRedirectError } from "next/dist/client/components/redirect";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { confirmPurchaseSummary, prepareConfirmation } from "@/lib/confirmation/confirmation";
 import { startCheckoutWithQuote } from "@/lib/checkout/service";
@@ -32,7 +34,7 @@ vi.mock("@/server/runtime-access", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/server/runtime-access")>()),
   openApplication: async () => ({ mode: "mock", runtime: { ok: true, value: page.runtime } }),
 }));
-const { default: CheckoutPage } = await import("@/app/checkout/[intentId]/page");
+const { default: CheckoutPage } = await import("@/app/[lang]/checkout/[intentId]/page");
 
 const SITE = "https://shop.example.test";
 const GO15 = { item: "dmp_aspirego15:dmv_aspirego15", productId: "dmp_aspirego15", variantId: "dmv_aspirego15" };
@@ -95,11 +97,18 @@ async function simulate(runtime: Runtime, buyer: Buyer, intentId: string, step: 
 const stateOf = async (runtime: Runtime, intentId: string) => (await runtime.store.findIntent(intentId))!.snapshot.state;
 
 /** Renders the checkout page exactly as Next would for this request: page → Suspense → guarded content. */
-async function render(intentId: string, query: Record<string, string> = {}): Promise<string> {
-  const outer = CheckoutPage({ params: Promise.resolve({ intentId }), searchParams: Promise.resolve(query) }) as ReactElement<{ children: ReactElement }>;
-  const content = outer.props.children;
-  const tree = await (content.type as (props: unknown) => Promise<ReactNode>)(content.props);
-  return renderToStaticMarkup(<Fragment>{tree}</Fragment>);
+async function render(intentId: string, query: Record<string, string> = {}, pathLang: "en" | "es" = "en"): Promise<string> {
+  try {
+    const outer = CheckoutPage({ params: Promise.resolve({ lang: pathLang, intentId }), searchParams: Promise.resolve(query) }) as ReactElement<{ children: ReactElement }>;
+    const content = outer.props.children;
+    const tree = await (content.type as (props: unknown) => Promise<ReactNode>)(content.props);
+    return renderToStaticMarkup(<Fragment>{tree}</Fragment>);
+  } catch (error) {
+    const url = isRedirectError(error) ? getURLFromRedirectError(error) : null;
+    const next = url?.startsWith("/es/") ? "es" : url?.startsWith("/en/") ? "en" : null;
+    if (!next || next === pathLang) throw error;
+    return render(intentId, query, next);
+  }
 }
 
 const ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#x27;": "'", "&#39;": "'" };
@@ -283,7 +292,7 @@ describe("checkout page: refusals describe the current condition (review finding
     const html = await render(intent.id);
     const es = permissionCopy("es");
     expect(alerts(html)).toEqual([`${es.refusals.PERMISSION_REVOKED} ${es.managePermissions}`]);
-    expect(html).toContain('href="/shop/permissions?lang=es"');
+    expect(html).toContain('href="/es/shop/permissions"');
   });
 });
 
@@ -548,10 +557,34 @@ describe("checkout page: wording follows the saved checkout language (finding 8)
     const asSpanish = await render(spanish.id, { notice: "CONFIRMED" });
     expect(text(asSpanish)).toContain(SPANISH.heading);
     expect(await render(spanish.id, { notice: "CONFIRMED", lang: "en" })).toBe(asSpanish);
+    expect(await render(spanish.id, { notice: "CONFIRMED" }, "en")).toBe(asSpanish);
     const english = await confirmedCheckout();
     const asEnglish = await render(english.id, { notice: "CONFIRMED" });
     expect(await render(english.id, { notice: "CONFIRMED", lang: "es" })).toBe(asEnglish);
+    expect(await render(english.id, { notice: "CONFIRMED" }, "es")).toBe(asEnglish);
     expect(asEnglish).not.toContain('lang="es"');
+  });
+
+  it("another session's Spanish checkout is not found and does not reveal that language", async () => {
+    const { runtime } = world();
+    const owner = await shopper(runtime);
+    await permit(runtime, owner);
+    const { intent } = await start(runtime, owner, "es");
+    const other = await shopper(runtime);
+    page.cookie = other.cookie;
+    for (const pathLang of ["en", "es"] as const) {
+      let thrown: unknown;
+      try {
+        const outer = CheckoutPage({ params: Promise.resolve({ lang: pathLang, intentId: intent.id }), searchParams: Promise.resolve({}) }) as ReactElement<{ children: ReactElement }>;
+        const content = outer.props.children;
+        await (content.type as (props: unknown) => Promise<ReactNode>)(content.props);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(isRedirectError(thrown) ? getURLFromRedirectError(thrown) : null).toBeNull();
+      expect(String(thrown)).toContain("404");
+      expect(String(thrown)).not.toContain("Compra de demostración");
+    }
   });
 
   it("errors: Spanish where translated, English text marked English otherwise, and a Spanish generic message for unknown codes", async () => {
