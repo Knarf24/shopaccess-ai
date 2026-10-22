@@ -10,8 +10,7 @@ import type { JourneyLanguage } from "@/lib/i18n/language";
 export function ChargerDeviceHandoff({ language }: { readonly language: JourneyLanguage }) {
   const copy = chargerCopy(language);
   return (
-    <form method="get" action="/shop/chargers" className="flex flex-col gap-3">
-      <input type="hidden" name="lang" value={language} />
+    <form method="get" action={`/${language}/shop/chargers`} className="flex flex-col gap-3">
       <label htmlFor="needs-charger-device">{copy.handoffLabel}</label>
       <select id="needs-charger-device" name="device" defaultValue="" className="rounded border border-zinc-500 bg-white px-2 py-2 text-black">
         <option value="">{copy.handoffPlaceholder}</option>

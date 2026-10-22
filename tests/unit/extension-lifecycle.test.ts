@@ -124,7 +124,7 @@ describe("grant end by session and admission", () => {
     const sessionOnly = buyer.cookie.split("; ")[0];
     const response = await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "en" }, sessionOnly), runtime);
     expect(response.status).toBe(303);
-    expect(response.headers.get("location")).toMatch(/^\/demo\/admission/);
+    expect(response.headers.get("location")).toMatch(/^\/en\/demo\/admission/);
     const status = await handleExtensionPairingStatus(api(`/pairings/${pairing.pairingId}/status`, { exchangeSecret: pairing.exchangeSecret }), runtime, pairing.pairingId);
     expect((await status.json()).value.status).toBe("pending");
   });

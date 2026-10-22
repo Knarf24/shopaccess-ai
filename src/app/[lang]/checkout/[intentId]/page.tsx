@@ -13,10 +13,12 @@ import { SessionNotice } from "@/components/SessionNotice";
 import { SandboxCheckoutActions, SimulatedPaymentPanel } from "@/components/SimulatedPaymentPanel";
 import { formatUsd } from "@/lib/catalog/merchant-catalog";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
+import { savedLanguageRedirect } from "@/lib/i18n/locale-path";
+import { documentLocale } from "@/lib/i18n/locale-segment";
 import { sellerName } from "@/lib/i18n/seller-name";
-import { isPermissionRefusal, type PermissionRefusalCode } from "@/lib/i18n/permission-copy";
 import { PermissionRefusal } from "@/components/PermissionRefusal";
-import "../../guided-presentation.css";
+import "../../../guided-presentation.css";
+import { CHECKOUT_ALERT_ID, CHECKOUT_CONFIRM_HEADING_ID, CHECKOUT_NOTICE_ID, CHECKOUT_QUOTE_HEADING_ID, CHECKOUT_QUOTE_PROBLEM_ID, checkoutCurrentTargetId, checkoutMessages } from "./checkout-targets";
 import type { PgRuntime } from "@/server/pg-runtime";
 import { buildPgCheckoutView, PG_STATUS_LABELS, pgCookieHeader, resolvePgPageSession } from "@/server/pg-views";
 import { protectedAdmissionLocation } from "@/server/demo-admission";
@@ -26,56 +28,11 @@ import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { buildCheckoutView, checkoutMessage, messageFor, resolvePageSession } from "@/server/views";
 
 interface PageProps {
-  params: Promise<{ intentId: string }>;
+  params: Promise<{ lang: string; intentId: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 type Query = Record<string, string | string[] | undefined>;
-
-export const CHECKOUT_ALERT_ID = "checkout-alert";
-export const CHECKOUT_NOTICE_ID = "checkout-notice";
-export const CHECKOUT_QUOTE_PROBLEM_ID = "checkout-quote-problem";
-export const CHECKOUT_CONFIRM_HEADING_ID = "confirm-heading";
-export const CHECKOUT_QUOTE_HEADING_ID = "quote-heading";
-
-/**
- * The skip link's one target (M2-3): a refusal or error, then a notice, then the current step: the confirmation summary,
- * a problem with the quote, the quote while the checkout is still at it, else the payment section.
- */
-export function checkoutCurrentTargetId(state: {
-  readonly alert: boolean;
-  readonly notice: boolean;
-  readonly confirmation: boolean;
-  readonly quoteProblem: boolean;
-  readonly quoteStep: boolean;
-  readonly paymentHeadingId: string | null;
-}): string {
-  if (state.alert) return CHECKOUT_ALERT_ID;
-  if (state.notice) return CHECKOUT_NOTICE_ID;
-  if (state.confirmation) return CHECKOUT_CONFIRM_HEADING_ID;
-  if (state.quoteProblem) return CHECKOUT_QUOTE_PROBLEM_ID;
-  if (state.quoteStep || !state.paymentHeadingId) return CHECKOUT_QUOTE_HEADING_ID;
-  return state.paymentHeadingId;
-}
-
-/** A capture may have been sent and its outcome is not proven: a refused resend is reported as manual review. */
-const OUTCOME_UNPROVEN: ReadonlySet<string> = new Set(["CAPTURE_UNKNOWN", "RECONCILIATION_REQUIRED", "MANUAL_REVIEW"]);
-
-/**
- * What the mock checkout reports about F07 (M2-3, D2 and review findings 2–5). The refusal shown is the one that applies
- * now (`view.permissionRefusal`, from saved state); it replaces any message carried in the URL, which described the form
- * that was just sent and could otherwise contradict it ("review the summary below" with no summary). A permission code in
- * the URL is shown only once a capture's outcome is unproven, and then as manual review, never "nothing was charged".
- * Anywhere else a URL permission code is stale or hand-made, and is ignored.
- */
-export function checkoutMessages(
-  view: { readonly state: string; readonly permissionRefusal: PermissionRefusalCode | null },
-  errorCode: string | undefined,
-): { readonly refusal: PermissionRefusalCode | null; readonly underReview: boolean; readonly showUrlError: boolean } {
-  if (view.permissionRefusal) return { refusal: view.permissionRefusal, underReview: false, showUrlError: false };
-  if (isPermissionRefusal(errorCode)) return OUTCOME_UNPROVEN.has(view.state) ? { refusal: errorCode, underReview: true, showUrlError: false } : { refusal: null, underReview: false, showUrlError: false };
-  return { refusal: null, underReview: false, showUrlError: true };
-}
 
 function SkipToCurrentStep({ label, targetId }: { readonly label: string; readonly targetId: string }) {
   return (
@@ -184,7 +141,9 @@ async function PgCheckoutContent({ intentId, query, runtime }: { intentId: strin
 async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
   // Everything below depends on the request and the current time, so it is rendered per request.
   await connection();
-  const [{ intentId }, query] = await Promise.all([params, searchParams]);
+  const [{ lang, intentId }, query] = await Promise.all([params, searchParams]);
+  const pathLanguage = documentLocale(lang);
+  if (!pathLanguage) notFound();
   const opened = await openApplication();
   if (opened === "unavailable") return <StoreUnavailable />;
   const application = opened;
@@ -215,7 +174,7 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
     runtime.value.admission,
     (await headers()).get("cookie"),
     runtime.value.clock().getTime(),
-    typeof query.lang === "string" ? query.lang : undefined,
+    pathLanguage,
   );
   if (admissionLocation) redirect(admissionLocation);
 
@@ -225,10 +184,11 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
   const view = await buildCheckoutView(runtime.value, session, intentId);
   if (!view) notFound();
 
-  // The checkout's saved interface language (none recorded means English); the URL never changes it. The page is marked
-  // with it. Its own wording follows it (finding 8); the parts that stay English (the simulated-payment panel, English
-  // catalog names, messages with no Spanish wording) are marked English on a Spanish checkout (M2-3).
+  // The checkout's saved interface language (none recorded means English). A conflicting path redirects only after
+  // the ownership check above, so a missing checkout never discloses another session's language.
   const language = view.interfaceLanguage ?? "en";
+  const canonical = savedLanguageRedirect(pathLanguage, language, `/checkout/${intentId}`, query);
+  if (canonical) redirect(canonical);
   const fixedEnglish = language === "en" ? undefined : "en";
   const copy = journeyCopy(language);
   const pageCopy = copy.checkoutPage;

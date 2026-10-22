@@ -26,5 +26,5 @@ export function guidedSessionEntry(value: string | null | undefined): string {
 
 /** Fixed guided page after the session exists. The argument is a language candidate, never a destination. */
 export function guidedShopDestination(value: string | null | undefined): string {
-  return `/shop/needs?started=1&lang=${allowlistedJourneyLanguage(value)}`;
+  return `/${allowlistedJourneyLanguage(value)}/shop/needs?started=1`;
 }

@@ -143,7 +143,7 @@ export function PurchasePermissions({
             <button type="submit">{copy.createButton}</button>
           </form>
           <p>
-            <a href={`/shop/permissions?${new URLSearchParams({ lang: language, item: review.item, quantity: review.quantity, total: review.total, expiry: review.expiry }).toString()}`}>
+            <a href={`/${language}/shop/permissions?${new URLSearchParams({ item: review.item, quantity: review.quantity, total: review.total, expiry: review.expiry }).toString()}`}>
               {copy.changeLink}
             </a>
           </p>
@@ -155,8 +155,7 @@ export function PurchasePermissions({
           {copy.createHeading}
         </h2>
         {/* GET: reviewing changes nothing. Creation is the separate POST above, after the shopper has seen the summary. */}
-        <form method="get" action="/shop/permissions" className="flex flex-col gap-3">
-          <input type="hidden" name="lang" value={language} />
+        <form method="get" action={`/${language}/shop/permissions`} className="flex flex-col gap-3">
           <input type="hidden" name="review" value="1" />
           <label htmlFor="permission-item">{copy.itemLabel}</label>
           <select id="permission-item" name="item" defaultValue={entered.item} aria-describedby={describedBy("permission-item-hint", fieldError("item") && "permission-item-error")} aria-invalid={fieldError("item") ? true : undefined}>

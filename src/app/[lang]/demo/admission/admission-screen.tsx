@@ -1,18 +1,7 @@
-import { headers } from "next/headers";
-import { notFound } from "next/navigation";
-import { connection } from "next/server";
-import { Suspense } from "react";
-import { ConfigNotice } from "@/components/ConfigNotice";
 import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
-import "../../guided-presentation.css";
 import { type AdmissionCopy } from "@/lib/i18n/demo-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
-import { admissionScreen, type AdmissionScreenModel } from "@/server/demo-admission";
-import { runtimeOf } from "@/server/runtime";
-import { guardPage, openApplication } from "@/server/runtime-access";
-import { StoreUnavailable } from "@/components/StoreUnavailable";
-
-type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+import { type AdmissionScreenModel } from "@/server/demo-admission";
 
 /** Present only while the passphrase refusal is rendered. */
 export const DEMO_PASSPHRASE_REFUSAL_ID = "demo-passphrase-refusal";
@@ -89,39 +78,4 @@ function LanguageChoice({ language, copy }: { readonly language: JourneyLanguage
       <button type="submit">{copy.showLanguage}</button>
     </form>
   );
-}
-
-export default function DemoAdmissionPage({ searchParams }: { searchParams: SearchParams }) {
-  return (
-    <Suspense fallback={<p>Loading the demonstration…</p>}>
-      <AdmissionContent searchParams={searchParams} />
-    </Suspense>
-  );
-}
-
-async function AdmissionContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
-  await connection();
-  const opened = await openApplication();
-  if (opened === "unavailable") return <StoreUnavailable />;
-  const application = opened;
-  if (application.mode === "postgres") notFound();
-  if (application.mode === "invalid") return <ConfigNotice errors={["SHOPACCESS_PERSISTENCE_MODE"]} />;
-  const runtime = runtimeOf(application);
-  if (!runtime.ok) return <ConfigNotice errors={runtime.error} />;
-
-  const query = await searchParams;
-  const model = admissionScreen(
-    runtime.value.admission,
-    (await headers()).get("cookie"),
-    runtime.value.clock().getTime(),
-    typeof query.lang === "string" ? query.lang : undefined,
-    typeof query.notice === "string" ? query.notice : undefined,
-  );
-  if (model === "not-found") notFound();
-  return <AdmissionScreen model={model} />;
-}
-
-/** A save refused while rendering shows the unavailable notice, never a partial or success view. */
-async function AdmissionContent(props: Parameters<typeof AdmissionContentUnguarded>[0]) {
-  return guardPage(() => AdmissionContentUnguarded(props), () => <StoreUnavailable />);
 }

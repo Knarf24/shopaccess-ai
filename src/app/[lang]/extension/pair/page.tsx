@@ -2,18 +2,19 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
-import "../../guided-presentation.css";
+import "../../../guided-presentation.css";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { extensionCopy } from "@/lib/i18n/extension-copy";
 import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
-import { allowlistedJourneyLanguage } from "@/lib/i18n/language";
+import { documentLocale } from "@/lib/i18n/locale-segment";
 import { protectedAdmissionLocation } from "@/server/demo-admission";
 import { runtimeOf } from "@/server/runtime";
 import { guardPage, openApplication } from "@/server/runtime-access";
 import { resolvePageSession } from "@/server/views";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+type PageParams = Promise<{ lang: string }>;
 
 const one = (value: string | string[] | undefined) => (typeof value === "string" ? value : undefined);
 
@@ -21,8 +22,11 @@ const one = (value: string | string[] | undefined) => (typeof value === "string"
  * M2-2 approval page: the shopper allows or denies one side-panel pairing for this browser's own session. Rendering
  * decides nothing; the decision is a CSRF-protected POST to /extension/pair/decide. Mock only.
  */
-async function PairContentUnguarded({ searchParams }: { searchParams: SearchParams }) {
+async function PairContentUnguarded({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   await connection();
+  const { lang } = await params;
+  const pathLanguage = documentLocale(lang);
+  if (!pathLanguage) notFound();
   const opened = await openApplication();
   if (opened === "unavailable") return <StoreUnavailable />;
   if (opened.mode === "postgres") notFound();
@@ -32,7 +36,7 @@ async function PairContentUnguarded({ searchParams }: { searchParams: SearchPara
   if (runtime.value.extensionOrigins.size === 0) notFound();
 
   const query = await searchParams;
-  const language = allowlistedJourneyLanguage(one(query.lang));
+  const language = pathLanguage;
   const copy = extensionCopy(language);
   const admissionLocation = protectedAdmissionLocation(runtime.value.admission, (await headers()).get("cookie"), runtime.value.clock().getTime(), language);
   if (admissionLocation) redirect(admissionLocation);
@@ -77,16 +81,16 @@ async function PairContentUnguarded({ searchParams }: { searchParams: SearchPara
   );
 }
 
-async function PairContent(props: { searchParams: SearchParams }) {
+async function PairContent(props: { params: PageParams; searchParams: SearchParams }) {
   return guardPage(() => PairContentUnguarded(props), () => <StoreUnavailable />);
 }
 
-export default function ExtensionPairPage({ searchParams }: { searchParams: SearchParams }) {
+export default function ExtensionPairPage({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   return (
     <main className="guided-presentation">
       <div className="presentation-column">
         <Suspense fallback={<p>Loading…</p>}>
-          <PairContent searchParams={searchParams} />
+          <PairContent params={params} searchParams={searchParams} />
         </Suspense>
       </div>
     </main>

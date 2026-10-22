@@ -23,7 +23,7 @@ export function PermissionRefusal({
         copy.outcomeUnderReview
       ) : (
         <>
-          {copy.refusals[code]} <a href={`/shop/permissions?lang=${language}`}>{copy.managePermissions}</a>
+          {copy.refusals[code]} <a href={`/${language}/shop/permissions`}>{copy.managePermissions}</a>
         </>
       )}
     </p>

@@ -108,7 +108,7 @@ describe("snapshot runtime", () => {
     // Eight lines so far (one assistant line per structured submission); the next change makes nine, capped at eight.
     expect(readConversation(a.store, buyer.sessionId)?.turns).toHaveLength(8);
     const confirmed = await handleNeedsConfirm(post("/shop/needs/confirm", { lang: "es", draftId: draft.draftId, version: String(draft.version), use: "schoolwork", budget: "950", csrfToken: buyer.csrfToken }, buyer.cookie), a);
-    expect(confirmed.headers.get("location")).toBe("/shop/needs?lang=es");
+    expect(confirmed.headers.get("location")).toBe("/es/shop/needs");
     expect(purchaseSelectionsOpen(a.store, buyer.sessionId)).toBe(true);
     draft = needsDraftsFor(a.store).get(buyer.sessionId)!;
     // A supported requirement change withdraws the confirmation and closes needs-bound selections in one snapshot.
@@ -412,7 +412,7 @@ describe("snapshot runtime", () => {
     const use = draft.prefilledUse ?? "schoolwork";
     const budget = draft.prefilledBudgetDollars ?? "800";
     const response = await handleNeedsConfirm(post("/shop/needs/confirm", { lang: "en", draftId: draft.draftId, version: String(draft.version), use, budget, csrfToken: buyer.csrfToken }, buyer.cookie), runtime);
-    expect(response.headers.get("location")).toBe("/shop/needs?lang=en");
+    expect(response.headers.get("location")).toBe("/en/shop/needs");
     return needsDraftsFor(runtime.store).get(buyer.sessionId)!;
   };
 

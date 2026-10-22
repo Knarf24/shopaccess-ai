@@ -28,7 +28,7 @@ import {
   SkipToCurrentStep,
   needsCurrentTargetId,
   selectNeedsCurrentTarget,
-} from "@/app/shop/needs/current-step";
+} from "@/app/[lang]/shop/needs/current-step";
 import { handleCheckoutStart, handleConfirm, handleNeedsConfirm, handleNeedsSession, handleNeedsSubmit } from "@/server/handlers";
 import { createRuntime, type Runtime } from "@/server/runtime";
 import { loadNeedsJourney } from "@/server/shopping";
@@ -88,7 +88,7 @@ function world() {
 async function shopper(runtime: Runtime) {
   const response = await handleNeedsSession(new Request(`${ORIGIN}/session/needs?next=https://evil.example/steal`), runtime);
   expect(response.status).toBe(303);
-  expect(response.headers.get("location")).toBe("/shop/needs?started=1&lang=en");
+  expect(response.headers.get("location")).toBe("/en/shop/needs?started=1");
   const token = response.headers.get("set-cookie")!.split(";")[0].split("=")[1];
   const session = await runtime.sessions.resolve(token);
   if (!session.ok) throw new Error("session not established");
@@ -125,7 +125,7 @@ describe("guided needs flow", () => {
       post("/shop/needs/submit", { lang: "en", shopperText: "", use: "schoolwork", budget: "500", csrfToken: buyer.csrfToken }, buyer.cookie),
       runtime,
     );
-    expect(submitted.headers.get("location")).toBe("/shop/needs?lang=en");
+    expect(submitted.headers.get("location")).toBe("/en/shop/needs");
     const draft = needsDraftsFor(runtime.store).get(buyer.sessionId)!;
     expect(draft.confirmedUse).toBeNull();
     expect(draft.prefilledUse).toBe("schoolwork");
@@ -328,7 +328,7 @@ describe("guided needs flow", () => {
   });
 
   it("marks English catalog text inside Spanish content and leaves the English confirmation markup available", async () => {
-    const home = readFileSync("src/app/page.tsx", "utf8");
+    const home = readFileSync("src/app/(english)/page.tsx", "utf8");
     const mockBranch = home.slice(home.indexOf('if (application.mode === "mock")'), home.indexOf('if (application.mode === "invalid")'));
     expect(mockBranch).toContain("<GuidedLanguageChoice />");
     expect(home.slice(home.indexOf("const catalog = await loadPgCatalog(services);"))).not.toContain("GuidedLanguageChoice");
@@ -497,14 +497,14 @@ describe("guided needs flow", () => {
     await permitCatalog(runtime, resolved.value.id);
     const cookie = `${SESSION_COOKIE_NAME}=${token}`;
     const csrfToken = resolved.value.csrfToken;
-    const carried = new URL(opened.headers.get("location")!, ORIGIN).searchParams.get("lang");
+    const carried = new URL(opened.headers.get("location")!, ORIGIN).pathname.split("/")[1];
     expect(carried).toBe(selected);
 
     const submitted = await handleNeedsSubmit(
       post("/shop/needs/submit", { lang: carried ?? "", shopperText: "", use: "schoolwork", budget: "500", csrfToken }, cookie),
       runtime,
     );
-    expect(submitted.headers.get("location")).toBe(`/shop/needs?lang=${selected}`);
+    expect(submitted.headers.get("location")).toBe(`/${selected}/shop/needs`);
     const draft = needsDraftsFor(runtime.store).get(resolved.value.id);
     if (!draft) throw new Error("draft missing");
     expect(draft.language).toBe(selected);
@@ -532,7 +532,7 @@ describe("guided needs flow", () => {
       ),
       runtime,
     );
-    expect(confirmed.headers.get("location")).toBe(`/shop/needs?lang=${selected}`);
+    expect(confirmed.headers.get("location")).toBe(`/${selected}/shop/needs`);
     expect(needsDraftsFor(runtime.store).get(resolved.value.id)?.language).toBe(selected);
 
     const journey = await loadNeedsJourney(runtime, resolved.value);
@@ -623,12 +623,12 @@ describe("guided needs flow", () => {
   });
 
   it("defaults an invalid language and does not accept it as a redirect", async () => {
-    const currentStep = readFileSync("src/app/shop/needs/current-step.tsx", "utf8");
+    const currentStep = readFileSync("src/app/[lang]/shop/needs/current-step.tsx", "utf8");
     expect(currentStep).toContain("redirect(guidedSessionEntry(");
     const invalid = ["", "fr", "EN", "ES", "es ", "https://evil.example/steal", "//evil.example", "/admin", "javascript:alert(1)", "<script>", "es&next=https://evil.example"];
     for (const value of invalid) {
       expect(guidedSessionEntry(value)).toBe("/session/needs?lang=en");
-      expect(guidedShopDestination(value)).toBe("/shop/needs?started=1&lang=en");
+      expect(guidedShopDestination(value)).toBe("/en/shop/needs?started=1");
       expect(guidedSessionEntry(value)).not.toContain("evil.example");
       expect(guidedShopDestination(value)).not.toContain("evil.example");
     }
@@ -640,11 +640,11 @@ describe("guided needs flow", () => {
         new Request(`${ORIGIN}/session/needs?lang=${encodeURIComponent(value)}&next=https://evil.example/steal`),
         runtime,
       );
-      expect(response.headers.get("location")).toBe("/shop/needs?started=1&lang=en");
+      expect(response.headers.get("location")).toBe("/en/shop/needs?started=1");
       expect(response.headers.get("location")).not.toContain("evil.example");
     }
     const repeated = await handleNeedsSession(new Request(`${ORIGIN}/session/needs?lang=https://evil.example&lang=es`), runtime);
-    expect(repeated.headers.get("location")).toBe("/shop/needs?started=1&lang=en");
+    expect(repeated.headers.get("location")).toBe("/en/shop/needs?started=1");
 
     const buyer = await shopper(runtime);
     const submitted = await handleNeedsSubmit(
@@ -655,7 +655,7 @@ describe("guided needs flow", () => {
       ),
       runtime,
     );
-    expect(submitted.headers.get("location")).toBe("/shop/needs?lang=en");
+    expect(submitted.headers.get("location")).toBe("/en/shop/needs");
     expect(submitted.headers.get("location")).not.toContain("evil.example");
     expect(needsDraftsFor(runtime.store).get(buyer.sessionId)?.language).toBe("en");
 
@@ -738,7 +738,7 @@ describe("guided needs flow", () => {
   }
 
   it("keeps comparison and purchase controls off the page before needs confirmation", async () => {
-    const needsPage = readFileSync("src/app/shop/needs/page.tsx", "utf8");
+    const needsPage = readFileSync("src/app/[lang]/shop/needs/page.tsx", "utf8");
     const guardAt = needsPage.indexOf("confirmedUse && confirmedBudgetDollars");
     expect(guardAt).toBeGreaterThan(-1);
     expect(needsPage.slice(0, guardAt)).not.toContain("<TranslatedCatalogList");
@@ -1000,7 +1000,7 @@ describe("guided needs flow", () => {
       ),
       guided,
     );
-    expect(merged.headers.get("location")).toBe("/shop/needs?lang=en");
+    expect(merged.headers.get("location")).toBe("/en/shop/needs");
     expect(interpretations).toBe(1);
     const ready = needsDraftsFor(runtime.store).get(buyer.sessionId);
     if (!ready) throw new Error("draft missing after merge");
@@ -1341,11 +1341,11 @@ describe("guided needs flow", () => {
     expect(purchase).toContain(journeyCopy("es").confirmation.heading);
     expect(purchase.match(/aria-current="step"/g)).toHaveLength(1);
 
-    const needsPage = readFileSync("src/app/shop/needs/page.tsx", "utf8");
+    const needsPage = readFileSync("src/app/[lang]/shop/needs/page.tsx", "utf8");
     expect(needsPage).toContain('className="guided-presentation');
     expect(needsPage).not.toContain("Start over");
     expect(needsPage).toContain("restartNeeds");
-    const checkout = readFileSync("src/app/checkout/[intentId]/page.tsx", "utf8");
+    const checkout = readFileSync("src/app/[lang]/checkout/[intentId]/page.tsx", "utf8");
     const postgres = checkout.slice(checkout.indexOf("function PgCheckoutContent"), checkout.indexOf("function CheckoutContent"));
     expect(postgres).not.toContain("guided-presentation");
     expect(checkout).toContain('action={`/checkout/${view.intentId}/confirm`}');
@@ -1486,7 +1486,7 @@ describe("guided needs flow", () => {
     expect(describedIds(reviewWithoutAlert, "review-budget")).toEqual(["budget-hint"]);
     expect(textById(reviewWithoutAlert, "budget-hint")).toBe(copy.budgetHint);
 
-    const needsPage = readFileSync("src/app/shop/needs/page.tsx", "utf8");
+    const needsPage = readFileSync("src/app/[lang]/shop/needs/page.tsx", "utf8");
     expect(needsPage).toContain("const validationAlertId = !expiredDraft && alert ? NEEDS_VALIDATION_ALERT_ID : undefined;");
     expect(needsPage.match(/id=\{validationAlertId\}/g)).toHaveLength(1);
     expect(needsPage).toContain("validationAlertId={validationAlertId}");
@@ -1647,13 +1647,14 @@ describe("guided needs flow", () => {
           {english.alerts.DRAFT_EXPIRED}
         </p>
         <p>
-          <a href="/shop/needs?lang=en">{english.restartNeeds}</a>
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- static fixture; the page renders this href with Link */}
+          <a href="/en/shop/needs">{english.restartNeeds}</a>
         </p>
       </div>,
     );
     assertOneTarget(expired, NEEDS_EXPIRED_ALERT_ID);
     expect(expired).toContain(english.restartNeeds);
-    expect(expired).toContain('href="/shop/needs?lang=en"');
+    expect(expired).toContain('href="/en/shop/needs"');
     expect(expired.indexOf('class="skip-link"')).toBeLessThan(expired.indexOf(`id="${NEEDS_EXPIRED_ALERT_ID}"`));
 
     const alertAndNotice = renderToStaticMarkup(
@@ -1772,7 +1773,7 @@ describe("guided needs flow", () => {
     expect(firstAsk).not.toContain('name="draftId"');
     expect(firstAsk.indexOf('class="skip-link"')).toBeLessThan(firstAsk.indexOf("<form"));
 
-    const needsPage = readFileSync("src/app/shop/needs/page.tsx", "utf8");
+    const needsPage = readFileSync("src/app/[lang]/shop/needs/page.tsx", "utf8");
     const skipAt = needsPage.indexOf("<SkipToCurrentStep");
     expect(skipAt).toBeGreaterThan(needsPage.indexOf("<div lang={language}"));
     expect(skipAt).toBeLessThan(needsPage.indexOf("<h1"));

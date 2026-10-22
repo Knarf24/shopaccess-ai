@@ -1,6 +1,12 @@
 # ShopAccess AI milestone plan
 Updated October 16, 2026. Owner decision: Frank Ncube. Dates use America/New_York.
 
+## October 21, 2026 — localized routes and remaining-work sum
+
+This note is later than the evidence notes below. Those notes and the October 16 forecast figures stay dated history.
+
+Localized English and Spanish document language is implemented on uncommitted `feature/localized-document-language` from `df69cb4`. It is not accepted. The October 16 partial total of 136–239 hours and the 77–126 hour critical path stay that date’s estimate. The superseded unfinished sum is 33–61 hours, as calculated from document language 5–9, voice 6–11, supported-store mechanics 11–21, and submission 11–20. Replacing the 5–9 hour item with the 14–22 hour localized-route slice makes the current sum 42–74 hours. The wake-word experiment, agent-completed checkout, and repeat-order revalidation stay outside that sum. October 24, the full scope, F03, and D-category are unchanged. Existing stores stay reserved. The framework 404 for an unsupported locale prefix has no `lang` attribute.
+
 ## Current evidence note — October 19, 2026 (F03 charger information slice)
 
 This note is later than the October 18 notes below, which remain dated history.

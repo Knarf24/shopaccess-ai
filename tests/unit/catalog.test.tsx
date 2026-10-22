@@ -108,7 +108,7 @@ describe("demo merchant catalog", () => {
   });
 
   it("shows a catalog illustration on the homepage, keeps cards on their own images, and scopes the presentation stylesheet", () => {
-    const page = readFileSync(join(SRC, "app/page.tsx"), "utf8");
+    const page = readFileSync(join(SRC, "app/(english)/page.tsx"), "utf8");
     const card = readFileSync(join(SRC, "components/MerchantProductCard.tsx"), "utf8");
     const css = readFileSync(join(SRC, "app/guided-presentation.css"), "utf8");
     const pictured = DEMO_MERCHANT_CATALOG.products.find((product) => product.imagePath === "/catalog/aspire-14-ai.svg");

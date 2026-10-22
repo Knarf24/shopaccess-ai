@@ -138,7 +138,7 @@ export function protectedAdmissionLocation(
   lang: string | null | undefined,
 ): string | null {
   if (admission.mode === "off") return null;
-  const location = `/demo/admission?lang=${allowlistedJourneyLanguage(lang)}`;
+  const location = `/${allowlistedJourneyLanguage(lang)}/demo/admission`;
   if (admission.mode === "closed") return location;
   const value = readPurposeCookie(cookieHeader, ADMISSION_COOKIE_NAME);
   if (!value || !verifyPurposeCookie(value, admission.key, nowMs, ADMISSION_LIFETIME_MS, ADMISSION_LABEL)) return location;
@@ -192,14 +192,14 @@ function notFound(runtime: Runtime): Response {
 export async function handleDemoAdmissionSubmit(request: Request, runtime: Runtime): Promise<Response> {
   const admission = runtime.admission;
   if (admission.mode === "off") return notFound(runtime);
-  if (admission.mode === "closed") return seeOther("/demo/admission?lang=en");
+  if (admission.mode === "closed") return seeOther("/en/demo/admission");
 
   const form = await readLimitedForm(request);
-  if (!form.ok) return seeOther("/demo/admission?lang=en");
-  if (!checkRequestProvenance(request.headers, runtime.trustedOrigins).ok) return seeOther("/demo/admission?lang=en");
+  if (!form.ok) return seeOther("/en/demo/admission");
+  if (!checkRequestProvenance(request.headers, runtime.trustedOrigins).ok) return seeOther("/en/demo/admission");
 
   const language = allowlistedJourneyLanguage(form.value.get("lang"));
-  const back = `/demo/admission?lang=${language}`;
+  const back = `/${language}/demo/admission`;
   const now = runtime.clock().getTime();
   const presented = readPurposeCookie(request.headers.get("cookie"), CSRF_COOKIE_NAME);
   const csrfOk = presented !== null && verifyPurposeCookie(presented, admission.key, now, CSRF_LIFETIME_MS, CSRF_LABEL);
@@ -214,8 +214,8 @@ export async function handleDemoAdmissionSubmit(request: Request, runtime: Runti
   // Durable before the passphrase is compared (snapshot mode); in memory as before otherwise.
   const allowed = (await runtime.durable.spendAdmissionAttempt(now, { limit: LOGIN_ATTEMPT_LIMIT, windowMs: LOGIN_WINDOW_MS })).allowed;
   const matches = constantTimeEqual(passphrase, admission.passphrase);
-  if (!allowed) return seeOther(`${back}&notice=retry`);
-  if (!matches) return seeOther(`${back}&notice=rejected`);
+  if (!allowed) return seeOther(`${back}?notice=retry`);
+  if (!matches) return seeOther(`${back}?notice=rejected`);
 
   const issued = issuePurposeCookie(admission.key, now, ADMISSION_LIFETIME_MS, ADMISSION_LABEL);
   return seeOther(`/?lang=${language}`, [serializePurposeCookie(ADMISSION_COOKIE_NAME, issued.value, issued.maxAgeSeconds)]);
@@ -225,14 +225,14 @@ export async function handleDemoAdmissionSubmit(request: Request, runtime: Runti
 export async function handleDemoAdmissionLogout(request: Request, runtime: Runtime): Promise<Response> {
   const admission = runtime.admission;
   if (admission.mode === "off") return notFound(runtime);
-  if (admission.mode === "closed") return seeOther("/demo/admission?lang=en");
+  if (admission.mode === "closed") return seeOther("/en/demo/admission");
 
   const form = await readLimitedForm(request);
-  if (!form.ok) return seeOther("/demo/admission?lang=en");
-  if (!checkRequestProvenance(request.headers, runtime.trustedOrigins).ok) return seeOther("/demo/admission?lang=en");
+  if (!form.ok) return seeOther("/en/demo/admission");
+  if (!checkRequestProvenance(request.headers, runtime.trustedOrigins).ok) return seeOther("/en/demo/admission");
 
   const language = allowlistedJourneyLanguage(form.value.get("lang"));
-  const back = `/demo/admission?lang=${language}`;
+  const back = `/${language}/demo/admission`;
   const now = runtime.clock().getTime();
   const csrf = readPurposeCookie(request.headers.get("cookie"), CSRF_COOKIE_NAME);
   if (csrf === null || !verifyPurposeCookie(csrf, admission.key, now, CSRF_LIFETIME_MS, CSRF_LABEL) || csrf !== form.value.get("demoCsrf")) {

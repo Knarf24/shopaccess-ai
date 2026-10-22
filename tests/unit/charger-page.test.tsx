@@ -28,7 +28,7 @@ vi.mock("@/server/runtime-access", async (importOriginal) => ({
           },
         },
 }));
-const { default: ChargersPage } = await import("@/app/shop/chargers/page");
+const { default: ChargersPage } = await import("@/app/[lang]/shop/chargers/page");
 
 async function resolveServer(node: ReactNode): Promise<ReactNode> {
   if (Array.isArray(node)) return Promise.all(node.map(resolveServer));
@@ -43,7 +43,7 @@ async function resolveServer(node: ReactNode): Promise<ReactNode> {
   return cloneElement(element, undefined, ...resolved);
 }
 const render = async (query: Record<string, string> = {}) =>
-  renderToStaticMarkup(<Fragment>{await resolveServer(ChargersPage({ searchParams: Promise.resolve(query) }))}</Fragment>);
+  renderToStaticMarkup(<Fragment>{await resolveServer(ChargersPage({ params: Promise.resolve({ lang: query.lang === "es" ? "es" : "en" }), searchParams: Promise.resolve(query) }))}</Fragment>);
 const ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#x27;": "'", "&#39;": "'" };
 const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/&(?:amp|lt|gt|quot|#x27|#39);/g, (entity) => ENTITIES[entity]).replace(/\s+/g, " ");
 const rows = (html: string) => [...html.matchAll(/<tr\b[^>]*data-configuration="([^"]+)"[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => ({ id: m[1], text: text(m[2]) }));
@@ -85,7 +85,7 @@ describe("charger information page: selection", () => {
     const visible = text(html);
     for (const line of [EN.heading, EN.affiliation, EN.infoOnly]) expect(visible, line).toContain(line);
     const form = html.match(/<form\b[^>]*>/)?.[0] ?? "";
-    expect(form).toContain('action="/shop/chargers"');
+    expect(form).toContain('action="/en/shop/chargers"');
     expect(form).toContain('method="get"');
     expect(html).toContain('<label for="charger-device">');
     expect(html).toContain('<select id="charger-device" name="device"');
@@ -194,7 +194,7 @@ describe("charger information page: Spanish", () => {
     }
     expect(html).toContain('<span lang="en">MacBook Air (M2, 2022)</span>');
     expect(html).toContain('<span lang="en">Apple 70W USB-C Power Adapter (Model A2743)</span>');
-    expect(links(html)).toContain("/shop/chargers?lang=en&device=Mac14%2C2");
+    expect(links(html)).toContain("/en/shop/chargers?device=Mac14%2C2");
     expect(visible).not.toContain(EN.documented);
   });
 });
@@ -223,7 +223,7 @@ describe("charger information page: boundaries", () => {
     await render({ lang: "es", device: "MacBookPro12,1" });
     expect(read).not.toHaveBeenCalled();
     for (const spy of ai) expect(spy).not.toHaveBeenCalled();
-    for (const file of ["src/app/shop/chargers/page.tsx", "src/components/ChargerInformation.tsx", "src/lib/compatibility/rules.ts", "src/lib/compatibility/evidence.ts", "src/lib/i18n/charger-copy.ts"]) {
+    for (const file of ["src/app/[lang]/shop/chargers/page.tsx", "src/components/ChargerInformation.tsx", "src/lib/compatibility/rules.ts", "src/lib/compatibility/evidence.ts", "src/lib/i18n/charger-copy.ts"]) {
       const source = readFileSync(join(process.cwd(), file), "utf8");
       expect(source, file).not.toMatch(/from "@\/(lib\/profile|lib\/providers|server\/extension|lib\/payment|lib\/permissions|lib\/checkout)/);
       expect(source, file).not.toMatch(/^\s*["']use client["']/m);

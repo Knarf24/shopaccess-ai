@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { cloneElement, Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getURLFromRedirectError } from "next/dist/client/components/redirect";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { readConversation } from "@/lib/session/conversation";
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
@@ -24,8 +26,8 @@ vi.mock("@/server/runtime-access", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/server/runtime-access")>()),
   openApplication: async () => ({ mode: "mock", runtime: { ok: true, value: page.runtime } }),
 }));
-const { default: NeedsPage } = await import("@/app/shop/needs/page");
-const { default: ChargersPage } = await import("@/app/shop/chargers/page");
+const { default: NeedsPage } = await import("@/app/[lang]/shop/needs/page");
+const { default: ChargersPage } = await import("@/app/[lang]/shop/chargers/page");
 
 async function resolveServer(node: ReactNode): Promise<ReactNode> {
   if (Array.isArray(node)) return Promise.all(node.map(resolveServer));
@@ -39,10 +41,18 @@ async function resolveServer(node: ReactNode): Promise<ReactNode> {
   const resolved = Array.isArray(children) ? await Promise.all(children.map(resolveServer)) : [await resolveServer(children)];
   return cloneElement(element, undefined, ...resolved);
 }
-const renderNeeds = async (query: Record<string, string>) =>
-  renderToStaticMarkup(<Fragment>{await resolveServer(NeedsPage({ searchParams: Promise.resolve(query) }))}</Fragment>);
+const renderNeeds = async (query: Record<string, string>, pathLang: "en" | "es" = query.lang === "es" ? "es" : "en"): Promise<string> => {
+  try {
+    return renderToStaticMarkup(<Fragment>{await resolveServer(NeedsPage({ params: Promise.resolve({ lang: pathLang }), searchParams: Promise.resolve(query) }))}</Fragment>);
+  } catch (error) {
+    const url = isRedirectError(error) ? getURLFromRedirectError(error) : null;
+    const next = url?.startsWith("/es/") ? "es" : url?.startsWith("/en/") ? "en" : null;
+    if (!next || next === pathLang) throw error;
+    return renderNeeds(query, next);
+  }
+};
 const renderChargers = async (query: Record<string, string>) =>
-  renderToStaticMarkup(<Fragment>{await resolveServer(ChargersPage({ searchParams: Promise.resolve(query) }))}</Fragment>);
+  renderToStaticMarkup(<Fragment>{await resolveServer(ChargersPage({ params: Promise.resolve({ lang: query.lang === "es" ? "es" : "en" }), searchParams: Promise.resolve(query) }))}</Fragment>);
 const ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#x27;": "'", "&#39;": "'" };
 const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/&(?:amp|lt|gt|quot|#x27|#39);/g, (entity) => ENTITIES[entity]).replace(/\s+/g, " ");
 
@@ -53,7 +63,7 @@ const COPY = {
 
 /** The hand-off form: the one GET form on the needs page whose action is the charger page. */
 function handoff(html: string) {
-  const form = html.match(/<form\b[^>]*action="\/shop\/chargers"[^>]*>[\s\S]*?<\/form>/)?.[0] ?? "";
+  const form = html.match(/<form\b[^>]*action="\/(?:en|es)\/shop\/chargers"[^>]*>[\s\S]*?<\/form>/)?.[0] ?? "";
   const open = form.match(/<form\b[^>]*>/)?.[0] ?? "";
   return {
     form,
@@ -89,7 +99,7 @@ async function draftIn(runtime: Runtime, csrfToken: string, lang: "en" | "es", s
     }),
     runtime,
   );
-  expect(response.headers.get("location")).toMatch(new RegExp(`^/shop/needs\\?lang=${lang}`));
+  expect(response.headers.get("location")).toBe(`/${lang}/shop/needs`);
 }
 
 /** Everything the hand-off must leave untouched for this session. */
@@ -117,7 +127,8 @@ describe("guided needs page: device hand-off form", () => {
       const form = handoff(html);
       expect(form.form, "form present").not.toBe("");
       expect(form.method).toBe("get");
-      expect(form.hidden).toEqual([{ name: "lang", value: lang }]);
+      expect(form.form).toContain(`action="/${lang}/shop/chargers"`);
+      expect(form.hidden).toEqual([]);
       expect(form.selectName).toBe("device");
       expect(form.labelFor).toEqual([form.selectId, COPY[lang].label]);
       expect(form.options).toEqual([
@@ -128,7 +139,7 @@ describe("guided needs page: device hand-off form", () => {
       expect(form.button).toBe(COPY[lang].button);
       // No free-text identification on the needs page; the existing link stays.
       expect(form.textInputs).toBe(0);
-      expect(html).toContain(`href="/shop/chargers?lang=${lang}"`);
+      expect(html).toContain(`href="/${lang}/shop/chargers"`);
       expect(text(html)).toContain(COPY[lang].link);
     });
   }
@@ -137,13 +148,15 @@ describe("guided needs page: device hand-off form", () => {
     const spanish = await shopper();
     await draftIn(spanish.runtime, spanish.csrfToken, "es");
     const es = handoff(await renderNeeds({ lang: "en" }));
-    expect(es.hidden).toEqual([{ name: "lang", value: "es" }]);
+    expect(es.form).toContain('action="/es/shop/chargers"');
+    expect(es.hidden).toEqual([]);
     expect(es.button).toBe(COPY.es.button);
 
     const english = await shopper();
     await draftIn(english.runtime, english.csrfToken, "en");
     const en = handoff(await renderNeeds({ lang: "es" }));
-    expect(en.hidden).toEqual([{ name: "lang", value: "en" }]);
+    expect(en.form).toContain('action="/en/shop/chargers"');
+    expect(en.hidden).toEqual([]);
     expect(en.button).toBe(COPY.en.button);
   });
 
@@ -215,7 +228,7 @@ describe("hand-off boundaries in source", () => {
     const source = readFileSync(join(process.cwd(), "src/components/ChargerDeviceHandoff.tsx"), "utf8");
     expect(source).not.toMatch(/^\s*["']use client["']/m);
     expect(source).not.toMatch(/from "@\/(lib\/profile|lib\/providers|server\/extension|lib\/payment|lib\/permissions|lib\/checkout|lib\/session)/);
-    const needs = readFileSync(join(process.cwd(), "src/app/shop/needs/page.tsx"), "utf8");
+    const needs = readFileSync(join(process.cwd(), "src/app/[lang]/shop/needs/page.tsx"), "utf8");
     expect(needs).toMatch(/<ChargerDeviceHandoff language=\{language\} \/>/);
   });
 });

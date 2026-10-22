@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AdmissionScreen, DEMO_ADMISSION_RETRY_ID, DEMO_PASSPHRASE_REFUSAL_ID } from "@/app/demo/admission/page";
+import { AdmissionScreen, DEMO_ADMISSION_RETRY_ID, DEMO_PASSPHRASE_REFUSAL_ID } from "@/app/[lang]/demo/admission/admission-screen";
 import { startCheckout } from "@/lib/checkout/service";
 import { MAX_JSON_BODY_BYTES } from "@/lib/security/limits";
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
@@ -138,7 +138,7 @@ function cookieValue(setCookie: string, name: string): string {
 async function bootstrap(runtime: Runtime, lang = "en"): Promise<string> {
   const response = await handleDemoAdmissionSubmit(submit("/demo/admission/submit", { lang }), runtime);
   expect(response.status).toBe(303);
-  expect(response.headers.get("location")).toBe(`/demo/admission?lang=${lang}`);
+  expect(response.headers.get("location")).toBe(`/${lang}/demo/admission`);
   const cookies = response.headers.getSetCookie();
   expect(cookies).toHaveLength(1);
   expect(cookies[0]).toContain("HttpOnly");
@@ -165,7 +165,7 @@ describe("demo admission", () => {
     expect(runtime.admission.mode).toBe("off");
     const started = await handleNeedsSession(new Request(`${ORIGIN}/session/needs?lang=es`), runtime);
     expect(started.status).toBe(303);
-    expect(started.headers.get("location")).toBe("/shop/needs?started=1&lang=es");
+    expect(started.headers.get("location")).toBe("/es/shop/needs?started=1");
     expect(started.headers.get("set-cookie")?.startsWith(`${SESSION_COOKIE_NAME}=`)).toBe(true);
     expect((await handleDemoAdmissionSubmit(submit("/demo/admission/submit", { lang: "en" }), runtime)).status).toBe(404);
     expect((await handleDemoAdmissionLogout(submit("/demo/admission/logout", { lang: "en" }), runtime)).status).toBe(404);
@@ -215,10 +215,10 @@ describe("demo admission", () => {
       const needs = await handleNeedsSession(new Request(`${ORIGIN}/session/needs?lang=es`), application.runtime.value);
       const start = await handleSessionStart(new Request(`${ORIGIN}/session/start?lang=https://evil.example`), application.runtime.value);
       expect(needs.status).toBe(303);
-      expect(needs.headers.get("location")).toBe("/demo/admission?lang=es");
+      expect(needs.headers.get("location")).toBe("/es/demo/admission");
       expect(needs.headers.get("set-cookie")).toBeNull();
       expect(start.status).toBe(303);
-      expect(start.headers.get("location")).toBe("/demo/admission?lang=en");
+      expect(start.headers.get("location")).toBe("/en/demo/admission");
       expect(start.headers.get("location")?.includes("evil.example")).toBe(false);
       expect(start.headers.get("set-cookie")).toBeNull();
       delete (globalThis as Record<symbol, unknown>)[APPLICATION_KEY];
@@ -245,7 +245,7 @@ describe("demo admission", () => {
       submit("/demo/admission/submit", { lang: "es", demoCsrf: "not-the-token", passphrase: PASSPHRASE }, `${CSRF_COOKIE_NAME}=${csrf}`),
       runtime,
     );
-    expect(mismatched.headers.get("location")).toBe("/demo/admission?lang=es");
+    expect(mismatched.headers.get("location")).toBe("/es/demo/admission");
     expect(admission.attempts.count).toBe(0);
     const rotated = cookieValue(mismatched.headers.getSetCookie()[0], CSRF_COOKIE_NAME);
     expect(rotated).not.toBe(csrf);
@@ -255,7 +255,7 @@ describe("demo admission", () => {
       submit("/demo/admission/submit", { lang: "es", demoCsrf: rotated }, `${CSRF_COOKIE_NAME}=${rotated}`),
       runtime,
     );
-    expect(missingPassphrase.headers.get("location")).toBe("/demo/admission?lang=es");
+    expect(missingPassphrase.headers.get("location")).toBe("/es/demo/admission");
     expect(missingPassphrase.headers.getSetCookie()).toEqual([]);
     expect(admission.attempts.count).toBe(0);
 
@@ -263,7 +263,7 @@ describe("demo admission", () => {
       submit("/demo/admission/submit", { lang: "not-a-language", demoCsrf: rotated, passphrase: "wrong-passphrase-value" }, `${CSRF_COOKIE_NAME}=${rotated}`),
       runtime,
     );
-    expect(wrong.headers.get("location")).toBe("/demo/admission?lang=en&notice=rejected");
+    expect(wrong.headers.get("location")).toBe("/en/demo/admission?notice=rejected");
     expect(wrong.headers.getSetCookie()).toEqual([]);
     expect(admission.attempts.count).toBe(1);
 
@@ -290,7 +290,7 @@ describe("demo admission", () => {
       body: new URLSearchParams({ lang: "es", passphrase: PASSPHRASE }),
     });
     const missing = await handleDemoAdmissionSubmit(noOrigin, runtime);
-    expect(missing.headers.get("location")).toBe("/demo/admission?lang=en");
+    expect(missing.headers.get("location")).toBe("/en/demo/admission");
     expect(missing.headers.getSetCookie()).toEqual([]);
     expect(admission.attempts.count).toBe(0);
 
@@ -330,8 +330,8 @@ describe("demo admission", () => {
 
     const header = `${ADMISSION_COOKIE_NAME}=${issued.value}; ${ADMISSION_COOKIE_NAME}=${issued.value}`;
     expect(readPurposeCookie(header, ADMISSION_COOKIE_NAME)).toBeNull();
-    expect(protectedAdmissionLocation(onAdmission(), header, now, "en")).toBe("/demo/admission?lang=en");
-    expect(protectedAdmissionLocation(onAdmission(), `${ADMISSION_COOKIE_NAME}=${csrf.value}`, now, "es")).toBe("/demo/admission?lang=es");
+    expect(protectedAdmissionLocation(onAdmission(), header, now, "en")).toBe("/en/demo/admission");
+    expect(protectedAdmissionLocation(onAdmission(), `${ADMISSION_COOKIE_NAME}=${csrf.value}`, now, "es")).toBe("/es/demo/admission");
     expect(protectedAdmissionLocation(onAdmission(), `${ADMISSION_COOKIE_NAME}=${issued.value}`, now, "es")).toBeNull();
   });
 
@@ -352,7 +352,7 @@ describe("demo admission", () => {
       submit("/demo/admission/submit", { lang: "en", demoCsrf: csrf, passphrase: PASSPHRASE }, cookie),
       runtime,
     );
-    expect(blocked.headers.get("location")).toBe("/demo/admission?lang=en&notice=retry");
+    expect(blocked.headers.get("location")).toBe("/en/demo/admission?notice=retry");
     expect(blocked.headers.getSetCookie()).toEqual([]);
     expect(admission.attempts.count).toBe(LOGIN_ATTEMPT_LIMIT + 1);
 
@@ -361,14 +361,14 @@ describe("demo admission", () => {
       submit("/demo/admission/submit", { lang: "en", demoCsrf: csrf, passphrase: PASSPHRASE }, cookie),
       runtime,
     );
-    expect(reissued.headers.get("location")).toBe("/demo/admission?lang=en");
+    expect(reissued.headers.get("location")).toBe("/en/demo/admission");
     expect(admission.attempts.count).toBe(LOGIN_ATTEMPT_LIMIT + 1);
     const fresh = cookieValue(reissued.headers.getSetCookie()[0], CSRF_COOKIE_NAME);
     const stillBlocked = await handleDemoAdmissionSubmit(
       submit("/demo/admission/submit", { lang: "en", demoCsrf: fresh, passphrase: PASSPHRASE }, `${CSRF_COOKIE_NAME}=${fresh}`),
       runtime,
     );
-    expect(stillBlocked.headers.get("location")).toBe("/demo/admission?lang=en&notice=retry");
+    expect(stillBlocked.headers.get("location")).toBe("/en/demo/admission?notice=retry");
     expect(admission.attempts.count).toBe(LOGIN_ATTEMPT_LIMIT + 2);
     time.advance(1);
     const renewed = await handleDemoAdmissionSubmit(
@@ -390,7 +390,7 @@ describe("demo admission", () => {
       body: `passphrase=${"a".repeat(MAX_JSON_BODY_BYTES)}`,
     });
     const tooLarge = await handleDemoAdmissionSubmit(oversized, runtime);
-    expect(tooLarge.headers.get("location")).toBe("/demo/admission?lang=en");
+    expect(tooLarge.headers.get("location")).toBe("/en/demo/admission");
     expect(tooLarge.headers.getSetCookie()).toEqual([]);
     expect(admission.attempts.count).toBe(0);
 
@@ -398,7 +398,7 @@ describe("demo admission", () => {
       submit("/demo/admission/submit", { lang: "en", demoCsrf: csrf, passphrase: "" }, `${CSRF_COOKIE_NAME}=${csrf}`),
       runtime,
     );
-    expect(empty.headers.get("location")).toBe("/demo/admission?lang=en&notice=rejected");
+    expect(empty.headers.get("location")).toBe("/en/demo/admission?notice=rejected");
     expect(admission.attempts.count).toBe(1);
   });
 
@@ -414,7 +414,7 @@ describe("demo admission", () => {
     if (!planted.ok || !planted.value.issuedToken) throw new Error("session was not planted");
     const cookie = `${CSRF_COOKIE_NAME}=${csrf}; ${ADMISSION_COOKIE_NAME}=${admissionCookie}; ${SESSION_COOKIE_NAME}=${planted.value.issuedToken}`;
     const loggedOut = await handleDemoAdmissionLogout(submit("/demo/admission/logout", { lang: "es", demoCsrf: csrf }, cookie), runtime);
-    expect(loggedOut.headers.get("location")).toBe("/demo/admission?lang=es");
+    expect(loggedOut.headers.get("location")).toBe("/es/demo/admission");
     const cleared = loggedOut.headers.getSetCookie();
     expect(cleared).toHaveLength(3);
     expect(cleared.every((cookie) => cookie.includes("Max-Age=0") && cookie.includes("HttpOnly") && !cookie.includes("Domain="))).toBe(true);
@@ -441,9 +441,9 @@ describe("demo admission", () => {
     const admissionCookie = cookieValue(admitted.headers.getSetCookie()[0], ADMISSION_COOKIE_NAME);
     const second = openedRuntime(OTHER_KEY);
     const header = `${ADMISSION_COOKIE_NAME}=${admissionCookie}`;
-    expect(protectedAdmissionLocation(second.runtime.admission, header, second.runtime.clock().getTime(), "en")).toBe("/demo/admission?lang=en");
+    expect(protectedAdmissionLocation(second.runtime.admission, header, second.runtime.clock().getTime(), "en")).toBe("/en/demo/admission");
     const response = await handleSessionStart(new Request(`${ORIGIN}/session/start`, { headers: { cookie: header } }), second.runtime);
-    expect(response.headers.get("location")).toBe("/demo/admission?lang=en");
+    expect(response.headers.get("location")).toBe("/en/demo/admission");
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
@@ -468,7 +468,7 @@ describe("demo admission", () => {
       time.advance(SESSION_IDLE_TIMEOUT_MS + 1);
       const response = await call(runtime, `${SESSION_COOKIE_NAME}=${planted.value.issuedToken}`);
       expect(response.status).toBe(303);
-      expect(response.headers.get("location")).toBe("/demo/admission?lang=es");
+      expect(response.headers.get("location")).toBe("/es/demo/admission");
       expect(response.headers.getSetCookie()).toEqual([]);
       const idle = await runtime.sessions.resolve(planted.value.issuedToken);
       if (idle.ok) throw new Error("idle session was still admitted");
@@ -477,7 +477,7 @@ describe("demo admission", () => {
       expect(needsDraftsFor(runtime.store).size).toBe(0);
     }
 
-    for (const page of ["src/app/shop/page.tsx", "src/app/shop/needs/page.tsx", "src/app/checkout/[intentId]/page.tsx"]) {
+    for (const page of ["src/app/(english)/shop/page.tsx", "src/app/[lang]/shop/needs/page.tsx", "src/app/[lang]/checkout/[intentId]/page.tsx"]) {
       const text = readFileSync(page, "utf8");
       const gate = text.indexOf("protectedAdmissionLocation");
       const resolve = text.indexOf("await resolvePageSession(");
@@ -487,7 +487,7 @@ describe("demo admission", () => {
     const { runtime } = openedRuntime();
     const planted = await runtime.sessions.establish(null);
     if (!planted.ok || !planted.value.issuedToken) throw new Error("session was not planted");
-    expect(protectedAdmissionLocation(runtime.admission, `${SESSION_COOKIE_NAME}=${planted.value.issuedToken}`, runtime.clock().getTime(), "es")).toBe("/demo/admission?lang=es");
+    expect(protectedAdmissionLocation(runtime.admission, `${SESSION_COOKIE_NAME}=${planted.value.issuedToken}`, runtime.clock().getTime(), "es")).toBe("/es/demo/admission");
   });
 
   it("renders English and Spanish admission screens without the passphrase or a client hook", () => {
@@ -531,7 +531,7 @@ describe("demo admission", () => {
     expect(renderToStaticMarkup(AdmissionScreen({ model: spanishLogin }))).toContain("Frase de acceso");
     expect(logoutMarkup.includes('name="passphrase"')).toBe(false);
 
-    const page = readFileSync("src/app/demo/admission/page.tsx", "utf8");
+    const page = readFileSync("src/app/[lang]/demo/admission/page.tsx", "utf8");
     expect(page).not.toMatch(/process\.env|use client|cookies\(\)\.set|set-cookie/i);
     expect(page).not.toMatch(/resolvePageSession|sessions\.establish|maintain\(/);
     const conversation = readFileSync("src/components/mock-journey/NeedsConversation.tsx", "utf8");
