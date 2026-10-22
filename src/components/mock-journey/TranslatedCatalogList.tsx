@@ -21,16 +21,31 @@ function catalogIllustration(productId: string): string | null {
   return path?.startsWith("/catalog/") ? path : null;
 }
 
+/** The confirmed whole-dollar budget as shown beside a price, for example "$600". */
+function budgetText(budgetDollars: string): string {
+  return `$${Number(budgetDollars).toLocaleString("en-US")}`;
+}
+
+/** Fixed demo price compared with the confirmed budget. Both are server values; nothing else is added. */
+function budgetDifference(copy: JourneyCopy, unitAmountCents: number, budgetDollars: string): string {
+  const differenceCents = Number(budgetDollars) * 100 - unitAmountCents;
+  const budget = budgetText(budgetDollars);
+  if (differenceCents === 0) return copy.budgetEqual(budget);
+  return differenceCents > 0 ? copy.budgetUnder(formatUsd(differenceCents), budget) : copy.budgetOver(formatUsd(-differenceCents), budget);
+}
+
+/** Card heading, variant, price and budget difference. The illustration sits beside it as a thumbnail. */
 function CatalogIdentity({
   copy,
   language,
   line,
+  confirmedBudgetDollars,
 }: {
   readonly copy: JourneyCopy;
   readonly language: JourneyLanguage;
   readonly line: GuidedCatalogLine;
+  readonly confirmedBudgetDollars: string;
 }) {
-  const spanishDescription = language === "es" ? spanishProductDescription(line.productId) : null;
   const spanishLabel = language === "es" ? spanishVariantLabel(line.variantId) : null;
   const image = catalogIllustration(line.productId);
   return (
@@ -41,15 +56,62 @@ function CatalogIdentity({
       <h3 id={`catalog-${line.variantId}`} className="text-lg font-semibold">
         {language === "es" ? <span lang="en">{line.title}</span> : line.title}
       </h3>
-      <p>{language === "es" ? <span lang="en">{line.description}</span> : line.description}</p>
-      {language === "es" ? spanishDescription ? <p>{spanishDescription}</p> : <p>{copy.missingTranslation}</p> : null}
-      <p>
+      <p className="result-variant">
         {language === "es" ? <span lang="en">{line.label}</span> : line.label}
         {language === "es" ? spanishLabel ? <span> — {spanishLabel}</span> : <span> — {copy.missingTranslation}</span> : null}
       </p>
-      <p>
-        {copy.priceLabel} {formatUsd(line.unitAmountCents)} {line.currency}
+      <p className="result-price">
+        <span className="result-amount">{formatUsd(line.unitAmountCents)}</span> <span className="result-currency">{line.currency}</span>{" "}
+        <span className="result-price-label">{copy.priceLabel}</span>
       </p>
+      <p className={Number(confirmedBudgetDollars) * 100 < line.unitAmountCents ? "result-budget result-budget-over" : "result-budget"}>
+        {budgetDifference(copy, line.unitAmountCents, confirmedBudgetDollars)}
+      </p>
+    </>
+  );
+}
+
+/** Product description in the journey language; English original marked on a Spanish page. */
+function CatalogDescription({ copy, language, line }: { readonly copy: JourneyCopy; readonly language: JourneyLanguage; readonly line: GuidedCatalogLine }) {
+  const spanishDescription = language === "es" ? spanishProductDescription(line.productId) : null;
+  return (
+    <>
+      <p>{language === "es" ? <span lang="en">{line.description}</span> : line.description}</p>
+      {language === "es" ? spanishDescription ? <p>{spanishDescription}</p> : <p>{copy.missingTranslation}</p> : null}
+    </>
+  );
+}
+
+/** Suitability from the readiness status, then each factor that did not pass. No count, rank or score. */
+function ResultSummary({
+  copy,
+  line,
+  factors,
+  excluded = false,
+}: {
+  readonly copy: JourneyCopy;
+  readonly line: GuidedCatalogLine;
+  readonly factors: GuidedCatalogLine["factors"];
+  /** An excluded line never says that every rule passed. */
+  readonly excluded?: boolean;
+}) {
+  const tradeoffs = factors.filter((factor) => factor.outcome !== "PASS");
+  return (
+    <>
+      <p className="result-status" data-status={line.status}>
+        {copy.status[line.status]}
+      </p>
+      {tradeoffs.length === 0 ? (
+        excluded ? null : <p className="result-all-pass">{copy.meetsAllChecks}</p>
+      ) : (
+        <ul className="result-tradeoffs">
+          {tradeoffs.map((factor) => (
+            <li key={`${line.variantId}-${factor.factor}`} className="result-tradeoff" data-outcome={factor.outcome}>
+              {copy.factors[factor.factor]}: {copy.outcomes[factor.outcome]}
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   );
 }
@@ -107,17 +169,25 @@ export function TranslatedCatalogList({
       <h2 id="guided-catalog-heading" className="text-2xl font-semibold">
         {copy.catalogHeading}
       </h2>
-      <p>{copy.catalogNotice}</p>
-      <p className="limitation" role="status">{copy.checkLimitation}</p>
-      {language === "es" ? <p>{copy.englishOriginal}</p> : null}
+      <div className="results-notes">
+        <p>{copy.catalogNotice}</p>
+        <p className="limitation" role="status">{copy.checkLimitation}</p>
+        {language === "es" ? <p>{copy.englishOriginal}</p> : null}
+      </div>
       <ul className="eligible-list flex flex-col gap-4">
         {lines.map((line) => (
-          <li key={line.variantId} className="eligible-card rounded-lg border border-zinc-400 p-4">
-            {labelChoices ? <p>{suggestedVariantIds.includes(line.variantId) ? copy.suggestedLabel : copy.otherChoiceLabel}</p> : null}
-            <CatalogIdentity copy={copy} language={language} line={line} />
-            <p>{copy.shipping}</p>
-            <h4 className="font-semibold">{copy.whyThis}</h4>
-            <FactorList copy={copy} language={language} line={line} factors={line.factors} />
+          <li key={line.variantId} className="result-card eligible-card">
+            <CatalogIdentity copy={copy} language={language} line={line} confirmedBudgetDollars={confirmedBudgetDollars} />
+            {labelChoices ? (
+              <p className="result-choice">{suggestedVariantIds.includes(line.variantId) ? copy.suggestedLabel : copy.otherChoiceLabel}</p>
+            ) : null}
+            <ResultSummary copy={copy} line={line} factors={line.factors} />
+            <details className="result-details">
+              <summary>{copy.whyThis}</summary>
+              <CatalogDescription copy={copy} language={language} line={line} />
+              <p>{copy.shipping}</p>
+              <FactorList copy={copy} language={language} line={line} factors={line.factors} />
+            </details>
             {line.quotable ? (
               <form method="post" action="/checkout/start">
                 <input type="hidden" name="csrfToken" value={csrfToken} />
@@ -150,17 +220,20 @@ export function TranslatedCatalogList({
             {copy.excludedHeading}
           </h2>
           <ul className="excluded-list flex flex-col gap-4">
-            {excludedLines.map((line) => (
-              <li key={line.variantId} className="excluded-card rounded-lg border border-zinc-400 p-4">
-                <CatalogIdentity copy={copy} language={language} line={line} />
-                <FactorList
-                  copy={copy}
-                  language={language}
-                  line={line}
-                  factors={line.factors.filter((factor) => factor.outcome === "FAIL" || factor.outcome === "UNKNOWN")}
-                />
-              </li>
-            ))}
+            {excludedLines.map((line) => {
+              const failing = line.factors.filter((factor) => factor.outcome === "FAIL" || factor.outcome === "UNKNOWN");
+              return (
+                <li key={line.variantId} className="result-card excluded-card">
+                  <CatalogIdentity copy={copy} language={language} line={line} confirmedBudgetDollars={confirmedBudgetDollars} />
+                  <ResultSummary copy={copy} line={line} factors={failing} excluded />
+                  <details className="result-details">
+                    <summary>{copy.whyThis}</summary>
+                    <CatalogDescription copy={copy} language={language} line={line} />
+                    <FactorList copy={copy} language={language} line={line} factors={failing} />
+                  </details>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}

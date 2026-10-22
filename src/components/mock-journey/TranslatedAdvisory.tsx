@@ -37,6 +37,7 @@ export function TranslatedAdvisory({
   headingTabIndex,
   suggestionSource = null,
   eligibleVariantIds = [],
+  compact = false,
 }: {
   readonly copy: JourneyCopy;
   readonly language: JourneyLanguage;
@@ -46,6 +47,11 @@ export function TranslatedAdvisory({
   readonly headingTabIndex?: -1;
   readonly suggestionSource?: "mock" | "model" | null;
   readonly eligibleVariantIds?: readonly string[];
+  /**
+   * Status, recommendation sentence and source only. The needs page uses this because each result card already shows
+   * the suggested label, price and reasons, so the items are not repeated here.
+   */
+  readonly compact?: boolean;
 }) {
   const sentence = recommendationSentence(language, draft.recommendation?.assistantMessage ?? null);
   const sourceSentence =
@@ -65,6 +71,7 @@ export function TranslatedAdvisory({
       {draft.recommendationClaim === "completed" && sentence ? <p role="status">{sentence}</p> : null}
       {sourceSentence ? <p>{sourceSentence}</p> : null}
       {draft.recommendationClaim === "completed" && !sentence ? <p role="alert">{copy.unavailable}</p> : null}
+      {compact ? null : (
       <ul className="flex flex-col gap-3">
         {(draft.recommendation?.recommendations ?? []).map((item) => {
           const line = lines.find((entry) => entry.productId === item.productId && entry.variantId === item.variantId);
@@ -97,6 +104,7 @@ export function TranslatedAdvisory({
           );
         })}
       </ul>
+      )}
     </section>
   );
 }

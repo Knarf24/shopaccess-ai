@@ -254,14 +254,16 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
               <span className="mt-1 block whitespace-pre-wrap">{journey.draft.shopperText}</span>
             </p>
           ) : null}
-          <InterpretedNeedsReview
-            copy={copy}
-            language={language}
-            csrfToken={session.csrfToken}
-            draft={journey.draft}
-            validationAlertId={validationAlertId}
-            headingTabIndex={currentTarget === "review" ? -1 : undefined}
-          />
+          <div className="needs-brief-panel">
+            <InterpretedNeedsReview
+              copy={copy}
+              language={language}
+              csrfToken={session.csrfToken}
+              draft={journey.draft}
+              validationAlertId={validationAlertId}
+              headingTabIndex={currentTarget === "review" ? -1 : undefined}
+            />
+          </div>
         </>
       ) : null}
       {!chargerOpen && journey.draft && confirmedUse && confirmedBudgetDollars ? (
@@ -276,6 +278,13 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             validationAlertId={validationAlertId}
             noticeRendered={noticeRendered}
           />
+          <a className="needs-results-jump" href="#guided-advisory-heading">
+            {copy.resultsJump(eligibleLines.length)}
+          </a>
+          <div className="needs-results-panel">
+          <p className="needs-confirmed-brief">
+            {copy.confirmedBrief(copy.uses[confirmedUse], `$${Number(confirmedBudgetDollars).toLocaleString("en-US")}`)}
+          </p>
           <TranslatedAdvisory
             copy={copy}
             language={language}
@@ -284,6 +293,7 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             headingTabIndex={currentTarget === "suggestions" ? -1 : undefined}
             suggestionSource={journey.suggestionSource}
             eligibleVariantIds={eligibleLines.map((line) => line.variantId)}
+            compact
           />
           <TranslatedCatalogList
             copy={copy}
@@ -306,6 +316,7 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             listings={externalListings}
             pending={listingsPending}
           />
+          </div>
         </>
       ) : null}
       {pairedAccessShown ? (
