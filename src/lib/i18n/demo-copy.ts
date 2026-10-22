@@ -81,6 +81,16 @@ export interface JourneyCopy {
   readonly priceLabel: string;
   readonly reviewPurchase: string;
   readonly shipping: string;
+  /** Compact result cards: the difference between the fixed demo price and the confirmed budget, both server values. */
+  readonly budgetUnder: (difference: string, budget: string) => string;
+  readonly budgetOver: (difference: string, budget: string) => string;
+  readonly budgetEqual: (budget: string) => string;
+  /** Shown only when every assessed factor passed; no count and no ranking. */
+  readonly meetsAllChecks: string;
+  /** The confirmed use and budget at the top of the results panel. */
+  readonly confirmedBrief: (use: string, budget: string) => string;
+  /** In-page link to the results on small screens. */
+  readonly resultsJump: (eligible: number) => string;
   readonly navigationHome: string;
   readonly status: Record<ReadinessStatus, string>;
   readonly factors: Record<FactorKey, string>;
@@ -216,6 +226,12 @@ const ENGLISH: JourneyCopy = {
   priceLabel: "Fixed demo price",
   reviewPurchase: "Review this purchase",
   shipping: "Tax and shipping are $0.00 in this demonstration. Nothing is shipped.",
+  budgetUnder: (difference, budget) => `${difference} under your ${budget} budget`,
+  budgetOver: (difference, budget) => `${difference} over your ${budget} budget`,
+  budgetEqual: (budget) => `Exactly your ${budget} budget`,
+  meetsAllChecks: "Meets every rule checked here",
+  confirmedBrief: (use, budget) => `Your confirmed brief: ${use}, up to ${budget}`,
+  resultsJump: (eligible) => (eligible === 1 ? "See results · 1 eligible laptop" : `See results · ${eligible} eligible laptops`),
   navigationHome: "Back to the start",
   status: {
     READY: "Ready",
@@ -354,6 +370,12 @@ const SPANISH: JourneyCopy = {
   priceLabel: "Precio fijo de demostración",
   reviewPurchase: "Revisar esta compra",
   shipping: "Los impuestos y el envío son 0,00 USD en esta demostración. No se envía nada.",
+  budgetUnder: (difference, budget) => `${difference} por debajo de su presupuesto de ${budget}`,
+  budgetOver: (difference, budget) => `${difference} por encima de su presupuesto de ${budget}`,
+  budgetEqual: (budget) => `Exactamente su presupuesto de ${budget}`,
+  meetsAllChecks: "Cumple todas las reglas comprobadas aquí",
+  confirmedBrief: (use, budget) => `Su resumen confirmado: ${use}, hasta ${budget}`,
+  resultsJump: (eligible) => (eligible === 1 ? "Ver resultados · 1 portátil apto" : `Ver resultados · ${eligible} portátiles aptos`),
   navigationHome: "Volver al inicio",
   status: {
     READY: "Adecuado",
