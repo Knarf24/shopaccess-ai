@@ -98,15 +98,29 @@ export function createAdvisoryLimiter(limits: AdvisoryLimits, clock: () => Date)
   };
 }
 
-const scope = new AsyncLocalStorage<{ readonly sessionId: string }>();
+/**
+ * The dev server can load this module once per route bundle, while the runtime and its limited transport are built once
+ * per process from whichever copy loads first. The storage container is therefore shared through `globalThis`, so a
+ * scope set by any copy is visible to the transport. Only the container is global: each session ID lives in its own
+ * async scope and ends with it.
+ */
+const SCOPE_KEY = Symbol.for("shopaccess.advisorySessionScope");
+type AdvisoryScope = AsyncLocalStorage<{ readonly sessionId: string }>;
+type GlobalWithAdvisoryScope = typeof globalThis & { [SCOPE_KEY]?: AdvisoryScope };
+
+function sessionScope(): AdvisoryScope {
+  const holder = globalThis as GlobalWithAdvisoryScope;
+  holder[SCOPE_KEY] ??= new AsyncLocalStorage<{ readonly sessionId: string }>();
+  return holder[SCOPE_KEY];
+}
 
 /** Runs `fn` with this session as the subject of any AI call it makes. */
 export function withAdvisorySession<T>(sessionId: string, fn: () => T): T {
-  return scope.run({ sessionId }, fn);
+  return sessionScope().run({ sessionId }, fn);
 }
 
 export function currentAdvisorySession(): string | null {
-  return scope.getStore()?.sessionId ?? null;
+  return sessionScope().getStore()?.sessionId ?? null;
 }
 
 /** Wraps the outbound transport. A refused reservation throws `LIMITED` and sends nothing. */
