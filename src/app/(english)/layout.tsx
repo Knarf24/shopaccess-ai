@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { CSSProperties, ReactNode } from "react";
+import { siteMetadata } from "@/lib/i18n/site-metadata";
 import "../globals.css";
 
 /**
@@ -12,10 +13,7 @@ const SYSTEM_FONTS = {
   "--font-geist-mono": 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
 } as CSSProperties;
 
-export const metadata: Metadata = {
-  title: "ShopAccess AI",
-  description: "An inclusive shopping assistant demo with a simulated Sandbox catalog.",
-};
+export const metadata: Metadata = siteMetadata("en");
 
 export default function RootLayout({ children }: { readonly children: ReactNode }) {
   return (

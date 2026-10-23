@@ -51,6 +51,8 @@ export interface JourneyCopy {
   readonly englishOriginal: string;
   readonly missingTranslation: string;
   readonly catalogHeading: string;
+  /** Heading above the catalog notice on the home page. */
+  readonly catalogNoticeHeading: string;
   readonly catalogNotice: string;
   readonly checkLimitation: string;
   readonly whyThis: string;
@@ -203,6 +205,7 @@ const ENGLISH: JourneyCopy = {
   englishOriginal: "The catalog wording and the assessment reason below are the English originals.",
   missingTranslation: "Spanish wording is not available for this line.",
   catalogHeading: "Demo laptops",
+  catalogNoticeHeading: "Demo catalog",
   catalogNotice:
     "ShopAccess Demo Store is simulated. Prices shown are fixed demo prices, not a guaranteed current offer. Inventory is simulated. Acer, ASUS, Newegg, and their sellers are not ShopAccess partners. Checkout is a demonstration: no real money moves and nothing is shipped.",
   checkLimitation:
@@ -357,6 +360,7 @@ const SPANISH: JourneyCopy = {
   englishOriginal: "El texto del catálogo y el motivo de la evaluación que siguen son los originales en inglés.",
   missingTranslation: "No hay texto en español para esta línea.",
   catalogHeading: "Portátiles de demostración",
+  catalogNoticeHeading: "Catálogo de demostración",
   catalogNotice:
     "La tienda de demostración de ShopAccess es simulada. Los precios mostrados son precios fijos de demostración, no una oferta vigente garantizada. El inventario es simulado. Acer, ASUS, Newegg y sus vendedores no son socios de ShopAccess. El pago es una demostración: no se mueve dinero real y no hay entrega física.",
   checkLimitation:

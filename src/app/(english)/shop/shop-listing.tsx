@@ -64,7 +64,7 @@ export function ShopListing({
 
       <section aria-labelledby={SHOP_STEP_HEADING_ID} className="flex flex-col gap-4">
         <h2 id={SHOP_STEP_HEADING_ID} tabIndex={-1} className="text-2xl font-semibold">
-          Demo store laptops (simulated Sandbox catalog)
+          Demo store laptops (demo catalog)
         </h2>
         <p className="text-sm">
           Sold by {view.merchantName}. {journeyCopy("en").catalogNotice}
