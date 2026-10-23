@@ -113,6 +113,8 @@ export interface JourneyCopy {
     readonly explanation: string;
     readonly acknowledgement: string;
     readonly submit: string;
+    /** The expiry sentence around a readable UTC date and time. */
+    readonly expiry: (when: string) => string;
   };
   readonly sandboxCheckout: {
     readonly heading: string;
@@ -269,6 +271,7 @@ const ENGLISH: JourneyCopy = {
       "Confirming does not take payment. It records that you agree to this exact summary. Any payment step comes after this and is shown separately.",
     acknowledgement: "I have reviewed the seller, item, quantity and total above.",
     submit: "Confirm this purchase summary",
+    expiry: (when) => `This summary expires at ${when} (UTC); after that, or if anything changes, you will be asked to review a new summary.`,
   },
   sandboxCheckout: {
     heading: "PayPal Sandbox checkout",
@@ -422,6 +425,7 @@ const SPANISH: JourneyCopy = {
       "Confirmar no cobra un pago. Registra que usted acepta este resumen exacto. Cualquier paso de pago viene después y se muestra por separado.",
     acknowledgement: "He revisado el vendedor, el artículo, la cantidad y el total de arriba.",
     submit: "Confirmar este resumen de compra",
+    expiry: (when) => `Este resumen vence el ${when} (UTC); después, o si algo cambia, se le pedirá revisar un resumen nuevo.`,
   },
   sandboxCheckout: {
     heading: "Pago en el entorno de pruebas de PayPal",

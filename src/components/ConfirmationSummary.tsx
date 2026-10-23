@@ -98,12 +98,7 @@ function SpanishConfirmation({ challenge, csrfToken, action, headingTabIndex }: 
       </dl>
       <p>{journeyCopy("es").catalogNotice}</p>
       <p id="confirm-explanation" className="text-sm">
-        {copy.explanation}{" "}
-        <span lang="en">
-          Confirming does not take payment. It records that you agree to this exact summary. If PayPal checkout is added later,
-          approving the payment in PayPal is the step that would authorize payment.
-        </span>{" "}
-        <time dateTime={challenge.expiresAt}>{challenge.expiresAt}</time>
+        {copy.explanation} <SpanishExpiry expiresAt={challenge.expiresAt} />
       </p>
       <input type="hidden" name="confirmationId" value={challenge.confirmationId} />
       <input type="hidden" name="nonce" value={challenge.nonce} />
@@ -123,5 +118,18 @@ function SpanishConfirmation({ challenge, csrfToken, action, headingTabIndex }: 
         {copy.submit}
       </button>
     </form>
+  );
+}
+
+/** The Spanish expiry sentence: a readable UTC date and time for people, the exact instant for machines. */
+function SpanishExpiry({ expiresAt }: { expiresAt: string }) {
+  const readable = new Intl.DateTimeFormat("es", { timeZone: "UTC", dateStyle: "long", timeStyle: "short" }).format(new Date(expiresAt));
+  const [before, after] = journeyCopy("es").confirmation.expiry("\u0000").split("\u0000");
+  return (
+    <>
+      {before}
+      <time dateTime={expiresAt}>{readable}</time>
+      {after}
+    </>
   );
 }
