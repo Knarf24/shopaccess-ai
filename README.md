@@ -12,6 +12,9 @@ record is in `docs/security-foundation.md`, under "External advisory milestone
 record includes QW-6, one successful Spanish guided-needs browser case. These
 runs are not acceptance of the shop, the advisory path, or payments.
 
+**Judges:** the hosted demonstration, the suggested journey and what is live or simulated are in
+[`docs/judges.md`](docs/judges.md). The project is released under the [MIT License](LICENSE).
+
 Product intent is recorded in `docs/product-governance.md` (October 12, 2026).
 That record authorizes planning. It does not authorize a live call, a payment,
 a deployment, or a database change, and it does not replace the evidence above.
