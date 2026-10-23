@@ -1009,7 +1009,7 @@ describe("PostgreSQL mode: the recommendations on the database's catalog (A26)",
     if (page.kind !== "OK") throw new Error("the view is not available");
 
     const mock = createRuntime({ sessionKey: TEST_SESSION_KEY, trustedOrigins: parseTrustedOrigins([ORIGIN]) }, { clock: w.time.clock });
-    const expected = await buildShoppingView(mock, preferences);
+    const expected = await buildShoppingView(mock, preferences, "pg-app-flow-session");
     // Compared by variant: where two variants have the same status and price, their order follows the order the
     // catalog was read in, which is by id here and by the fixture's own order in the mock.
     const shape = (view: typeof expected) =>

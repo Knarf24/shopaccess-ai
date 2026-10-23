@@ -31,6 +31,7 @@ import { systemClock, type Clock } from "@/lib/shared/clock";
 import { randomIdGenerator, type IdGenerator } from "@/lib/shared/ids";
 import type { Result } from "@/lib/shared/result";
 import { advisoryBudgetPresence, createBudgetedAdvisoryTransport } from "./advisory-budget";
+import { DEFAULT_ADVISORY_LIMITS, createAdvisoryLimiter, createLimitedAdvisoryTransport, type AdvisoryLimiter } from "./advisory-limits";
 import { parsePersistenceMode, parseRuntimeConfig, type RuntimeConfig, type RuntimeConfigError } from "./config";
 import { resolveDemoAdmission, type DemoAdmission } from "./demo-admission";
 import { createPgRuntime, type PgRuntime } from "./pg-runtime";
@@ -57,6 +58,12 @@ export interface Runtime {
   readonly ai: AdvisoryAiProvider;
   /** `local` keeps the in-process assistant. `external` uses one configured advisory provider. */
   readonly advisory: "local" | "external";
+  /** The deterministic local assistant, used as the labelled fallback when the external provider fails or is limited. */
+  readonly localAi: AdvisoryAiProvider;
+  /** External mode only: the server-wide AI call limits that every outbound attempt reserves against. */
+  readonly advisoryLimiter: AdvisoryLimiter | null;
+  /** External mode only: the provider named in the free-text disclosure. */
+  readonly advisoryProviderName: "Synthorai" | "Alibaba Cloud Model Studio" | null;
   /**
    * Channel3 live search is disabled. `read` returns a result only when this process
    * already stored one. It does not call the network.
@@ -224,7 +231,8 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     throw new Error("Channel3 live transport is not installed.");
   }
   const channel3Transport = overrides.channel3Transport;
-  const transport = selectAdvisoryTransport(config, overrides);
+  const advisoryLimiter = advisory.mode === "external" ? createAdvisoryLimiter(config.advisoryLimits ?? DEFAULT_ADVISORY_LIMITS, clock) : null;
+  const transport = selectAdvisoryTransport(config, overrides, advisoryLimiter);
   let nextMaintenanceAt = Number.NEGATIVE_INFINITY;
   const maintain = async (): Promise<void> => {
     const now = clock().getTime();
@@ -255,6 +263,9 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
           })
         : createMockAdvisoryAi(),
     advisory: advisory.mode,
+    localAi: createMockAdvisoryAi(),
+    advisoryLimiter,
+    advisoryProviderName: advisory.mode === "external" ? (new URL(advisory.endpoint).hostname === "synthorai.io" ? "Synthorai" : "Alibaba Cloud Model Studio") : null,
     channel3: {
       mode: "disabled",
       read(sessionId, draftId, version) {
@@ -290,10 +301,19 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
   return runtime;
 }
 
-function selectAdvisoryTransport(config: RuntimeConfig, overrides: { transport?: AdvisoryTransport }): AdvisoryTransport | undefined {
-  if (config.advisoryBudget?.mode !== "on") return overrides.transport;
+/**
+ * External mode: every outbound attempt first reserves against the call limits, then (when configured) the legacy
+ * two-slot budget, then the network or the injected test transport. Local mode makes no outbound call.
+ */
+function selectAdvisoryTransport(
+  config: RuntimeConfig,
+  overrides: { transport?: AdvisoryTransport },
+  limiter: AdvisoryLimiter | null,
+): AdvisoryTransport | undefined {
+  if (!limiter) return overrides.transport;
   const inner = overrides.transport ?? createFetchAdvisoryTransport();
-  return createBudgetedAdvisoryTransport(config.advisoryBudget.directory, inner, process.cwd());
+  const budgeted = config.advisoryBudget?.mode === "on" ? createBudgetedAdvisoryTransport(config.advisoryBudget.directory, inner, process.cwd()) : inner;
+  return createLimitedAdvisoryTransport(budgeted, limiter);
 }
 
 /**

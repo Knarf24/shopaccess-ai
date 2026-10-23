@@ -80,6 +80,10 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
   if (canonical) redirect(canonical);
   const language = journey.draft?.language ?? pathLanguage;
   const copy = journeyCopy(language);
+  const externalAiNotice = runtime.value.advisory === "external" && runtime.value.advisoryProviderName
+    ? copy.externalAiNotice(runtime.value.advisoryProviderName)
+    : undefined;
+  const aiLimited = query.ai === "limited";
   const errorCode = typeof query.error === "string" ? query.error : undefined;
   const alert = errorCode && errorCode in copy.alerts ? copy.alerts[errorCode as keyof typeof copy.alerts] : null;
   // F07 (M2-3): a refused checkout start. Not a needs-form error, so it is not linked to the needs inputs.
@@ -195,6 +199,8 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             mode="reply"
             turns={journey.conversation?.turns}
             chargerClarification
+            externalAiNotice={externalAiNotice}
+            aiLimited={aiLimited}
             afterHistory={
               chargerTrack.state === "task_choice" ? (
                 <ChargerConversationControls csrfToken={session.csrfToken} language={language} track={chargerTrack} />
@@ -224,6 +230,8 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           validationAlertId={validationAlertId}
           turns={journey.conversation?.turns}
           noticeRendered={noticeRendered}
+          externalAiNotice={externalAiNotice}
+          aiLimited={aiLimited}
         />
       ) : null}
       {showClarify && journey.draft ? (
@@ -236,6 +244,8 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           turns={journey.conversation?.turns}
           validationAlertId={validationAlertId}
           noticeRendered={noticeRendered}
+          externalAiNotice={externalAiNotice}
+          aiLimited={aiLimited}
         />
       ) : null}
       {showConfirm && journey.draft ? (
@@ -247,6 +257,8 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             draft={journey.draft}
             mode="reply"
             turns={journey.conversation?.turns}
+            externalAiNotice={externalAiNotice}
+            aiLimited={aiLimited}
           />
           {journey.draft.shopperText ? (
             <p>
@@ -277,6 +289,8 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             turns={journey.conversation?.turns}
             validationAlertId={validationAlertId}
             noticeRendered={noticeRendered}
+            externalAiNotice={externalAiNotice}
+            aiLimited={aiLimited}
           />
           <a className="needs-results-jump" href="#guided-advisory-heading">
             {copy.resultsJump(eligibleLines.length)}

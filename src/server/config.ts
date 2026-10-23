@@ -4,6 +4,7 @@ import { parseTrustedOrigins } from "@/lib/session/request-guard";
 import { parseSessionKey } from "@/lib/session/token";
 import { err, ok, type Result } from "@/lib/shared/result";
 import { parseAdvisoryBudget, type AdvisoryBudget, type AdvisoryBudgetError } from "./advisory-budget";
+import { parseAdvisoryLimits, type AdvisoryLimits } from "./advisory-limits";
 
 export type AdvisoryConfig =
   | { readonly mode: "local" }
@@ -21,6 +22,8 @@ export interface RuntimeConfig {
   readonly advisory?: AdvisoryConfig;
   /** Absent means the advisory transport budget is off. Parsed configuration sets this only when the budget is on. */
   readonly advisoryBudget?: Extract<AdvisoryBudget, { mode: "on" }>;
+  /** Server-wide AI call limits for external mode. Absent means DEFAULT_ADVISORY_LIMITS (6 per session, 120/hour, 600/day). */
+  readonly advisoryLimits?: AdvisoryLimits;
   /**
    * Absent for parsed mock configuration. A parsed sandbox configuration on
    * the in-memory runtime sets it, including the client id and secret, which
@@ -50,6 +53,7 @@ export type RuntimeConfigError =
   | "ADVISORY_API_KEY_MISSING"
   | "ADVISORY_API_KEY_INVALID"
   | "DEMO_ADMISSION_UNSUPPORTED"
+  | "ADVISORY_LIMITS_INVALID"
   /** Snapshot persistence is configured, so the runtime must be opened through openRuntime (src/server/runtime-access.ts). */
   | "MOCK_STORE_REQUIRES_OPEN_RUNTIME"
   /** Snapshot persistence together with PostgreSQL mode is unsupported. */
@@ -116,13 +120,17 @@ export function parseRuntimeConfig(env: Readonly<Record<string, string | undefin
   });
   if (!budget.ok) errors.push(budget.error);
 
+  const limits = parseAdvisoryLimits(env);
+  if (!limits.ok) errors.push(limits.error);
+
   const extensionOrigins = parseExtensionOrigins(env.SHOPACCESS_EXTENSION_ORIGINS);
   if (extensionOrigins === "invalid") errors.push("EXTENSION_ORIGINS_INVALID");
 
-  if (errors.length > 0 || !key.ok || !trustedOrigins || !advisory.ok || !budget.ok || extensionOrigins === "invalid") return err(errors);
-  const base = budget.value.mode === "off"
+  if (errors.length > 0 || !key.ok || !trustedOrigins || !advisory.ok || !budget.ok || !limits.ok || extensionOrigins === "invalid") return err(errors);
+  const budgeted = budget.value.mode === "off"
     ? { sessionKey: key.value, trustedOrigins, advisory: advisory.value }
     : { sessionKey: key.value, trustedOrigins, advisory: advisory.value, advisoryBudget: budget.value };
+  const base = limits.value ? { ...budgeted, advisoryLimits: limits.value } : budgeted;
   const parsed = extensionOrigins ? { ...base, extensionOrigins } : base;
   return ok(sandboxPayment ? { ...parsed, payment: sandboxPayment } : parsed);
 }

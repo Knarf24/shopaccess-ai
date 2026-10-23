@@ -155,8 +155,8 @@ describe("recommendations view", () => {
   it("assesses every demo variant deterministically and keeps external listings separate and non-payable", async () => {
     const { runtime } = world();
     const preferences = parsePreferences("programming", "900")!;
-    const view = await buildShoppingView(runtime, preferences);
-    const again = await buildShoppingView(runtime, preferences);
+    const view = await buildShoppingView(runtime, preferences, "demo-flow-session");
+    const again = await buildShoppingView(runtime, preferences, "demo-flow-session");
     expect(view).toEqual(again);
 
     const statuses = Object.fromEntries(view.variants.map((entry) => [entry.variant.variantId, entry.assessment.status]));

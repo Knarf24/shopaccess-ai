@@ -136,7 +136,7 @@ describe("/shop skip link", () => {
   const runtime = createRuntime({ sessionKey: TEST_SESSION_KEY, trustedOrigins: parseTrustedOrigins(["https://shop.example.test"]) }, { clock: createTestClock().clock });
   const render = async (props: { error?: string | null; refusal?: "PERMISSION_REQUIRED" | null; sessionNotice?: ReactNode }) =>
     renderToStaticMarkup(
-      <ShopListing view={await buildShoppingView(runtime, preferences)} preferences={preferences} csrfToken="csrf-test" error={props.error ?? null} refusal={props.refusal ?? null} sessionNotice={props.sessionNotice} />,
+      <ShopListing view={await buildShoppingView(runtime, preferences, "a11y-test-session")} preferences={preferences} csrfToken="csrf-test" error={props.error ?? null} refusal={props.refusal ?? null} sessionNotice={props.sessionNotice} />,
     );
 
   it("is the first focusable element and targets the demo-store list when nothing is refused", async () => {

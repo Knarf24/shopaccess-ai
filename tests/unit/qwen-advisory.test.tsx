@@ -33,6 +33,7 @@ import {
   type AdvisoryTransportResponse,
 } from "@/lib/providers/qwen-advisory";
 import { parseTrustedOrigins } from "@/lib/session/request-guard";
+import { withAdvisorySession } from "@/server/advisory-limits";
 import { parseRuntimeConfig } from "@/server/config";
 import { createRuntime, type Runtime } from "@/server/runtime";
 import { buildShoppingView, parsePreferences, type ShoppingView } from "@/server/shopping";
@@ -384,17 +385,17 @@ describe("suggestion encoder and decoder", () => {
     const current = request();
     const encodedRequest = encodeSuggestionRequest({ modelId: MODEL_ID, endpoint: SYNTHORAI, apiKey: API_KEY, request: current });
     const body = JSON.parse(encodedRequest.body) as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["max_tokens", "messages", "model", "reasoning_effort", "stream"]);
+    expect(Object.keys(body).sort()).toEqual(["enable_thinking", "max_tokens", "messages", "model", "reasoning_effort", "stream"]);
     expect(body.model).toBe(MODEL_ID);
     expect(body.stream).toBe(false);
     expect(body.max_tokens).toBe(ADVISORY_MAX_COMPLETION_TOKENS);
     expect(body.max_tokens).toBe(1024);
     expect(body.max_tokens).not.toBe(ADVISORY_MAX_RESPONSE_BYTES);
     expect(body.reasoning_effort).toBe("minimal");
-    expect(body.enable_thinking).toBeUndefined();
+    expect(body.enable_thinking).toBe(false);
     expect(body.max_completion_tokens).toBeUndefined();
     expect(body.response_format).toBeUndefined();
-    expect(encodedRequest.body).not.toContain("enable_thinking");
+    expect(encodedRequest.body).toContain('"enable_thinking":false');
     expect(encodedRequest.body).not.toContain("max_completion_tokens");
     expect(encodedRequest.body).not.toContain("response_format");
     expect(encodedRequest.body).not.toContain(API_KEY);
@@ -442,13 +443,17 @@ describe("suggestion encoder and decoder", () => {
       parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv({ SHOPACCESS_AI_ENDPOINT: SYNTHORAI }) }),
       async () => responseFrom(inventedBody),
     );
-    await expect(suggestProductsSafely(runtime.ai, runtime.catalog, "Laptop for Programming")).resolves.toEqual({ ok: false, error: "INVENTED_REFERENCE" });
+    await expect(withAdvisorySession("synthorai-invented-session", () =>
+      suggestProductsSafely(runtime.ai, runtime.catalog, "Laptop for Programming"),
+    )).resolves.toEqual({ ok: false, error: "INVENTED_REFERENCE" });
 
     const malformed = runtimeFor(
       parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv({ SHOPACCESS_AI_ENDPOINT: SYNTHORAI }) }),
       async () => responseFrom(envelope({ message: "Order placed.", references: [], action: { type: "purchase" } })),
     );
-    await expect(suggestProductsSafely(malformed.ai, malformed.catalog, "Laptop for Programming")).resolves.toEqual({ ok: false, error: "OUTPUT_INVALID" });
+    await expect(withAdvisorySession("synthorai-malformed-session", () =>
+      suggestProductsSafely(malformed.ai, malformed.catalog, "Laptop for Programming"),
+    )).resolves.toEqual({ ok: false, error: "OUTPUT_INVALID" });
     expect(liveFetch).not.toHaveBeenCalled();
   });
 });
@@ -659,8 +664,8 @@ describe("shop rendering", () => {
       throw new Error("local assistant called the provider");
     };
     const watched = watch(runtimeFor(parseRuntimeConfig(baseEnv()), transport, clock));
-    const view = await buildShoppingView(watched.runtime, preferences);
-    const again = await buildShoppingView(watched.runtime, preferences);
+    const view = await buildShoppingView(watched.runtime, preferences, "qwen-shopping-session");
+    const again = await buildShoppingView(watched.runtime, preferences, "qwen-shopping-session");
     expect(view).toEqual(again);
     const variantCount = DEMO_MERCHANT_CATALOG.products.reduce((count, product) => count + product.variants.length, 0);
     expect(watched.counts()).toEqual({ explain: variantCount * 2, suggest: 2 });
@@ -689,11 +694,11 @@ describe("shop rendering", () => {
     };
     const config = parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() });
     const watched = watch(runtimeFor(config, transport, clock));
-    const view = await buildShoppingView(watched.runtime, preferences);
+    const view = await buildShoppingView(watched.runtime, preferences, "qwen-retry-session");
     expect(calls).toBe(1);
     expect(watched.counts()).toEqual({ explain: 0, suggest: 1 });
     calls = 0;
-    const again = await buildShoppingView(watched.runtime, preferences);
+    const again = await buildShoppingView(watched.runtime, preferences, "qwen-retry-session");
     expect(calls).toBe(1);
     expect(view).toEqual(again);
     expect(watched.runtime.advisory).toBe("external");
@@ -774,15 +779,17 @@ describe("shop rendering", () => {
         return responseFrom(item.body);
       };
       const runtime = runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), transport, clock);
-      const safe = await suggestProductsSafely(runtime.ai, runtime.catalog, "Laptop for Programming");
+      const safe = await withAdvisorySession(`qwen-direct-${item.error}`, () =>
+        suggestProductsSafely(runtime.ai, runtime.catalog, "Laptop for Programming"),
+      );
       expect(safe).toEqual({ ok: false, error: item.error });
-      const view = await buildShoppingView(runtime, preferences);
+      const view = await buildShoppingView(runtime, preferences, "qwen-http-session");
       expect(calls).toBe(2);
-      expect(view.assistantMessage).toBeNull();
-      expect(view.recommendations).toEqual([]);
+      expect(view.assistantMessage).toBe("These catalog items meet the stated use and budget.");
+      expect(view.recommendations?.length).toBeGreaterThan(0);
+      expect(view.suggestionSource).toBe("fallback");
       const html = renderToStaticMarkup(<AdvisoryRecommendations message={view.assistantMessage} recommendations={view.recommendations ?? []} />);
-      expect(html).toContain("No suggestion is available.");
-      expect(html).toContain("No catalog item could be shown.");
+      expect(html).toContain("These catalog items meet the stated use and budget.");
       expect(html).not.toContain(item.text);
       expect(html).not.toMatch(/<form|<button|checkout|paypal/i);
     }
@@ -801,13 +808,14 @@ describe("shop rendering", () => {
       return hangUntilAbort(next);
     };
     const runtime = runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), transport, createTestClock().clock);
-    const pending = buildShoppingView(runtime, preferences);
+    const pending = buildShoppingView(runtime, preferences, "qwen-pending-session");
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(ADVISORY_DEADLINE_MS);
     const view: ShoppingView = await pending;
     expect(calls).toBe(1);
-    expect(view.assistantMessage).toBeNull();
-    expect(view.recommendations).toEqual([]);
+    expect(view.assistantMessage).toBe("These catalog items meet the stated use and budget.");
+    expect(view.recommendations?.length).toBeGreaterThan(0);
+    expect(view.suggestionSource).toBe("fallback");
     for (const entry of view.variants) expect(entry.explanation?.source).toBe("deterministic_fallback");
     expect(vi.getTimerCount()).toBe(0);
     expect(liveFetch).not.toHaveBeenCalled();
@@ -830,29 +838,32 @@ describe("shop rendering", () => {
         }, { once: true });
       });
       const timeoutRuntime = runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), timeoutTransport, createTestClock().clock);
-      const timeoutPending = buildShoppingView(timeoutRuntime, preferences);
+      const timeoutPending = buildShoppingView(timeoutRuntime, preferences, "qwen-timeout-session");
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(ADVISORY_DEADLINE_MS);
       const timeoutView: ShoppingView = await timeoutPending;
-      expect(timeoutView.assistantMessage).toBeNull();
-      expect(timeoutView.recommendations).toEqual([]);
+      expect(timeoutView.assistantMessage).toBe("These catalog items meet the stated use and budget.");
+      expect(timeoutView.recommendations?.length).toBeGreaterThan(0);
+      expect(timeoutView.suggestionSource).toBe("fallback");
       for (const entry of timeoutView.variants) expect(entry.explanation?.source).toBe("deterministic_fallback");
 
       vi.useRealTimers();
       const jsonTransport: AdvisoryTransport = async () => responseFrom(`{not-json ${secret} ${ENDPOINT} ${prose}`);
       const jsonRuntime = runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), jsonTransport, createTestClock().clock);
-      const jsonView = await buildShoppingView(jsonRuntime, preferences);
-      expect(jsonView.assistantMessage).toBeNull();
-      expect(jsonView.recommendations).toEqual([]);
+      const jsonView = await buildShoppingView(jsonRuntime, preferences, "qwen-json-session");
+      expect(jsonView.assistantMessage).toBe("These catalog items meet the stated use and budget.");
+      expect(jsonView.recommendations?.length).toBeGreaterThan(0);
+      expect(jsonView.suggestionSource).toBe("fallback");
 
       const catalogTransport: AdvisoryTransport = async () => responseFrom(envelope({
         message: `${prose} ${secret}`,
         references: [{ productId: "dmp_inventeddeal", variantId: "dmv_inventeddeal" }],
       }));
       const catalogRuntime = runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), catalogTransport, createTestClock().clock);
-      const catalogView = await buildShoppingView(catalogRuntime, preferences);
-      expect(catalogView.assistantMessage).toBeNull();
-      expect(catalogView.recommendations).toEqual([]);
+      const catalogView = await buildShoppingView(catalogRuntime, preferences, "qwen-catalog-session");
+      expect(catalogView.assistantMessage).toBe("These catalog items meet the stated use and budget.");
+      expect(catalogView.recommendations?.length).toBeGreaterThan(0);
+      expect(catalogView.suggestionSource).toBe("fallback");
 
       expect(captured).toHaveLength(3);
       expect(captured[0]).toBe("shopaccess: advisory stage=transport code=DEADLINE elapsedMs=15000");
@@ -953,11 +964,14 @@ describe("shop rendering", () => {
     try {
       const transport: AdvisoryTransport = async () => responseFrom(`{not-json ${secret} ${raw}`);
       const runtime = runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), transport, createTestClock().clock);
-      const direct = await suggestProductsSafely(runtime.ai, runtime.catalog, "Laptop for Programming");
+      const direct = await withAdvisorySession("qwen-throwing-sink-direct", () =>
+        suggestProductsSafely(runtime.ai, runtime.catalog, "Laptop for Programming"),
+      );
       expect(direct).toEqual({ ok: false, error: "AI_UNAVAILABLE" });
-      const view = await buildShoppingView(runtime, preferences);
-      expect(view.assistantMessage).toBeNull();
-      expect(view.recommendations).toEqual([]);
+      const view = await buildShoppingView(runtime, preferences, "qwen-redaction-session");
+      expect(view.assistantMessage).toBe("These catalog items meet the stated use and budget.");
+      expect(view.recommendations?.length).toBeGreaterThan(0);
+      expect(view.suggestionSource).toBe("fallback");
       for (const entry of view.variants) expect(entry.explanation?.source).toBe("deterministic_fallback");
       expect(captured[0]).toMatch(/^shopaccess: advisory stage=transport code=TRANSPORT elapsedMs=\d+$/);
       expect(captured[1]).toMatch(/^shopaccess: advisory stage=output_validation code=INVENTED_REFERENCE elapsedMs=\d+$/);
@@ -1077,7 +1091,7 @@ describe("shop rendering", () => {
         ],
       }));
     };
-    const view = await buildShoppingView(runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), transport), schoolwork);
+    const view = await buildShoppingView(runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), transport), schoolwork, "qwen-schema-session");
     expect(seen).toHaveLength(1);
     const payload = JSON.parse(JSON.parse(new TextDecoder().decode(seen[0].body)).messages[1].content) as {
       shopperMessage: string;
@@ -1126,7 +1140,7 @@ describe("shop rendering", () => {
       calls += 1;
       return responseFrom(envelope(suggestion()));
     };
-    const view = await buildShoppingView(runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), transport), schoolwork);
+    const view = await buildShoppingView(runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), transport), schoolwork, "qwen-prose-session");
     expect(calls).toBe(0);
     expect(view.assistantMessage).toBe("No catalog item meets this use and budget.");
     expect(view.recommendations).toEqual([]);
@@ -1150,7 +1164,7 @@ describe("shop rendering", () => {
         references: [{ productId: "dmp_aspire14ai", variantId: "dmv_aspire14ai" }],
       }));
     };
-    const view = await buildShoppingView(runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), transport), schoolwork);
+    const view = await buildShoppingView(runtimeFor(parseRuntimeConfig({ ...baseEnv(), ...advisoryEnv() }), transport), schoolwork, "qwen-reference-session");
     expect(calls).toBe(1);
     expect(view.assistantMessage).toBe("No suggestion matched a catalog item that meets this use and budget.");
     expect(view.recommendations).toEqual([]);
@@ -1169,7 +1183,7 @@ describe("shop rendering", () => {
     const transport: AdvisoryTransport = async () => {
       throw new Error("local assistant called the provider");
     };
-    const view = await buildShoppingView(runtimeFor(parseRuntimeConfig(baseEnv()), transport), schoolwork);
+    const view = await buildShoppingView(runtimeFor(parseRuntimeConfig(baseEnv()), transport), schoolwork, "qwen-local-session");
     expect(view.recommendations).toBeUndefined();
     expect(view.assistantMessage).toBe("Here is a laptop from the demo catalog to consider.");
     expect(view.variants).toHaveLength(3);

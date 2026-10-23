@@ -54,7 +54,7 @@ vi.mock("@/server/pg-views", async (importOriginal) => ({
   resolvePgPageSession: async () => PG_SESSION,
   buildPgShoppingView: async (_services: unknown, preferences: Parameters<typeof buildShoppingView>[1]) => ({
     kind: "OK",
-    value: await buildShoppingView(page.runtime as Runtime, preferences),
+    value: await buildShoppingView(page.runtime as Runtime, preferences, "message-lookup-session"),
   }),
   buildPgCheckoutList: async () => ({ kind: "OK", value: [] }),
   buildPgCheckoutView: async () => ({ kind: "OK", value: PG_CHECKOUT }),

@@ -241,7 +241,8 @@ export interface SafeSuggestion {
   readonly references: readonly { productId: string; variantId: string; unitAmountCents: number; currency: "USD" }[];
 }
 
-export type SuggestionRejection = "MESSAGE_INVALID" | "AI_UNAVAILABLE" | "OUTPUT_INVALID" | "INVENTED_REFERENCE" | "PRICE_MISMATCH";
+/** `AI_LIMITED`: the server-wide AI call limit refused the attempt before anything was sent. */
+export type SuggestionRejection = "MESSAGE_INVALID" | "AI_UNAVAILABLE" | "AI_LIMITED" | "OUTPUT_INVALID" | "INVENTED_REFERENCE" | "PRICE_MISMATCH";
 
 export type AdvisoryFailureStage = "transport" | "decoding" | "output_validation";
 
@@ -251,6 +252,7 @@ export type AdvisoryDiagnosticCode =
   | "BODY_TOO_LARGE"
   | "HTTP_STATUS"
   | "TRANSPORT"
+  | "LIMITED"
   | "NOT_JSON"
   | "ENVELOPE"
   | "NOT_STOP"
@@ -270,7 +272,7 @@ export interface AdvisoryFailureDiagnostic {
   readonly categories?: readonly string[];
 }
 
-const TRANSPORT_CODES = ["REDIRECT", "DEADLINE", "BODY_TOO_LARGE", "HTTP_STATUS", "TRANSPORT"] as const;
+const TRANSPORT_CODES = ["REDIRECT", "DEADLINE", "BODY_TOO_LARGE", "HTTP_STATUS", "TRANSPORT", "LIMITED"] as const;
 const DECODING_CODES = ["NOT_JSON", "ENVELOPE", "NOT_STOP", "EMPTY_CONTENT"] as const;
 const OUTPUT_CODES = ["OUTPUT_INVALID", "INVENTED_REFERENCE", "PRICE_MISMATCH"] as const;
 
@@ -354,8 +356,9 @@ export async function suggestProductsSafely(
         : { shopperMessage: message.data, products: catalogProducts(catalog) },
     });
   } catch (error) {
-    reportAdvisoryFailure(onFailure, diagnosticForThrown(error, Date.now() - started));
-    return err("AI_UNAVAILABLE");
+    const diagnostic = diagnosticForThrown(error, Date.now() - started);
+    reportAdvisoryFailure(onFailure, diagnostic);
+    return err(diagnostic.code === "LIMITED" ? "AI_LIMITED" : "AI_UNAVAILABLE");
   }
   const elapsed = Date.now() - started;
   const parsed = SuggestionOutputSchema.safeParse(raw);
@@ -385,7 +388,7 @@ export async function suggestProductsSafely(
   return ok({ message: parsed.data.message, references });
 }
 
-export type InterpretationRejection = "MESSAGE_INVALID" | "AI_UNAVAILABLE" | "OUTPUT_INVALID";
+export type InterpretationRejection = "MESSAGE_INVALID" | "AI_UNAVAILABLE" | "AI_LIMITED" | "OUTPUT_INVALID";
 
 /** One interpretation attempt. Malformed output is rejected whole; nothing is partially adopted. */
 export async function interpretNeedsSafely(
@@ -403,8 +406,9 @@ export async function interpretNeedsSafely(
       untrustedData: { shopperMessage: message.data, products: [] },
     });
   } catch (error) {
-    reportAdvisoryFailure(onFailure, diagnosticForThrown(error, Date.now() - started));
-    return err("AI_UNAVAILABLE");
+    const diagnostic = diagnosticForThrown(error, Date.now() - started);
+    reportAdvisoryFailure(onFailure, diagnostic);
+    return err(diagnostic.code === "LIMITED" ? "AI_LIMITED" : "AI_UNAVAILABLE");
   }
   const parsed = InterpretationOutputSchema.safeParse(raw);
   if (!parsed.success) {
