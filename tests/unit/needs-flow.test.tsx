@@ -341,7 +341,7 @@ describe("guided needs flow", () => {
     const challenge = await prepareConfirmation(fixture.checkout, session.id, quote.quoteId);
     if (!challenge.ok) throw new Error(challenge.error);
     const english = renderToStaticMarkup(<ConfirmationSummary challenge={challenge.value} csrfToken={session.csrfToken} action="/checkout/confirm" />);
-    expect(english).toContain("approving the payment in PayPal is the step that would authorize payment");
+    expect(english).toContain("Any payment step comes after this and is shown separately.");
     expect(english).toContain(`name="quoteDigest" value="${quote.digest}"`);
     expect(english).not.toContain('lang="es"');
 

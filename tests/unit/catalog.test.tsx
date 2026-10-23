@@ -472,7 +472,8 @@ describe("confirmation summary UI", () => {
     expect(html).toContain("$879.99");
     expect(html).toMatch(/<button type="submit"[^>]*aria-describedby="confirm-explanation"/);
     expect(html).toMatch(/<input type="checkbox"[^>]*required=""/);
-    expect(html).toContain("approving the payment in PayPal is the step that would authorize payment");
+    expect(html).toContain("Any payment step comes after this and is shown separately.");
+    expect(html).not.toMatch(/sandbox/i);
     expect(html).toContain(`name="quoteDigest" value="${quote.digest}"`);
     expect(html).not.toMatch(/tabindex="-1"|role="button"|onclick/i);
     // No PayPal link, script or redirect target is rendered.

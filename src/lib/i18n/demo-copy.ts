@@ -202,7 +202,7 @@ const ENGLISH: JourneyCopy = {
   missingTranslation: "Spanish wording is not available for this line.",
   catalogHeading: "Demo laptops",
   catalogNotice:
-    "ShopAccess Demo Store is simulated. Prices shown are fixed demo prices, not a guaranteed current offer. Inventory is simulated. Acer, ASUS, Newegg, and their sellers are not ShopAccess partners. Checkout is a PayPal sandbox demonstration with no physical fulfillment.",
+    "ShopAccess Demo Store is simulated. Prices shown are fixed demo prices, not a guaranteed current offer. Inventory is simulated. Acer, ASUS, Newegg, and their sellers are not ShopAccess partners. Checkout is a demonstration: no real money moves and nothing is shipped.",
   checkLimitation:
     "Only price, stock, memory, storage, and the published weight guideline were checked. Screen size, processor, storage type, operating system, battery, color, and any other weight limit were not checked. They do not change the prices or which laptops are eligible.",
   whyThis: "Why this?",
@@ -263,10 +263,10 @@ const ENGLISH: JourneyCopy = {
     item: "Item",
     quantity: "Quantity",
     tax: "Tax and shipping",
-    taxValue: "$0.00 (assumed for this Sandbox demonstration; nothing is shipped)",
+    taxValue: "$0.00 (assumed for this demonstration; nothing is shipped)",
     total: "Total",
     explanation:
-      "Confirming does not take payment. It records that you agree to this exact summary. If PayPal checkout is added later, approving the payment in PayPal is the step that would authorize payment.",
+      "Confirming does not take payment. It records that you agree to this exact summary. Any payment step comes after this and is shown separately.",
     acknowledgement: "I have reviewed the seller, item, quantity and total above.",
     submit: "Confirm this purchase summary",
   },
@@ -291,7 +291,7 @@ const ENGLISH: JourneyCopy = {
     soldBy: "sold by",
     missingItem: "Item no longer in the demo catalog",
     totalLabel: "Total",
-    taxNote: "Tax and shipping are $0.00 as an assumption of this Sandbox demonstration; nothing is shipped.",
+    taxNote: "Tax and shipping are $0.00 as an assumption of this demonstration; nothing is shipped.",
     cancelReturn: {
       title: "Cancel checkout",
       heading: "Cancel this checkout",
@@ -355,7 +355,7 @@ const SPANISH: JourneyCopy = {
   missingTranslation: "No hay texto en español para esta línea.",
   catalogHeading: "Portátiles de demostración",
   catalogNotice:
-    "La tienda de demostración de ShopAccess es simulada. Los precios mostrados son precios fijos de demostración, no una oferta vigente garantizada. El inventario es simulado. Acer, ASUS, Newegg y sus vendedores no son socios de ShopAccess. El pago es una demostración del entorno de pruebas de PayPal y no hay entrega física.",
+    "La tienda de demostración de ShopAccess es simulada. Los precios mostrados son precios fijos de demostración, no una oferta vigente garantizada. El inventario es simulado. Acer, ASUS, Newegg y sus vendedores no son socios de ShopAccess. El pago es una demostración: no se mueve dinero real y no hay entrega física.",
   checkLimitation:
     "Solo se comprobaron el precio, la disponibilidad, la memoria, el almacenamiento y la guía de peso publicada. No se comprobaron el tamaño de la pantalla, el procesador, el tipo de almacenamiento, el sistema operativo, la batería, el color ni otro límite de peso. Esos datos no cambian los precios ni qué portátiles son adecuados.",
   whyThis: "¿Por qué este?",
@@ -419,7 +419,7 @@ const SPANISH: JourneyCopy = {
     taxValue: "0,00 USD (supuesto de esta demostración; no se envía nada)",
     total: "Total",
     explanation:
-      "Confirmar no cobra un pago. Registra que usted acepta este resumen exacto. Si más adelante se añade el pago con PayPal, aprobar el pago en PayPal sería el paso que autorizaría el pago.",
+      "Confirmar no cobra un pago. Registra que usted acepta este resumen exacto. Cualquier paso de pago viene después y se muestra por separado.",
     acknowledgement: "He revisado el vendedor, el artículo, la cantidad y el total de arriba.",
     submit: "Confirmar este resumen de compra",
   },
@@ -444,7 +444,7 @@ const SPANISH: JourneyCopy = {
     soldBy: "vendido por",
     missingItem: "El artículo ya no está en el catálogo de demostración",
     totalLabel: "Total",
-    taxNote: "Los impuestos y el envío son 0,00 USD como supuesto de esta demostración del entorno de pruebas; no se envía nada.",
+    taxNote: "Los impuestos y el envío son 0,00 USD como supuesto de esta demostración; no se envía nada.",
     cancelReturn: {
       title: "Cancelar la compra",
       heading: "Cancelar esta compra",

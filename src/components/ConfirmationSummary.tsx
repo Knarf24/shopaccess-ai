@@ -39,7 +39,7 @@ export function ConfirmationSummary({ challenge, csrfToken, action, language, he
         <dt className="font-medium">Quantity</dt>
         <dd>{summary.quantity}</dd>
         <dt className="font-medium">Tax and shipping</dt>
-        <dd>$0.00 (assumed for this Sandbox demonstration; nothing is shipped)</dd>
+        <dd>{journeyCopy("en").confirmation.taxValue}</dd>
         <dt className="font-medium">Total</dt>
         <dd className="font-semibold">
           {formatUsd(summary.totalCents)} {summary.currency}
@@ -47,8 +47,7 @@ export function ConfirmationSummary({ challenge, csrfToken, action, language, he
       </dl>
       <p>{journeyCopy("en").catalogNotice}</p>
       <p id="confirm-explanation" className="text-sm">
-        Confirming does not take payment. It records that you agree to this exact summary. If PayPal checkout is added later,
-        approving the payment in PayPal is the step that would authorize payment. This summary expires at{" "}
+        {journeyCopy("en").confirmation.explanation} This summary expires at{" "}
         <time dateTime={challenge.expiresAt}>{challenge.expiresAt}</time>; after that, or if anything changes, you will be asked to
         review a new summary.
       </p>
