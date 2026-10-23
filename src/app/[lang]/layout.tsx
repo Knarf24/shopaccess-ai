@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { CSSProperties, ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { documentLocale } from "@/lib/i18n/locale-segment";
+import { siteMetadata } from "@/lib/i18n/site-metadata";
 import "../globals.css";
 
 const SYSTEM_FONTS = {
@@ -9,10 +10,11 @@ const SYSTEM_FONTS = {
   "--font-geist-mono": 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
 } as CSSProperties;
 
-export const metadata: Metadata = {
-  title: "ShopAccess AI",
-  description: "An inclusive shopping assistant demo with a simulated Sandbox catalog.",
-};
+/** Title and description in the document language; an unsupported segment falls back to English (the layout then 404s). */
+export async function generateMetadata({ params }: { readonly params: Promise<{ lang: string }> }): Promise<Metadata> {
+  const locale = documentLocale((await params).lang) ?? "en";
+  return siteMetadata(locale);
+}
 
 export function generateStaticParams() {
   return [{ lang: "en" }, { lang: "es" }];

@@ -31,7 +31,7 @@ function Storefront({ catalog }: { catalog: MerchantCatalog }) {
     <>
       <section aria-labelledby="notice-heading" className="sandbox-notice rounded-lg border-2 border-amber-600 bg-amber-50 p-4 text-amber-950">
         <h2 id="notice-heading" className="font-semibold">
-          Simulated Sandbox shopping catalog
+          {journeyCopy("en").catalogNoticeHeading}
         </h2>
         <p className="text-sm">{journeyCopy("en").catalogNotice}</p>
       </section>
