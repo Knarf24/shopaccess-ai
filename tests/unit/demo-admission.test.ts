@@ -276,7 +276,8 @@ describe("demo admission", () => {
     const admissionCookie = cookieValue(accepted.headers.getSetCookie()[0], ADMISSION_COOKIE_NAME);
     expect(accepted.headers.getSetCookie()[0]).toContain("Max-Age=28800");
     expect(accepted.headers.get("location")?.includes(PASSPHRASE)).toBe(false);
-    expect(admission.attempts.count).toBe(2);
+    // The wrong passphrase still counts; the matching one gave its attempt back.
+    expect(admission.attempts.count).toBe(1);
     expect(verifyPurposeCookie(admissionCookie, ADMISSION_KEY, runtime.clock().getTime(), ADMISSION_LIFETIME_MS, ADMISSION_LABEL)).toBe(true);
     expect(verifyPurposeCookie(admissionCookie, ADMISSION_KEY, runtime.clock().getTime(), ADMISSION_LIFETIME_MS, CSRF_LABEL)).toBe(false);
     expect(verifyPurposeCookie(rotated, ADMISSION_KEY, runtime.clock().getTime(), CSRF_LIFETIME_MS, ADMISSION_LABEL)).toBe(false);
@@ -335,49 +336,51 @@ describe("demo admission", () => {
     expect(protectedAdmissionLocation(onAdmission(), `${ADMISSION_COOKIE_NAME}=${issued.value}`, now, "es")).toBeNull();
   });
 
-  it("counts every verification, including successes, and opens a new window on the boundary", async () => {
-    const { runtime, admission, time } = openedRuntime();
+  it("gives a matching passphrase its attempt back, so successful judges never exhaust the window", async () => {
+    const { runtime, admission } = openedRuntime();
     const csrf = await bootstrap(runtime, "en");
-    expect(admission.attempts.count).toBe(0);
     const cookie = `${CSRF_COOKIE_NAME}=${csrf}`;
-    for (let attempt = 1; attempt <= LOGIN_ATTEMPT_LIMIT; attempt += 1) {
+    for (let attempt = 1; attempt <= LOGIN_ATTEMPT_LIMIT * 3; attempt += 1) {
       const response = await handleDemoAdmissionSubmit(
         submit("/demo/admission/submit", { lang: "en", demoCsrf: csrf, passphrase: PASSPHRASE }, cookie),
         runtime,
       );
       expect(response.headers.get("location")).toBe("/?lang=en");
       expect(response.headers.getSetCookie()[0]?.startsWith(`${ADMISSION_COOKIE_NAME}=`)).toBe(true);
+      expect(admission.attempts.count).toBe(0);
     }
-    const blocked = await handleDemoAdmissionSubmit(
-      submit("/demo/admission/submit", { lang: "en", demoCsrf: csrf, passphrase: PASSPHRASE }, cookie),
-      runtime,
-    );
+  });
+
+  it("still counts every wrong passphrase: a full window refuses even the correct one until the boundary", async () => {
+    const { runtime, admission, time } = openedRuntime();
+    const csrf = await bootstrap(runtime, "en");
+    const cookie = `${CSRF_COOKIE_NAME}=${csrf}`;
+    const attempt = (passphrase: string, demoCsrf = csrf, jar = cookie) =>
+      handleDemoAdmissionSubmit(submit("/demo/admission/submit", { lang: "en", demoCsrf, passphrase }, jar), runtime);
+    for (let wrong = 1; wrong <= LOGIN_ATTEMPT_LIMIT; wrong += 1) {
+      expect((await attempt(`${PASSPHRASE}-wrong`)).headers.get("location")).toBe("/en/demo/admission?notice=rejected");
+      expect(admission.attempts.count).toBe(wrong);
+    }
+    const blocked = await attempt(PASSPHRASE);
     expect(blocked.headers.get("location")).toBe("/en/demo/admission?notice=retry");
     expect(blocked.headers.getSetCookie()).toEqual([]);
     expect(admission.attempts.count).toBe(LOGIN_ATTEMPT_LIMIT + 1);
 
     time.advance(LOGIN_WINDOW_MS - 1);
-    const reissued = await handleDemoAdmissionSubmit(
-      submit("/demo/admission/submit", { lang: "en", demoCsrf: csrf, passphrase: PASSPHRASE }, cookie),
-      runtime,
-    );
+    const reissued = await attempt(PASSPHRASE);
     expect(reissued.headers.get("location")).toBe("/en/demo/admission");
-    expect(admission.attempts.count).toBe(LOGIN_ATTEMPT_LIMIT + 1);
     const fresh = cookieValue(reissued.headers.getSetCookie()[0], CSRF_COOKIE_NAME);
-    const stillBlocked = await handleDemoAdmissionSubmit(
-      submit("/demo/admission/submit", { lang: "en", demoCsrf: fresh, passphrase: PASSPHRASE }, `${CSRF_COOKIE_NAME}=${fresh}`),
-      runtime,
-    );
-    expect(stillBlocked.headers.get("location")).toBe("/en/demo/admission?notice=retry");
+    const freshJar = `${CSRF_COOKIE_NAME}=${fresh}`;
+    expect((await attempt(PASSPHRASE, fresh, freshJar)).headers.get("location")).toBe("/en/demo/admission?notice=retry");
     expect(admission.attempts.count).toBe(LOGIN_ATTEMPT_LIMIT + 2);
+
     time.advance(1);
-    const renewed = await handleDemoAdmissionSubmit(
-      submit("/demo/admission/submit", { lang: "en", demoCsrf: fresh, passphrase: PASSPHRASE }, `${CSRF_COOKIE_NAME}=${fresh}`),
-      runtime,
-    );
+    const renewed = await attempt(PASSPHRASE, fresh, freshJar);
     expect(renewed.headers.get("location")).toBe("/?lang=en");
-    expect(admission.attempts.count).toBe(1);
     expect(admission.attempts.windowStartedAt).toBe(runtime.clock().getTime());
+    expect(admission.attempts.count).toBe(0);
+    expect((await attempt(`${PASSPHRASE}-wrong`, fresh, freshJar)).headers.get("location")).toBe("/en/demo/admission?notice=rejected");
+    expect(admission.attempts.count).toBe(1);
   });
 
   it("does not count a CSRF bootstrap, an empty oversized body, or a missing passphrase, and does count an empty passphrase", async () => {
@@ -405,6 +408,11 @@ describe("demo admission", () => {
   it("revokes the shopper session on logout and does not reset the attempt window", async () => {
     const { runtime, admission } = openedRuntime();
     const csrf = await bootstrap(runtime, "es");
+    const wrong = await handleDemoAdmissionSubmit(
+      submit("/demo/admission/submit", { lang: "es", demoCsrf: csrf, passphrase: "wrong-passphrase-value" }, `${CSRF_COOKIE_NAME}=${csrf}`),
+      runtime,
+    );
+    expect(wrong.headers.get("location")).toBe("/es/demo/admission?notice=rejected");
     const admitted = await handleDemoAdmissionSubmit(
       submit("/demo/admission/submit", { lang: "es", demoCsrf: csrf, passphrase: PASSPHRASE }, `${CSRF_COOKIE_NAME}=${csrf}`),
       runtime,

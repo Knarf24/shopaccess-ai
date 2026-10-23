@@ -34,6 +34,13 @@ export interface WindowPolicy {
 
 export type WindowDecision = { readonly allowed: true } | { readonly allowed: false; readonly retryAfterMs: number };
 
+/** Which admission window an allowed attempt was counted in. Only that window can take the attempt back. */
+export interface AdmissionReservation {
+  readonly windowStartedAt: number;
+}
+
+export type AdmissionDecision = { readonly allowed: true; readonly reservation: AdmissionReservation } | { readonly allowed: false; readonly retryAfterMs: number };
+
 type WindowState = { readonly windowStartedAt: number | null; readonly count: number };
 
 /**
@@ -50,6 +57,19 @@ export function spendWindow(window: WindowState, nowMs: number, policy: WindowPo
     return { next: countRefused ? { windowStartedAt: start, count: Math.min(count + 1, Number.MAX_SAFE_INTEGER) } : { windowStartedAt: start, count }, decision: { allowed: false, retryAfterMs } };
   }
   return { next: { windowStartedAt: start, count: count + 1 }, decision: { allowed: true } };
+}
+
+/**
+ * Gives back one attempt to the window it was reserved in. Once a newer window has started, or on an empty window, nothing
+ * changes: a request that finishes late can never return an attempt of a window it did not spend in.
+ */
+export function refundWindow(window: WindowState, reservation: AdmissionReservation): WindowState {
+  if (window.windowStartedAt !== reservation.windowStartedAt || window.count === 0) return window;
+  return { windowStartedAt: window.windowStartedAt, count: window.count - 1 };
+}
+
+function reserved(next: WindowState, decision: WindowDecision): AdmissionDecision {
+  return decision.allowed ? { allowed: true, reservation: { windowStartedAt: next.windowStartedAt as number } } : decision;
 }
 
 export interface LiveSessionStore extends SessionStore {
@@ -79,8 +99,10 @@ export interface DurableHost {
   readonly sessionStore: LiveSessionStore;
   /** Durable before it is relied on. */
   spendAllocation(nowMs: number, policy: WindowPolicy): Promise<WindowDecision>;
-  /** Durable before the passphrase is checked. Every attempt counts. */
-  spendAdmissionAttempt(nowMs: number, policy: WindowPolicy): Promise<WindowDecision>;
+  /** Durable before the passphrase is checked. Every attempt counts until a matching passphrase refunds its own. */
+  spendAdmissionAttempt(nowMs: number, policy: WindowPolicy): Promise<AdmissionDecision>;
+  /** Gives back the attempt a matching passphrase spent, so only wrong passphrases fill the window (durable in snapshot mode). */
+  refundAdmissionAttempt(reservation: AdmissionReservation): Promise<void>;
   /** False once a save was refused (snapshot mode only). */
   available(): boolean;
   /** Extension grants as last published (never a candidate). */
@@ -182,7 +204,12 @@ export function memoryDurableHost(store: object, sessionStore: InMemorySessionSt
       const spent = spendWindow(admissionAttempts, nowMs, policy, true);
       admissionAttempts.windowStartedAt = spent.next.windowStartedAt;
       admissionAttempts.count = spent.next.count;
-      return spent.decision;
+      return reserved(spent.next, spent.decision);
+    },
+    async refundAdmissionAttempt(reservation) {
+      const next = refundWindow(admissionAttempts, reservation);
+      admissionAttempts.windowStartedAt = next.windowStartedAt;
+      admissionAttempts.count = next.count;
     },
     available: () => true,
     readGrants: () => grants,
@@ -352,7 +379,16 @@ export function snapshotDurableHost(gate: StateGate, published: object): Durable
       }),
     sessionStore,
     spendAllocation: spend("allocation", false),
-    spendAdmissionAttempt: spend("admissionLogin", true),
+    spendAdmissionAttempt: (nowMs, policy) =>
+      decide((state) => {
+        const spent = spendWindow(state.windows.admissionLogin, nowMs, policy, true);
+        return { value: reserved(spent.next, spent.decision), next: { ...state, windows: { ...state.windows, admissionLogin: spent.next } } };
+      }),
+    refundAdmissionAttempt: (reservation) =>
+      decide((state) => {
+        const next = refundWindow(state.windows.admissionLogin, reservation);
+        return next === state.windows.admissionLogin ? { value: undefined } : { value: undefined, next: { ...state, windows: { ...state.windows, admissionLogin: next } } };
+      }),
     available: () => gate.status().kind === "ready",
     readGrants: () => current().grants,
     decideGrants: (grantDecision) =>

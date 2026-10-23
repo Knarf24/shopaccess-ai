@@ -211,11 +211,15 @@ export async function handleDemoAdmissionSubmit(request: Request, runtime: Runti
   const passphrase = form.value.get("passphrase");
   if (passphrase === null) return seeOther(back);
 
-  // Durable before the passphrase is compared (snapshot mode); in memory as before otherwise.
-  const allowed = (await runtime.durable.spendAdmissionAttempt(now, { limit: LOGIN_ATTEMPT_LIMIT, windowMs: LOGIN_WINDOW_MS })).allowed;
+  // Durable before the passphrase is compared (snapshot mode); in memory as before otherwise. The window is server-wide,
+  // so a matching passphrase gives its attempt back: only wrong passphrases can fill it and lock other judges out.
+  const policy = { limit: LOGIN_ATTEMPT_LIMIT, windowMs: LOGIN_WINDOW_MS };
+  const decision = await runtime.durable.spendAdmissionAttempt(now, policy);
   const matches = constantTimeEqual(passphrase, admission.passphrase);
-  if (!allowed) return seeOther(`${back}?notice=retry`);
+  if (!decision.allowed) return seeOther(`${back}?notice=retry`);
   if (!matches) return seeOther(`${back}?notice=rejected`);
+  // Only the window this attempt was counted in takes it back; a newer window keeps every attempt it counted.
+  await runtime.durable.refundAdmissionAttempt(decision.reservation);
 
   const issued = issuePurposeCookie(admission.key, now, ADMISSION_LIFETIME_MS, ADMISSION_LABEL);
   return seeOther(`/?lang=${language}`, [serializePurposeCookie(ADMISSION_COOKIE_NAME, issued.value, issued.maxAgeSeconds)]);

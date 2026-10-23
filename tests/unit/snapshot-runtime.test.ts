@@ -238,7 +238,7 @@ describe("snapshot runtime", () => {
     const runtime = await snapshotRuntime(disk.store);
     const policy = { limit: 5, windowMs: 900_000 };
     for (let attempt = 1; attempt <= 5; attempt += 1) {
-      expect(await runtime.durable.spendAdmissionAttempt(1_000 + attempt, policy)).toEqual({ allowed: true });
+      expect(await runtime.durable.spendAdmissionAttempt(1_000 + attempt, policy)).toEqual({ allowed: true, reservation: { windowStartedAt: 1_001 } });
       expect(disk.body().admissionLogin).toEqual({ windowStartedAt: 1_001, count: attempt });
     }
     expect((await runtime.durable.spendAdmissionAttempt(2_000, policy)).allowed).toBe(false);
@@ -246,6 +246,31 @@ describe("snapshot runtime", () => {
     disk.refuse(() => true);
     await expect(runtime.durable.spendAdmissionAttempt(3_000, policy)).rejects.toSatisfy(isPersistenceUnavailable);
     expect(disk.body().admissionLogin.count).toBe(6);
+  });
+
+  it("makes an admission refund durable, binds it to the reserved window, and never goes below zero", async () => {
+    const disk = memoryStore(EMPTY);
+    const runtime = await snapshotRuntime(disk.store);
+    const policy = { limit: 5, windowMs: 900_000 };
+    await runtime.durable.refundAdmissionAttempt({ windowStartedAt: 500 });
+    expect(disk.body().admissionLogin).toEqual({ windowStartedAt: null, count: 0 });
+    const first = await runtime.durable.spendAdmissionAttempt(1_000, policy);
+    const second = await runtime.durable.spendAdmissionAttempt(1_001, policy);
+    if (!first.allowed || !second.allowed) throw new Error("spend refused");
+    expect(second.reservation).toEqual({ windowStartedAt: 1_000 });
+    await runtime.durable.refundAdmissionAttempt(first.reservation);
+    expect(disk.body().admissionLogin).toEqual({ windowStartedAt: 1_000, count: 1 });
+    await runtime.durable.refundAdmissionAttempt(second.reservation);
+    await runtime.durable.refundAdmissionAttempt(second.reservation);
+    expect(disk.body().admissionLogin).toEqual({ windowStartedAt: 1_000, count: 0 });
+    const old = await runtime.durable.spendAdmissionAttempt(1_002, policy);
+    const newer = await runtime.durable.spendAdmissionAttempt(1_000 + policy.windowMs, policy);
+    if (!old.allowed || !newer.allowed) throw new Error("spend refused");
+    await runtime.durable.refundAdmissionAttempt(old.reservation);
+    expect(disk.body().admissionLogin).toEqual({ windowStartedAt: 1_000 + policy.windowMs, count: 1 });
+    disk.refuse(() => true);
+    await expect(runtime.durable.refundAdmissionAttempt(newer.reservation)).rejects.toSatisfy(isPersistenceUnavailable);
+    expect(disk.body().admissionLogin.count).toBe(1);
   });
 
   async function confirmedBuyer(runtime: Runtime) {
