@@ -54,6 +54,8 @@ export type AdvisoryFailureCode =
   | "BODY_TOO_LARGE"
   | "HTTP_STATUS"
   | "TRANSPORT"
+  /** The server-wide AI call limit refused the attempt; nothing was sent. */
+  | "LIMITED"
   | "NOT_JSON"
   | "ENVELOPE"
   | "NOT_STOP"
@@ -146,6 +148,9 @@ export function encodeSuggestionRequest(input: {
           { role: "user", content: JSON.stringify(input.request.untrustedData) },
         ],
         stream: false,
+        // Documented on Synthorai's qwen3.7-plus model page: thinking is on by default and accepts false.
+        // Synthorai does not document response_format for its request body, so none is sent; local validation applies.
+        enable_thinking: false,
         max_tokens: ADVISORY_MAX_COMPLETION_TOKENS,
         reasoning_effort: "minimal",
       }
@@ -206,6 +211,9 @@ export function encodeInterpretationRequest(input: {
           { role: "user", content: JSON.stringify(input.request.untrustedData) },
         ],
         stream: false,
+        // Documented on Synthorai's qwen3.7-plus model page: thinking is on by default and accepts false.
+        // Synthorai does not document response_format for its request body, so none is sent; local validation applies.
+        enable_thinking: false,
         max_tokens: ADVISORY_MAX_COMPLETION_TOKENS,
         reasoning_effort: "minimal",
       }
@@ -291,6 +299,8 @@ async function cancelStream(body: ReadableStream<Uint8Array> | null | undefined)
 }
 
 function transportFailure(error: unknown, signal: AbortSignal): AdvisoryFailure {
+  // A refusal from a wrapping transport (the call limit) keeps its own code.
+  if (error instanceof AdvisoryFailure && error.code === "LIMITED") return error;
   if (signal.aborted || (error instanceof Error && error.name === "AbortError")) return new AdvisoryFailure("DEADLINE");
   if (error instanceof TypeError && /redirect/i.test(error.message)) return new AdvisoryFailure("REDIRECT");
   return new AdvisoryFailure("TRANSPORT");

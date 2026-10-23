@@ -50,7 +50,11 @@ export function ShopListing({
       </p>
       <PreferencesForm use={preferences.use} budget={preferences.budgetDollars} />
       {view.recommendations !== undefined ? (
-        <AdvisoryRecommendations message={view.assistantMessage} recommendations={view.recommendations} />
+        <>
+          {view.suggestionSource === "model" ? <p>{journeyCopy("en").suggestionSourceModel}</p> : null}
+          {view.suggestionSource === "fallback" ? <p>{journeyCopy("en").suggestionSourceFallback}</p> : null}
+          <AdvisoryRecommendations message={view.assistantMessage} recommendations={view.recommendations} />
+        </>
       ) : view.assistantMessage ? (
         <p className="text-sm">
           <span className="font-medium">Assistant (local mock, advisory only): </span>

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdvisoryFailure, type AdvisoryTransport, type AdvisoryTransportRequest } from "@/lib/providers/qwen-advisory";
 import { createBudgetedAdvisoryTransport, parseAdvisoryBudget, type BudgetFiles } from "@/server/advisory-budget";
+import { withAdvisorySession } from "@/server/advisory-limits";
 import { parseRuntimeConfig } from "@/server/config";
 import { createRuntime, getApplication } from "@/server/runtime";
 import { TEST_SESSION_KEY } from "./helpers";
@@ -194,10 +195,14 @@ describe("advisory transport budget reservations", () => {
       throw new Error("network is not used");
     });
     const runtime = createRuntime(parsed.value, { transport });
-    await expect(runtime.ai.suggestProducts({ instructions: "Advisory only.", untrustedData: { shopperMessage: "Laptop for Programming", products: [] } })).rejects.toBeInstanceOf(AdvisoryFailure);
+    await expect(withAdvisorySession("budget-test-session", () =>
+      runtime.ai.suggestProducts({ instructions: "Advisory only.", untrustedData: { shopperMessage: "Laptop for Programming", products: [] } }),
+    )).rejects.toBeInstanceOf(AdvisoryFailure);
     expect(calls).toBe(1);
     expect(fs.readdirSync(directory).sort()).toEqual(["slot-1"]);
-    await expect(runtime.ai.suggestProducts({ instructions: "Advisory only.", untrustedData: { shopperMessage: "Laptop for Programming", products: [] } })).rejects.toBeInstanceOf(AdvisoryFailure);
+    await expect(withAdvisorySession("budget-test-session", () =>
+      runtime.ai.suggestProducts({ instructions: "Advisory only.", untrustedData: { shopperMessage: "Laptop for Programming", products: [] } }),
+    )).rejects.toBeInstanceOf(AdvisoryFailure);
     expect(calls).toBe(2);
     expect(fs.readdirSync(directory).sort()).toEqual(["slot-1", "slot-2"]);
     expect(fs.readdirSync(directory).filter((name) => name.startsWith("slot-"))).toHaveLength(2);

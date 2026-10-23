@@ -45,7 +45,7 @@ export function TranslatedAdvisory({
   readonly lines: readonly GuidedCatalogLine[];
   /** Set only when this heading is the skip-link target. */
   readonly headingTabIndex?: -1;
-  readonly suggestionSource?: "mock" | "model" | null;
+  readonly suggestionSource?: "mock" | "model" | "fallback" | null;
   readonly eligibleVariantIds?: readonly string[];
   /**
    * Status, recommendation sentence and source only. The needs page uses this because each result card already shows
@@ -57,6 +57,8 @@ export function TranslatedAdvisory({
   const sourceSentence =
     draft.recommendationClaim === "completed" && suggestionSource === "model"
       ? copy.suggestionSourceModel
+      : draft.recommendationClaim === "completed" && suggestionSource === "fallback"
+        ? copy.suggestionSourceFallback
       : draft.recommendationClaim === "completed" && suggestionSource === "mock"
         ? copy.suggestionSourceMock
         : null;

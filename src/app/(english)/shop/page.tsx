@@ -122,7 +122,7 @@ async function ShopContentUnguarded({ searchParams }: { searchParams: SearchPara
     );
   }
 
-  const view = await buildShoppingView(runtime.value, preferences);
+  const view = await buildShoppingView(runtime.value, preferences, session.id);
   const errorCode = typeof query.error === "string" ? query.error : undefined;
   // F07 refusals (M2-3) get their own message and a link to purchase permissions. This page is English only.
   const refusal = isPermissionRefusal(errorCode) ? errorCode : null;

@@ -60,6 +60,9 @@ export interface JourneyCopy {
   readonly otherChoiceLabel: string;
   readonly suggestionSourceMock: string;
   readonly suggestionSourceModel: string;
+  readonly suggestionSourceFallback: string;
+  readonly externalAiNotice: (provider: string) => string;
+  readonly aiLimited: string;
   readonly listingsHeading: string;
   readonly listingsIntro: string;
   readonly searchListings: string;
@@ -205,6 +208,10 @@ const ENGLISH: JourneyCopy = {
   otherChoiceLabel: "Other choice you can review",
   suggestionSourceMock: "This suggestion comes from the local demo assistant, not a live model.",
   suggestionSourceModel: "This suggestion comes from the configured model. It is not a purchase instruction.",
+  suggestionSourceFallback: "Live AI was unavailable or limited. This suggestion comes from the local demo assistant, not a live model.",
+  externalAiNotice: (provider) =>
+    `Text entered here is sent to ${provider} to interpret your shopping needs. Do not enter personal, payment, account, or device-pairing information. You can use the use and budget controls instead.`,
+  aiLimited: "The live AI request limit was reached. Nothing was sent for this attempt. Local deterministic results remain available, and you can continue with the use and budget controls.",
   listingsHeading: "External listings",
   listingsIntro: "These listings are outside the demo store. ShopAccess is not the seller and cannot check them out.",
   searchListings: "Search external listings",
@@ -349,6 +356,10 @@ const SPANISH: JourneyCopy = {
   otherChoiceLabel: "Otra opción que puedes revisar",
   suggestionSourceMock: "Esta sugerencia viene del asistente local de demostración, no de un modelo en vivo.",
   suggestionSourceModel: "Esta sugerencia viene del modelo configurado. No es una instrucción de compra.",
+  suggestionSourceFallback: "La IA en vivo no estaba disponible o alcanzó su límite. Esta sugerencia viene del asistente local de demostración, no de un modelo en vivo.",
+  externalAiNotice: (provider) =>
+    `El texto escrito aquí se envía a ${provider} para interpretar sus necesidades de compra. No escriba información personal, de pago, de cuenta ni de vinculación de dispositivos. Puede usar los controles de uso y presupuesto.`,
+  aiLimited: "Se alcanzó el límite de solicitudes de IA en vivo. No se envió nada en este intento. Los resultados locales y deterministas siguen disponibles, y puede continuar con los controles de uso y presupuesto.",
   listingsHeading: "Anuncios externos",
   listingsIntro: "Estos anuncios están fuera de la tienda de demostración. ShopAccess no es el vendedor y no puede cobrarlos.",
   searchListings: "Buscar anuncios externos",

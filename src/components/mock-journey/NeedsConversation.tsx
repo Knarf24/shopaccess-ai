@@ -63,6 +63,8 @@ export function NeedsConversation({
   noticeRendered = false,
   chargerClarification = false,
   afterHistory = null,
+  externalAiNotice,
+  aiLimited = false,
 }: {
   readonly copy: JourneyCopy;
   readonly language: JourneyLanguage;
@@ -78,6 +80,10 @@ export function NeedsConversation({
   readonly chargerClarification?: boolean;
   /** Separate forms rendered after the messages and before the reply box. They stay outside the reply form. */
   readonly afterHistory?: ReactNode;
+  /** Present only in external-advisory mode. It describes where free text is sent before the field. */
+  readonly externalAiNotice?: string;
+  /** This request was refused before an external AI call. Typed and structured controls remain available. */
+  readonly aiLimited?: boolean;
 }) {
   const useMissing = mode === "clarify" && (draft?.prefilledUse ?? null) === null;
   const budgetDisputed =
@@ -98,7 +104,9 @@ export function NeedsConversation({
       {mode !== "first" && (chargerClarification || draft?.shopperText) ? <p>{chargerClarification ? chargerCopy(language).needsExplanation : copy.clarificationExplanation}</p> : null}
       {showHistory ? <ConversationHistory copy={copy} language={language} turns={turns} /> : null}
       {afterHistory}
+      {aiLimited ? <p role="status">{copy.aiLimited}</p> : null}
       <form method="post" action="/shop/needs/submit" className="journey-form flex max-w-xl flex-col gap-4">
+      {externalAiNotice ? <p id="needs-ai-notice">{externalAiNotice}</p> : null}
       {mode === "first" ? (
         <label className="flex flex-col gap-1 text-sm" htmlFor="shopper-text">
           {copy.shopperText}
@@ -108,6 +116,7 @@ export function NeedsConversation({
             maxLength={2000}
             rows={4}
             defaultValue={draft?.shopperText ?? ""}
+            aria-describedby={externalAiNotice ? "needs-ai-notice" : undefined}
             className="rounded border border-zinc-400 p-2"
           />
         </label>
@@ -121,7 +130,7 @@ export function NeedsConversation({
           ) : null}
           <label className="flex flex-col gap-1 text-sm" htmlFor="shopper-reply">
             {copy.followUpLabel}
-            <textarea id="shopper-reply" name="shopperText" maxLength={2000} rows={4} defaultValue="" className="rounded border border-zinc-400 p-2" />
+            <textarea id="shopper-reply" name="shopperText" maxLength={2000} rows={4} defaultValue="" aria-describedby={externalAiNotice ? "needs-ai-notice" : undefined} className="rounded border border-zinc-400 p-2" />
           </label>
         </>
       )}

@@ -37,6 +37,7 @@ import {
   type RetainedRecommendation,
 } from "@/lib/session/store";
 import type { Runtime } from "./runtime";
+import { withAdvisorySession } from "./advisory-limits";
 
 export const USE_LABELS: Record<IntendedUse, string> = {
   programming: "Programming",
@@ -94,6 +95,8 @@ export interface ShoppingView {
   readonly recommendations?: readonly AdvisoryRecommendation[];
   /** Present only on the external path. The local path keeps the panel's existing label. */
   readonly explanationLabel?: string;
+  /** Which assistant supplied an external-mode suggestion; null when no assistant call was needed. */
+  readonly suggestionSource?: SuggestionSource | null;
 }
 
 const EXTERNAL_EXPLANATION_LABEL = "Assessment summary (deterministic, advisory only): ";
@@ -102,19 +105,22 @@ const NO_CATALOG_MATCH = "No catalog item meets this use and budget.";
 const NO_SUGGESTION_MATCH = "No suggestion matched a catalog item that meets this use and budget.";
 
 /** Process-local. A restart drops the recorded producer. It is not part of the snapshot. */
-const suggestionSources = new WeakMap<object, Map<string, "mock" | "model">>();
+/** `fallback`: live AI failed or was limited, so the local assistant made this suggestion. Process-local. */
+export type SuggestionSource = "mock" | "model" | "fallback";
+
+const suggestionSources = new WeakMap<object, Map<string, SuggestionSource>>();
 
 function suggestionSourceKey(sessionId: string, draftId: string, version: number): string {
   return `${sessionId}:${draftId}:${version}`;
 }
 
-function rememberSuggestionSource(store: object, sessionId: string, draftId: string, version: number, source: "mock" | "model"): void {
-  const sources = suggestionSources.get(store) ?? new Map<string, "mock" | "model">();
+function rememberSuggestionSource(store: object, sessionId: string, draftId: string, version: number, source: SuggestionSource): void {
+  const sources = suggestionSources.get(store) ?? new Map<string, SuggestionSource>();
   sources.set(suggestionSourceKey(sessionId, draftId, version), source);
   suggestionSources.set(store, sources);
 }
 
-export function readSuggestionSource(store: object, sessionId: string, draftId: string, version: number): "mock" | "model" | null {
+export function readSuggestionSource(store: object, sessionId: string, draftId: string, version: number): SuggestionSource | null {
   return suggestionSources.get(store)?.get(suggestionSourceKey(sessionId, draftId, version)) ?? null;
 }
 
@@ -125,7 +131,7 @@ const STATUS_ORDER = { READY: 0, READY_WITH_CAVEATS: 1, INSUFFICIENT_EVIDENCE: 2
  * The local assistant explains each variant and suggests once. The external provider
  * is asked for one suggestion and is not asked to explain or to start a checkout.
  */
-export async function buildShoppingView(runtime: Runtime, preferences: ShopperPreferences): Promise<ShoppingView> {
+export async function buildShoppingView(runtime: Runtime, preferences: ShopperPreferences, sessionId: string): Promise<ShoppingView> {
   const now = runtime.clock();
   const stated = (fact: "budgetCents" | "intendedUse", value: number | string): EvidenceItem => ({
     fact,
@@ -180,14 +186,22 @@ export async function buildShoppingView(runtime: Runtime, preferences: ShopperPr
 
   const eligible = variants.filter((entry) => variantQualifies(entry, preferences.budgetCents));
   if (eligible.length === 0) {
-    return externalView(preferences, runtime, variants, discovered.products, NO_CATALOG_MATCH, []);
+    return externalView(preferences, runtime, variants, discovered.products, NO_CATALOG_MATCH, [], null);
   }
-  const suggestion = await suggestProductsSafely(runtime.ai, runtime.catalog, shopperMessage, recordExternalAdvisoryFailure, {
+  const suitability = {
     intendedUse: preferences.use,
     budgetCents: preferences.budgetCents,
     products: eligible.map(eligibleProduct),
-  });
-  if (!suggestion.ok) return externalView(preferences, runtime, variants, discovered.products, null, []);
+  };
+  let source: SuggestionSource = "model";
+  let suggestion = await withAdvisorySession(sessionId, () =>
+    suggestProductsSafely(runtime.ai, runtime.catalog, shopperMessage, recordExternalAdvisoryFailure, suitability),
+  );
+  if (!suggestion.ok) {
+    suggestion = await suggestProductsSafely(runtime.localAi, runtime.catalog, shopperMessage, undefined, suitability);
+    source = "fallback";
+  }
+  if (!suggestion.ok) return externalView(preferences, runtime, variants, discovered.products, null, [], source);
   const seen = new Set<string>();
   const matched = suggestion.value.references.filter((reference) => {
     const key = `${reference.productId}:${reference.variantId}`;
@@ -197,8 +211,8 @@ export async function buildShoppingView(runtime: Runtime, preferences: ShopperPr
     seen.add(key);
     return true;
   });
-  if (matched.length === 0) return externalView(preferences, runtime, variants, discovered.products, NO_SUGGESTION_MATCH, []);
-  return externalView(preferences, runtime, variants, discovered.products, SUITABLE_RECOMMENDATIONS, recommendationsFrom(runtime, matched));
+  if (matched.length === 0) return externalView(preferences, runtime, variants, discovered.products, NO_SUGGESTION_MATCH, [], source);
+  return externalView(preferences, runtime, variants, discovered.products, SUITABLE_RECOMMENDATIONS, recommendationsFrom(runtime, matched), source);
 }
 
 function externalView(
@@ -208,6 +222,7 @@ function externalView(
   external: ShoppingView["external"],
   assistantMessage: string | null,
   recommendations: readonly AdvisoryRecommendation[],
+  suggestionSource: SuggestionSource | null,
 ): ShoppingView {
   return {
     preferences,
@@ -217,6 +232,7 @@ function externalView(
     external,
     recommendations,
     explanationLabel: EXTERNAL_EXPLANATION_LABEL,
+    suggestionSource,
   };
 }
 
@@ -483,15 +499,40 @@ function assessGuidedVariants(runtime: Runtime, preferences: ShopperPreferences)
  * No eligible variant means no provider call. The model's prose is not kept.
  */
 export async function recommendConfirmedNeeds(runtime: Runtime, preferences: ShopperPreferences): Promise<RetainedRecommendation | "failed"> {
+  return (await recommendWithSource(runtime, preferences)).outcome;
+}
+
+/**
+ * One suggestion for a confirmed brief. With live AI, a failed or limited suggestion falls back to the deterministic
+ * local assistant and is labelled `fallback`; it is never presented as a live AI response. The server-assessed cards
+ * and purchase-permission checks do not depend on this result.
+ */
+async function recommendWithSource(
+  runtime: Runtime,
+  preferences: ShopperPreferences,
+): Promise<{ outcome: RetainedRecommendation | "failed"; source: SuggestionSource }> {
+  const primary: SuggestionSource = runtime.ai.suggestionSource === "model" ? "model" : "mock";
   const lines = assessGuidedVariants(runtime, preferences);
   const eligible = lines.filter((line) => variantQualifies(line, preferences.budgetCents));
-  if (eligible.length === 0) return { assistantMessage: NO_CATALOG_MATCH, recommendations: [] };
-  const suggestion = await suggestProductsSafely(runtime.ai, runtime.catalog, `Laptop for ${USE_LABELS[preferences.use]}`, recordExternalAdvisoryFailure, {
-    intendedUse: preferences.use,
-    budgetCents: preferences.budgetCents,
-    products: eligible.map(eligibleProduct),
-  });
-  if (!suggestion.ok) return "failed";
+  if (eligible.length === 0) return { outcome: { assistantMessage: NO_CATALOG_MATCH, recommendations: [] }, source: primary };
+  const suitability = { intendedUse: preferences.use, budgetCents: preferences.budgetCents, products: eligible.map(eligibleProduct) };
+  const message = `Laptop for ${USE_LABELS[preferences.use]}`;
+  let source: SuggestionSource = primary;
+  let suggestion = await suggestProductsSafely(runtime.ai, runtime.catalog, message, recordExternalAdvisoryFailure, suitability);
+  if (!suggestion.ok && runtime.advisory === "external") {
+    suggestion = await suggestProductsSafely(runtime.localAi, runtime.catalog, message, undefined, suitability);
+    source = "fallback";
+  }
+  if (!suggestion.ok) return { outcome: "failed", source };
+  return { outcome: matchedRecommendation(runtime, eligible, suggestion.value.references), source };
+}
+
+function matchedRecommendation(
+  runtime: Runtime,
+  eligible: readonly GuidedAssessed[],
+  references: readonly { readonly productId: string; readonly variantId: string }[],
+): RetainedRecommendation {
+  const suggestion = { value: { references } };
   const allowed = new Set(eligible.map((line) => `${line.productId}:${line.variantId}`));
   const seen = new Set<string>();
   const matched = suggestion.value.references.filter((reference) => {
@@ -517,7 +558,7 @@ export async function loadNeedsJourney(
   draft: NeedsDraft | null;
   lines: readonly GuidedCatalogLine[];
   expiredDraft: boolean;
-  suggestionSource: "mock" | "model" | null;
+  suggestionSource: SuggestionSource | null;
   listings: ReturnType<Runtime["channel3"]["read"]>;
   conversation: ConversationState | null;
   chargerTrack: ChargerTrack | null;
@@ -563,7 +604,9 @@ export async function loadNeedsJourney(
   if (claim.claimed && claim.draft) {
     const claimedDraft = claim.draft;
     const preferences = parsePreferences(claimedDraft.confirmedUse, claimedDraft.confirmedBudgetDollars);
-    const outcome = preferences ? await recommendConfirmedNeeds(runtime, preferences) : "failed";
+    // The suggestion runs in this session's advisory scope, so any AI call reserves against the call limits.
+    const recommended = preferences ? await withAdvisorySession(session.id, () => recommendWithSource(runtime, preferences)) : null;
+    const outcome = recommended ? recommended.outcome : "failed";
     {
       // Rechecked against the live session, claimed draft id and version inside the save-first decision.
       const written = await runtime.durable.change((host) => {
@@ -592,7 +635,7 @@ export async function loadNeedsJourney(
           session.id,
           written.draftId,
           written.version,
-          runtime.ai.suggestionSource === "model" ? "model" : "mock",
+          recommended?.source ?? "mock",
         );
       }
     }
@@ -603,7 +646,9 @@ export async function loadNeedsJourney(
   const listings = outputAllowed && draft?.confirmedUse && draft.confirmedBudgetDollars ? runtime.channel3.read(session.id, draft.draftId, draft.version) : null;
   const suggestionSource =
     draft?.recommendationClaim === "completed" ? readSuggestionSource(runtime.store, session.id, draft.draftId, draft.version) : null;
-  if (!draft?.confirmedUse || !draft.confirmedBudgetDollars || draft.recommendationClaim !== "completed" || !draft.recommendation) {
+  // The cards are the server's own assessment, so they render for any confirmed brief, including when the suggestion
+  // failed; the suggestions section reports that separately.
+  if (!draft?.confirmedUse || !draft.confirmedBudgetDollars) {
     return { draft, lines: [], expiredDraft: false, suggestionSource, listings, conversation: conversationFor(draft?.draftId ?? null), chargerTrack };
   }
   const preferences = parsePreferences(draft.confirmedUse, draft.confirmedBudgetDollars);

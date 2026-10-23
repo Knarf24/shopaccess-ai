@@ -2,6 +2,7 @@ import { startCheckoutWithQuote } from "@/lib/checkout/service";
 import { allowlistedJourneyLanguage, explicitJourneyLanguage, guidedShopDestination } from "@/lib/i18n/language";
 import { confirmPurchaseSummary } from "@/lib/confirmation/confirmation";
 import { formatAdvisoryFailureDiagnostic, interpretNeedsSafely } from "@/lib/providers/ai";
+import { withAdvisorySession } from "./advisory-limits";
 import { INTENDED_USES, type IntendedUse } from "@/lib/readiness/engine";
 import { ShopperMessageSchema } from "@/lib/security/limits";
 import { classifyChargerText } from "@/lib/compatibility/charger-intent";
@@ -255,11 +256,13 @@ function draftExpiry(session: Session): number {
   return Math.min(session.idleExpiresAt.getTime(), session.absoluteExpiresAt.getTime());
 }
 
-function needsBack(language: JourneyLanguage, code?: string, failure?: string | null): string {
+function needsBack(language: JourneyLanguage, code?: string, failure?: string | null, aiLimited = false): string {
   const query = new URLSearchParams();
   if (code) query.set("error", code);
   const notice = failureNoticeCode(failure);
   if (notice) query.set("notice", notice);
+  // Not persisted: tells the page that live AI was not used because the server-wide AI call limit was reached.
+  if (aiLimited) query.set("ai", "limited");
   const search = query.toString();
   return `/${language}/shop/needs${search ? `?${search}` : ""}`;
 }
@@ -394,7 +397,7 @@ export type FollowUpOutcome =
   | { readonly kind: "session_dead" }
   | { readonly kind: "charger" }
   | { readonly kind: "refused"; readonly code: "STALE_DRAFT" | "DRAFT_EXPIRED" | "CLARIFICATION_INVALID" | "DRAFT_NOT_FOUND" }
-  | { readonly kind: "done"; readonly failure: "malformed" | "unavailable" | null };
+  | { readonly kind: "done"; readonly failure: "malformed" | "unavailable" | null; readonly aiLimited?: boolean };
 
 /**
  * One follow-up message on an existing draft, shared by the website form and the extension panel (M2-2). The claim is
@@ -459,10 +462,13 @@ export async function continueNeedsFollowUp(
 
   // Provider input comes from the saved claim, not from the request.
   const claimedText = claimed.draft.shopperText;
-  const interpreted = await interpretNeedsSafely(runtime.ai, claimedText, (diagnostic) => {
-    const line = formatAdvisoryFailureDiagnostic(diagnostic);
-    if (line) console.warn(line);
-  });
+  // Every AI call runs in this session's advisory scope, so it reserves against the call limits.
+  const interpreted = await withAdvisorySession(sessionId, () =>
+    interpretNeedsSafely(runtime.ai, claimedText, (diagnostic) => {
+      const line = formatAdvisoryFailureDiagnostic(diagnostic);
+      if (line) console.warn(line);
+    }),
+  );
   if (!input.live()) return { kind: "refused", code: "DRAFT_EXPIRED" };
   const model = interpreted.ok ? interpreted.value : interpreted.error === "OUTPUT_INVALID" ? "malformed" : "unavailable";
   const typedUse = controlChange(input.typedUse, claimed.draft.prefilledUse);
@@ -485,7 +491,7 @@ export async function continueNeedsFollowUp(
     if (written && withdrawConfirmation) invalidatePurchaseSelections(host, sessionId);
     if (written) rememberLaptopResult(host, sessionId, written, claimedText);
   });
-  return { kind: "done", failure: model === "malformed" || model === "unavailable" ? model : null };
+  return { kind: "done", failure: model === "malformed" || model === "unavailable" ? model : null, aiLimited: !interpreted.ok && interpreted.error === "AI_LIMITED" };
 }
 
 /** POST /shop/needs/submit. A complete structured use and budget does not call the interpreter. */
@@ -552,7 +558,7 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
     if (outcome.kind === "duplicate" || outcome.kind === "session_dead") return seeOther(needsBack(language));
     if (outcome.kind === "refused") return seeOther(needsBack(language, outcome.code));
     if (outcome.kind === "charger") return seeOther(needsBack(language));
-    return seeOther(needsBack(language, undefined, outcome.failure));
+    return seeOther(needsBack(language, undefined, outcome.failure, outcome.aiLimited === true));
   }
 
   const text = form.get("shopperText") ?? "";
@@ -658,10 +664,12 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
 
   // Provider input comes from the saved claim, not from the request.
   const claimedText = claimed.draft.shopperText;
-  const interpreted = await interpretNeedsSafely(runtime.ai, claimedText, (diagnostic) => {
-    const line = formatAdvisoryFailureDiagnostic(diagnostic);
-    if (line) console.warn(line);
-  });
+  const interpreted = await withAdvisorySession(session.id, () =>
+    interpretNeedsSafely(runtime.ai, claimedText, (diagnostic) => {
+      const line = formatAdvisoryFailureDiagnostic(diagnostic);
+      if (line) console.warn(line);
+    }),
+  );
   if (!runtime.checkout.sessionIsLive(session.id)) return seeOther(needsBack(language, "DRAFT_EXPIRED"));
   const model = interpreted.ok ? interpreted.value : interpreted.error === "OUTPUT_INVALID" ? "malformed" : "unavailable";
   const settled = mergeInterpretedNeeds(typedUse, typedBudget, settleShopperText(claimedText, model));
@@ -672,7 +680,7 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
     if (wrote && drafted) rememberLaptopResult(host, session.id, drafted, claimedText);
   });
   const failure = model === "malformed" || model === "unavailable" ? model : null;
-  return seeOther(needsBack(language, undefined, failure));
+  return seeOther(needsBack(language, undefined, failure, !interpreted.ok && interpreted.error === "AI_LIMITED"));
 }
 
 /**
