@@ -95,7 +95,8 @@
 .guided-presentation .direct-entry button[type="submit"],
 .guided-presentation .journey-form button[type="submit"],
 .guided-presentation .eligible-card button[type="submit"],
-.guided-presentation form[aria-labelledby="confirm-heading"] button[type="submit"]:enabled {
+.guided-presentation form[aria-labelledby="confirm-heading"] button[type="submit"]:enabled,
+.guided-presentation .permission-action {
   min-height: 44px;
   padding: 10px 16px;
   border: 0;
@@ -103,6 +104,12 @@
   background: var(--gp-teal);
   color: #fff;
   font-weight: 700;
+}
+
+/* The shared amber focus token is below 3:1 on the cream page. Ink stays above 3:1 in the offset gap. */
+.guided-presentation .permission-action:focus-visible {
+  outline: 3px solid var(--gp-ink);
+  outline-offset: 3px;
 }
 
 .guided-presentation .demo-illustration {
@@ -345,7 +352,8 @@
   .guided-presentation .direct-entry button[type="submit"],
   .guided-presentation .journey-form button[type="submit"],
   .guided-presentation .eligible-card button[type="submit"],
-  .guided-presentation form[aria-labelledby="confirm-heading"] button[type="submit"]:enabled {
+  .guided-presentation form[aria-labelledby="confirm-heading"] button[type="submit"]:enabled,
+  .guided-presentation .permission-action {
     width: 100%;
   }
 }

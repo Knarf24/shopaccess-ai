@@ -140,7 +140,7 @@ export function PurchasePermissions({
             <input type="hidden" name="quantity" value={review.quantity} />
             <input type="hidden" name="total" value={review.total} />
             <input type="hidden" name="expiry" value={review.expiry} />
-            <button type="submit">{copy.createButton}</button>
+            <button type="submit" className="permission-action">{copy.createButton}</button>
           </form>
           <p>
             <a href={`/${language}/shop/permissions?${new URLSearchParams({ item: review.item, quantity: review.quantity, total: review.total, expiry: review.expiry }).toString()}`}>
@@ -204,7 +204,7 @@ export function PurchasePermissions({
           </fieldset>
           {fieldError("expiry") ? <p id="permission-expiry-error">{copy.formErrors[fieldError("expiry")!]}</p> : null}
 
-          <button type="submit">{copy.reviewButton}</button>
+          <button type="submit" className="permission-action">{copy.reviewButton}</button>
         </form>
       </section>
 
@@ -232,7 +232,7 @@ export function PurchasePermissions({
                   <input type="hidden" name="csrfToken" value={csrfToken} />
                   <input type="hidden" name="lang" value={language} />
                   <input type="hidden" name="permissionId" value={permission.permissionId} />
-                  <button type="submit" aria-describedby={`permission-item-name-${index}`}>
+                  <button type="submit" className="permission-action" aria-describedby={`permission-item-name-${index}`}>
                     {copy.revoke}
                   </button>
                 </form>
