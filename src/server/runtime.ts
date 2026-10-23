@@ -8,7 +8,7 @@ import { createMockAdvisoryAi, type AdvisoryAiProvider } from "@/lib/providers/a
 import { createFetchAdvisoryTransport, createQwenAdvisoryProvider, type AdvisoryTransport } from "@/lib/providers/qwen-advisory";
 import { createMockDiscoveryProvider, type ProductDiscoveryProvider } from "@/lib/providers/discovery";
 import {
-  channel3ClientForProcess,
+  createFetchChannel3Transport,
   readChannel3Listings,
   searchChannel3Listings,
   type Channel3Snapshot,
@@ -32,6 +32,7 @@ import { randomIdGenerator, type IdGenerator } from "@/lib/shared/ids";
 import type { Result } from "@/lib/shared/result";
 import { advisoryBudgetPresence, createBudgetedAdvisoryTransport } from "./advisory-budget";
 import { DEFAULT_ADVISORY_LIMITS, createAdvisoryLimiter, createLimitedAdvisoryTransport, type AdvisoryLimiter } from "./advisory-limits";
+import { DEFAULT_CHANNEL3_LIMITS } from "./channel3-config";
 import { parsePersistenceMode, parseRuntimeConfig, type RuntimeConfig, type RuntimeConfigError } from "./config";
 import { resolveDemoAdmission, type DemoAdmission } from "./demo-admission";
 import { createPgRuntime, type PgRuntime } from "./pg-runtime";
@@ -65,17 +66,20 @@ export interface Runtime {
   /** External mode only: the provider named in the free-text disclosure. */
   readonly advisoryProviderName: "Synthorai" | "Alibaba Cloud Model Studio" | null;
   /**
-   * Channel3 live search is disabled. `read` returns a result only when this process
-   * already stored one. It does not call the network.
+   * Channel3 external-listing search. `live` only when `CHANNEL3_DISCOVERY=on` and a valid key are configured (or a
+   * test injects a transport); otherwise `disabled` with a null `search` that answers "unavailable" without a request.
+   * `read` returns a result only when this process already stored one; it does not call the network.
    */
   readonly channel3: {
-    readonly mode: "disabled";
+    readonly mode: "disabled" | "live";
     read(sessionId: string, draftId: string, version: number): Channel3Snapshot | null;
-    /**
-     * Set only when a test injects a transport. Production leaves it null.
-     * A null search returns the unavailable response and does not call the network.
-     */
     readonly search: ((request: Channel3SearchRequest) => Promise<ListingOutcome>) | null;
+    /**
+     * Search-action limits (session, UTC hour, UTC day), reserved synchronously before any request. One limiter per
+     * runtime; the runtime is cached once per process, so every route bundle shares it. Process-local: it resets when
+     * the process restarts. Null when Channel3 is disabled.
+     */
+    readonly limiter: AdvisoryLimiter | null;
   };
   readonly limiter: RateLimiter;
   readonly audit: InMemoryAuditLog;
@@ -122,7 +126,7 @@ type RuntimeOverrides = {
    * was not constructed there is ignored.
    */
   sandboxProvider?: PayPalSandboxProvider;
-  /** Offline tests supply this. Production never does, and it is not the live transport. */
+  /** Offline tests supply this; it replaces the live transport. Production installs the live one from configuration. */
   channel3Transport?: Channel3Transport;
   /** Snapshot persistence: the recovered save-first gate. Supplied only by openRuntime (runtime-access.ts) and tests. */
   gate?: StateGate;
@@ -227,10 +231,10 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
   });
   const profiles = createProfileAuthority({ durable, sessionLive: sessionIsLive });
 
-  if (channel3ClientForProcess() !== "disabled") {
-    throw new Error("Channel3 live transport is not installed.");
-  }
-  const channel3Transport = overrides.channel3Transport;
+  // The live transport is installed only from a valid configuration (CHANNEL3_DISCOVERY=on + CHANNEL3_API_KEY).
+  const channel3Transport =
+    overrides.channel3Transport ?? (config.channel3?.mode === "live" ? createFetchChannel3Transport(config.channel3.apiKey) : undefined);
+  const channel3Limiter = channel3Transport ? createAdvisoryLimiter(config.channel3Limits ?? DEFAULT_CHANNEL3_LIMITS, clock) : null;
   const advisoryLimiter = advisory.mode === "external" ? createAdvisoryLimiter(config.advisoryLimits ?? DEFAULT_ADVISORY_LIMITS, clock) : null;
   const transport = selectAdvisoryTransport(config, overrides, advisoryLimiter);
   let nextMaintenanceAt = Number.NEGATIVE_INFINITY;
@@ -267,11 +271,21 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     advisoryLimiter,
     advisoryProviderName: advisory.mode === "external" ? (new URL(advisory.endpoint).hostname === "synthorai.io" ? "Synthorai" : "Alibaba Cloud Model Studio") : null,
     channel3: {
-      mode: "disabled",
+      mode: channel3Transport ? "live" : "disabled",
       read(sessionId, draftId, version) {
         return readChannel3Listings(store, sessionId, draftId, version);
       },
-      search: channel3Transport ? (request) => searchChannel3Listings({ ...request, store, transport: channel3Transport }) : null,
+      search:
+        channel3Transport && channel3Limiter
+          ? (request) =>
+              searchChannel3Listings({
+                ...request,
+                store,
+                transport: channel3Transport,
+                reserve: () => channel3Limiter.reserve(request.sessionId).ok,
+              })
+          : null,
+      limiter: channel3Limiter,
     },
     limiter: createFixedWindowRateLimiter(new InMemoryRateLimitStore(), clock),
     audit,

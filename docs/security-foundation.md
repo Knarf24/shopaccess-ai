@@ -77,10 +77,14 @@ origin there.
   up the merchant catalog by exact ID only.
 - **Channel3 transport.** `createFetchChannel3Transport` in
   `src/lib/providers/channel3-discovery.ts` is the only `fetch` call for that
-  adapter. `src/server/runtime.ts` is the only application importer. Live
-  activation stays off: a present discovery switch and API key do not install
-  that transport. Redirects are refused. The three-action listing budget is
-  per session and process-local, and it resets when the process restarts.
+  adapter. `src/server/runtime.ts` is the only application importer, and it
+  constructs that transport only from a valid `CHANNEL3_DISCOVERY=on` plus
+  `CHANNEL3_API_KEY` configuration (any partial or invalid setting switches the
+  shop off). Redirects are refused. Each search action reserves capacity before
+  any request: per session, per UTC hour and per UTC day (defaults 3 / 10 / 30,
+  `CHANNEL3_LIMIT_PER_*`). The limiter lives in the cached runtime and the
+  listing state is shared across route bundles; both are process-local and
+  reset when the process restarts. Not live-verified.
   The search form remains a native POST to the guarded listings route, including
   when JavaScript is off. With JavaScript, the form commits the localized pending
   status and yields so the browser can render it before that same post. The yield

@@ -5,6 +5,7 @@ import { parseSessionKey } from "@/lib/session/token";
 import { err, ok, type Result } from "@/lib/shared/result";
 import { parseAdvisoryBudget, type AdvisoryBudget, type AdvisoryBudgetError } from "./advisory-budget";
 import { parseAdvisoryLimits, type AdvisoryLimits } from "./advisory-limits";
+import { parseChannel3Config, parseChannel3Limits, type Channel3Config, type Channel3ConfigError, type Channel3Limits } from "./channel3-config";
 
 export type AdvisoryConfig =
   | { readonly mode: "local" }
@@ -24,6 +25,10 @@ export interface RuntimeConfig {
   readonly advisoryBudget?: Extract<AdvisoryBudget, { mode: "on" }>;
   /** Server-wide AI call limits for external mode. Absent means DEFAULT_ADVISORY_LIMITS (6 per session, 120/hour, 600/day). */
   readonly advisoryLimits?: AdvisoryLimits;
+  /** Channel3 external-listing search. Absent or `off` means no transport is installed. */
+  readonly channel3?: Channel3Config;
+  /** Channel3 search-action limits. Absent means DEFAULT_CHANNEL3_LIMITS (3 per session, 10/hour, 30/day). */
+  readonly channel3Limits?: Channel3Limits;
   /**
    * Absent for parsed mock configuration. A parsed sandbox configuration on
    * the in-memory runtime sets it, including the client id and secret, which
@@ -60,7 +65,8 @@ export type RuntimeConfigError =
   | "MOCK_STORE_UNSUPPORTED"
   /** SHOPACCESS_EXTENSION_ORIGINS is set but is not a comma-separated list of chrome-extension origins. */
   | "EXTENSION_ORIGINS_INVALID"
-  | AdvisoryBudgetError;
+  | AdvisoryBudgetError
+  | Channel3ConfigError;
 
 export type PersistenceMode = "mock" | "postgres";
 
@@ -126,12 +132,34 @@ export function parseRuntimeConfig(env: Readonly<Record<string, string | undefin
   const extensionOrigins = parseExtensionOrigins(env.SHOPACCESS_EXTENSION_ORIGINS);
   if (extensionOrigins === "invalid") errors.push("EXTENSION_ORIGINS_INVALID");
 
-  if (errors.length > 0 || !key.ok || !trustedOrigins || !advisory.ok || !budget.ok || !limits.ok || extensionOrigins === "invalid") return err(errors);
+  const channel3 = parseChannel3Config(env);
+  if (!channel3.ok) errors.push(...channel3.error);
+  const channel3Limits = parseChannel3Limits(env);
+  if (!channel3Limits.ok) errors.push(channel3Limits.error);
+
+  if (
+    errors.length > 0 ||
+    !key.ok ||
+    !trustedOrigins ||
+    !advisory.ok ||
+    !budget.ok ||
+    !limits.ok ||
+    extensionOrigins === "invalid" ||
+    !channel3.ok ||
+    !channel3Limits.ok
+  )
+    return err(errors);
   const budgeted = budget.value.mode === "off"
     ? { sessionKey: key.value, trustedOrigins, advisory: advisory.value }
     : { sessionKey: key.value, trustedOrigins, advisory: advisory.value, advisoryBudget: budget.value };
   const base = limits.value ? { ...budgeted, advisoryLimits: limits.value } : budgeted;
-  const parsed = extensionOrigins ? { ...base, extensionOrigins } : base;
+  // Set only when present, so configurations without Channel3 keep their existing shape.
+  const withChannel3 = {
+    ...base,
+    ...(channel3.value.mode === "live" ? { channel3: channel3.value } : {}),
+    ...(channel3Limits.value ? { channel3Limits: channel3Limits.value } : {}),
+  };
+  const parsed = extensionOrigins ? { ...withChannel3, extensionOrigins } : withChannel3;
   return ok(sandboxPayment ? { ...parsed, payment: sandboxPayment } : parsed);
 }
 

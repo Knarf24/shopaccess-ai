@@ -16,7 +16,8 @@ const NOTICE: Record<ListingNotice, keyof JourneyCopy> = {
 
 /**
  * Explicit external search. The button is a native submit control.
- * This component does not fetch and does not render external images.
+ * This component does not fetch and does not render external images. Listings have no purchase form: they are not
+ * part of the demo catalog and ShopAccess holds no purchase authority for them.
  * `pending` is the server snapshot. The form itself shows the shopper's
  * own submission as pending until that submission settles.
  */
@@ -47,6 +48,7 @@ export function ExternalListings({
         {copy.listingsHeading}
       </h2>
       <p>{copy.listingsIntro}</p>
+      <p>{copy.listingsDisclosure}</p>
       {pending ? <p role="status">{copy.listingsPending}</p> : null}
       {typeof noticeText === "string" ? <p role="alert">{noticeText}</p> : null}
       <ListingSearchForm
@@ -67,7 +69,7 @@ export function ExternalListings({
             return (
               <li key={listing.externalId} className="rounded-lg border border-zinc-400 p-4">
                 <p>{language === "es" ? <span lang="en">{listing.title}</span> : listing.title}</p>
-                <p>{listing.sellerLabel ?? copy.sellerUnknown}</p>
+                <p>{listing.reportedDomain ? `${copy.reportedDomain} ${listing.reportedDomain}` : copy.domainUnknown}</p>
                 {listing.indicativePriceCents !== null ? (
                   <p>
                     {copy.indicativePrice} {formatUsd(listing.indicativePriceCents)} USD
@@ -82,7 +84,13 @@ export function ExternalListings({
                 ) : listing.indicativePriceCents !== null ? (
                   <p>{copy.noSafeLink}</p>
                 ) : null}
-                <p>{copy.availabilityUnverified}</p>
+                <p>
+                  {listing.reportedAvailability === "InStock"
+                    ? copy.reportedInStock
+                    : listing.reportedAvailability === "OutOfStock"
+                      ? copy.reportedOutOfStock
+                      : copy.availabilityUnverified}
+                </p>
                 <p>{copy.suitabilityUnverified}</p>
                 <p>
                   {copy.retrievedLabel} <time dateTime={listing.retrievedAt}>{listing.retrievedAt}</time>
