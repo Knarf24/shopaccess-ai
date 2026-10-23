@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -320,6 +321,9 @@ describe("permissions page", () => {
       expect(html).toContain(`<legend>${copy.expiryLegend}</legend>`);
       expect(html).toContain(copy.pageTitle);
       expect(html).toContain(`lang="${language}"`);
+      expect(html).toMatch(new RegExp(`<form [^>]*action="/${language}/shop/permissions"[^>]*method="get"`));
+      expect(html).toContain('name="review" value="1"');
+      expect(html).toContain(`<button type="submit" class="permission-action">${copy.reviewButton}</button>`);
       expect(html).not.toMatch(/autofocus|disabled|tabindex="[1-9]/i);
       // The skip link is the first focusable element and targets the heading when there is nothing newer.
       expect(html.indexOf('class="skip-link"')).toBeLessThan(html.indexOf("<select"));
@@ -365,6 +369,7 @@ describe("permissions page", () => {
     });
     for (const text of ["ShopAccess Demo Store (simulated)", "Acer Aspire 14 AI", "16 GB LPDDR5X", "$1799.98", "USD", "2026-10-17 12:00 UTC"]) expect(html, text).toContain(text);
     expect(html).toContain('action="/shop/permissions/create"');
+    expect(html).toContain('<button type="submit" class="permission-action">Create permission</button>');
     expect(html).toContain('name="csrfToken" value="csrf-test"');
     expect(html).toMatch(/<form [^>]*action="\/en\/shop\/permissions" method="get">/);
     expect(html).toContain('href="#permission-review-heading"');
@@ -376,11 +381,14 @@ describe("permissions page", () => {
     });
     expect(html.match(/action="\/shop\/permissions\/revoke"/g)).toHaveLength(2);
     // Only the active (0) and reserved (1) entries have a button, each described by its own item name.
-    expect(html.match(/<button type="submit" aria-describedby="permission-item-name-(\d)">Revoke permission<\/button>/g)).toEqual([
-      '<button type="submit" aria-describedby="permission-item-name-0">Revoke permission</button>',
-      '<button type="submit" aria-describedby="permission-item-name-1">Revoke permission</button>',
+    expect(html.match(/<button type="submit" class="permission-action" aria-describedby="permission-item-name-(\d)">Revoke permission<\/button>/g)).toEqual([
+      '<button type="submit" class="permission-action" aria-describedby="permission-item-name-0">Revoke permission</button>',
+      '<button type="submit" class="permission-action" aria-describedby="permission-item-name-1">Revoke permission</button>',
     ]);
     expect(html).toContain('id="permission-item-name-0"');
+    const css = readFileSync(new URL("../../src/app/guided-presentation.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.guided-presentation \.permission-action \{[^}]*background:\s*var\(--gp-teal\);[^}]*color:\s*#fff;/);
+    expect(css).toMatch(/\.guided-presentation \.permission-action:focus-visible \{[^}]*outline:\s*3px solid var\(--gp-ink\);[^}]*outline-offset:\s*3px;/);
     const copy = permissionCopy("en");
     for (const state of ["active", "reserved", "executing", "consumed", "revoked", "expired", "outcome_unknown"] as const) expect(html).toContain(copy.states[state]);
     expect(html).toContain(copy.stateHelp.outcome_unknown!);
@@ -394,6 +402,8 @@ describe("permissions page", () => {
   it("Spanish page: English product and variant names in the review and the list are marked English; options stay plain text", () => {
     const review = { item: ITEM, seller: "ShopAccess Demo Store (simulada)", product: "Acer Aspire 14 AI", variant: "16 GB LPDDR5X", maxQuantity: 2, maxTotalCents: 179_998, total: "1799.98", quantity: "2", expiry: "session", endsAt: new Date("2026-10-17T12:00:00.000Z") };
     const spanish = page({ language: "es", review, permissions: [shown("active", true, 1)] });
+    expect(spanish).toContain('<button type="submit" class="permission-action">Crear permiso</button>');
+    expect(spanish).toContain('<button type="submit" class="permission-action" aria-describedby="permission-item-name-0">Revocar permiso</button>');
     expect(spanish).toContain('<dd><span lang="en">Acer Aspire 14 AI</span></dd>');
     expect(spanish).toContain('<dd><span lang="en">16 GB LPDDR5X</span></dd>');
     expect(spanish).toContain('<strong><span lang="en">Acer Aspire 14 AI</span> — <span lang="en">16 GB LPDDR5X, 512 GB PCIe NVMe SSD</span></strong>');
