@@ -503,7 +503,7 @@ describe("checkout page: wording follows the saved checkout language (finding 8)
     heading: "Demo checkout",
     quoteHeading: "Quote",
     quoteLine: `${ITEM_TITLE}, quantity 1, sold by ShopAccess Demo Store (simulated).`,
-    total: "Total $579.99 USD. Tax and shipping are $0.00 as an assumption of this Sandbox demonstration; nothing is shipped.",
+    total: "Total $579.99 USD. Tax and shipping are $0.00 as an assumption of this demonstration; nothing is shipped.",
     confirmed: "Your confirmation of this purchase summary was recorded. No payment has been taken.",
     back: "Back to the start",
   };
@@ -511,7 +511,7 @@ describe("checkout page: wording follows the saved checkout language (finding 8)
     heading: "Compra de demostración",
     quoteHeading: "Cotización",
     quoteLine: `${ITEM_TITLE}, cantidad 1, vendido por ShopAccess Demo Store (simulada).`,
-    total: "Total $579.99 USD. Los impuestos y el envío son 0,00 USD como supuesto de esta demostración del entorno de pruebas; no se envía nada.",
+    total: "Total $579.99 USD. Los impuestos y el envío son 0,00 USD como supuesto de esta demostración; no se envía nada.",
     confirmed: "Se registró su confirmación de este resumen de compra. No se ha cobrado ningún pago.",
     back: "Volver al inicio",
   };
