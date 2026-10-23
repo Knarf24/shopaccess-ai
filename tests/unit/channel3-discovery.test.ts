@@ -4,8 +4,6 @@ import { findMerchantVariant } from "@/lib/catalog/merchant-catalog";
 import { DEMO_MERCHANT_CATALOG } from "@/lib/catalog/merchant-catalog";
 import {
   CHANNEL3_LIMITS,
-  CHANNEL3_LIVE_ACTIVATION,
-  channel3ClientForProcess,
   channel3Query,
   createFetchChannel3Transport,
   readChannel3Listings,
@@ -15,6 +13,8 @@ import {
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
 import { parseTrustedOrigins } from "@/lib/session/request-guard";
 import { confirmNeeds, needsDraftsFor, saveStructuredNeeds } from "@/lib/session/store";
+import { createAdvisoryLimiter, type AdvisoryLimiter } from "@/server/advisory-limits";
+import { parseRuntimeConfig } from "@/server/config";
 import { handleNeedsListings, handleNeedsSession } from "@/server/handlers";
 import { createRuntime } from "@/server/runtime";
 import { HOUR, TEST_SESSION_KEY, createTestClock } from "./helpers";
@@ -48,8 +48,17 @@ function transport(overrides: Partial<Channel3Transport> = {}): Channel3Transpor
   };
 }
 
+// The runtime supplies one limiter per process; these adapter tests keep one per store with the default 3 per session.
+const limiters = new WeakMap<object, AdvisoryLimiter>();
+function reserveFor(store: object, sessionId: string): () => boolean {
+  const limiter = limiters.get(store) ?? createAdvisoryLimiter({ perSession: 3, perHour: 1000, perDay: 1000 }, () => new Date(RETRIEVED));
+  limiters.set(store, limiter);
+  return () => limiter.reserve(sessionId).ok;
+}
+
 function run(store: object, client: Channel3Transport, current: { draftId: string; version: number }, limits: { actionDeadlineMs?: number; requestTimeoutMs?: number } = {}) {
   return searchChannel3Listings({
+    reserve: reserveFor(store, "session-1"),
     store,
     sessionId: "session-1",
     draftId: current.draftId,
@@ -64,20 +73,30 @@ function run(store: object, client: Channel3Transport, current: { draftId: strin
 }
 
 describe("Channel3 discovery", () => {
-  it("keeps live activation disabled and does not install the fetch transport", () => {
-    expect(CHANNEL3_LIVE_ACTIVATION).toBe(false);
-    expect(channel3ClientForProcess({ CHANNEL3_DISCOVERY: "on", CHANNEL3_API_KEY: "channel3-test-key" })).toBe("disabled");
+  it("installs the live transport only from a valid configuration, with one limiter", () => {
     const runtime = createRuntime({ sessionKey: TEST_SESSION_KEY, trustedOrigins: parseTrustedOrigins([ORIGIN]) });
     expect(runtime.channel3.mode).toBe("disabled");
+    expect(runtime.channel3.search).toBeNull();
+    expect(runtime.channel3.limiter).toBeNull();
+    const config = parseRuntimeConfig({
+      SHOPACCESS_SESSION_KEY: TEST_SESSION_KEY.toString("base64"),
+      SHOPACCESS_TRUSTED_ORIGINS: ORIGIN,
+      PAYMENT_PROVIDER_MODE: "mock",
+      CHANNEL3_DISCOVERY: "on",
+      CHANNEL3_API_KEY: "channel3-test-key",
+    });
+    if (!config.ok) throw new Error(config.error.join(","));
+    const live = createRuntime(config.value);
+    expect(live.channel3.mode).toBe("live");
+    expect(live.channel3.search).not.toBeNull();
+    expect(live.channel3.limiter).not.toBeNull();
     const source = readFileSync("src/server/runtime.ts", "utf8");
-    expect(source).not.toMatch(/createFetchChannel3Transport/);
     expect(source).toContain('from "@/lib/providers/channel3-discovery"');
     const adapter = readFileSync("src/lib/providers/channel3-discovery.ts", "utf8");
     expect(adapter).toContain("process-local");
     expect(adapter).toContain("reset when the process restarts");
     expect(adapter).not.toMatch(/readiness\/engine|payment\/orchestrator|quote\/quote|x-user-id/);
     expect(CHANNEL3_LIMITS).toEqual({
-      maxActionsPerSession: 3,
       maxSearchCallsPerAction: 1,
       maxDetailCallsPerAction: 5,
       actionDeadlineMs: 8_000,
@@ -91,7 +110,7 @@ describe("Channel3 discovery", () => {
     expect(channel3Query("schoolwork", "580")).not.toContain("please buy");
   });
 
-  it("selects price, seller, and link from one detail offer and ignores the tracking hostname and brand", async () => {
+  it("selects price, reported domain, and link from the single in-stock USD offer and ignores images and brands", async () => {
     const store = {};
     const current = draftInput();
     const client = transport({
@@ -116,10 +135,12 @@ describe("Channel3 discovery", () => {
             brand: "Acer",
             offers: [
               {
-                retailer: "Example Retailer",
-                domain: "buy.trychannel3.com",
+                domain: "shop.example",
                 url: "https://shop.example/buy",
-                price: { currency: "USD", amount: "19.99" },
+                price: { price: 19.99, compare_at_price: 24.99, currency: "USD" },
+                availability: "InStock",
+                condition: "new",
+                max_commission_rate: 0.04,
               },
             ],
           },
@@ -134,7 +155,8 @@ describe("Channel3 discovery", () => {
         {
           externalId: "ext_abc",
           title: "Detail title",
-          sellerLabel: "Example Retailer",
+          reportedDomain: "shop.example",
+          reportedAvailability: "InStock",
           indicativePriceCents: 1999,
           url: "https://shop.example/buy",
           retrievedAt: RETRIEVED,
@@ -145,7 +167,7 @@ describe("Channel3 discovery", () => {
     expect(findMerchantVariant(DEMO_MERCHANT_CATALOG, "ext_abc", "dmv_aspirego15")).toBeNull();
   });
 
-  it("does not treat a tracking hostname as the retailer and drops a mismatched detail", async () => {
+  it("does not report a tracking hostname as the website and drops a mismatched detail", async () => {
     const store = {};
     const current = draftInput();
     const client = transport({
@@ -159,11 +181,11 @@ describe("Channel3 discovery", () => {
             body: {
               id: "tracked",
               title: "Tracked",
-              offers: [{ domain: "www.buy.trychannel3.com", url: "https://buy.trychannel3.com/click", price: { currency: "USD", amount: "10.00" } }],
+              offers: [{ domain: "www.buy.trychannel3.com", url: "https://buy.trychannel3.com/click", price: { price: 10, currency: "USD" }, availability: "InStock" }],
             },
           };
         }
-        return { ok: true, body: { id: "not-the-request", title: "Wrong", offers: [{ retailer: "Nope", url: "https://shop.example/no", price: { currency: "USD", amount: "5.00" } }] } };
+        return { ok: true, body: { id: "not-the-request", title: "Wrong", offers: [{ domain: "nope.example", url: "https://shop.example/no", price: { price: 5, currency: "USD" }, availability: "InStock" }] } };
       },
     });
     const result = await run(store, client, current);
@@ -173,7 +195,8 @@ describe("Channel3 discovery", () => {
       {
         externalId: "ext_tracked",
         title: "Tracked",
-        sellerLabel: null,
+        reportedDomain: null,
+        reportedAvailability: "InStock",
         indicativePriceCents: 1000,
         url: "https://buy.trychannel3.com/click",
         retrievedAt: RETRIEVED,
@@ -181,7 +204,7 @@ describe("Channel3 discovery", () => {
     ]);
   });
 
-  it("uses a non-tracking domain from the same offer and withholds price and link when the offer is ambiguous", async () => {
+  it("reports a non-tracking domain from the offer and withholds price, link, domain and availability when two offers qualify", async () => {
     const store = {};
     const current = draftInput();
     const client = transport({
@@ -196,7 +219,7 @@ describe("Channel3 discovery", () => {
               id: "dom",
               title: "Domain",
               brand: "Acer",
-              offers: [{ domain: "laptops.example", url: "https://buy.trychannel3.com/click", price: { currency: "USD", amount: "10.00" } }],
+              offers: [{ domain: "laptops.example", url: "https://buy.trychannel3.com/click", price: { price: 10, currency: "USD" }, availability: "InStock" }],
             },
           };
         }
@@ -206,8 +229,8 @@ describe("Channel3 discovery", () => {
             id: "many",
             title: "Many",
             offers: [
-              { retailer: "One", url: "https://one.example/buy", price: { currency: "USD", amount: "1.00" } },
-              { retailer: "Two", url: "https://two.example/buy", price: { currency: "USD", amount: "2.00" } },
+              { domain: "one.example", url: "https://one.example/buy", price: { price: 1, currency: "USD" }, availability: "InStock" },
+              { domain: "two.example", url: "https://two.example/buy", price: { price: 2, currency: "USD" }, availability: "InStock" },
             ],
           },
         };
@@ -216,8 +239,8 @@ describe("Channel3 discovery", () => {
     const result = await run(store, client, current);
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
-    expect(result.listings.map((listing) => listing.sellerLabel)).toEqual(["laptops.example", null]);
-    expect(result.listings[1]).toMatchObject({ indicativePriceCents: null, url: null });
+    expect(result.listings.map((listing) => listing.reportedDomain)).toEqual(["laptops.example", null]);
+    expect(result.listings[1]).toMatchObject({ indicativePriceCents: null, url: null, reportedAvailability: null });
     expect(JSON.stringify(result.listings[0])).not.toContain("Acer");
   });
 
@@ -348,6 +371,7 @@ describe("Channel3 discovery", () => {
     const first = run(store, client, current);
     const repeat = run(store, client, current);
     const other = searchChannel3Listings({
+      reserve: reserveFor(store, "session-2"),
       store,
       sessionId: "session-2",
       draftId: current.draftId,
@@ -375,6 +399,7 @@ describe("Channel3 discovery", () => {
     expect((await run(store, more, current)).status).toBe("limit");
     expect(more.searches).toBe(2);
     expect((await searchChannel3Listings({
+      reserve: reserveFor(store, "session-2"),
       store,
       sessionId: "session-2",
       draftId: current.draftId,
@@ -412,7 +437,7 @@ describe("Channel3 discovery", () => {
             body: {
               id: "one",
               title: "First laptop",
-              offers: [{ retailer: "Example Retailer", url: "https://shop.example/buy", price: { currency: "USD", amount: "10.00" } }],
+              offers: [{ domain: "shop.example", url: "https://shop.example/buy", price: { price: 10, currency: "USD" }, availability: "InStock" }],
             },
           };
         }
@@ -433,7 +458,7 @@ describe("Channel3 discovery", () => {
       throw new TypeError("unexpected redirect");
     });
     const signal = new AbortController().signal;
-    const redirected = await redirecting.search({ query: "laptop", limit: 5, signal });
+    const redirected = await redirecting.search({ query: "laptop", limit: 5, maxPriceDollars: 580, signal });
     expect(redirected).toEqual({ ok: false, code: "REDIRECT" });
     expect(JSON.stringify(redirected)).not.toContain(key);
     expect(calls[0]?.redirect).toBe("error");
@@ -453,7 +478,7 @@ describe("Channel3 discovery", () => {
       });
       return new Response(stream);
     });
-    expect(await streamed.search({ query: "laptop", limit: 5, signal })).toEqual({ ok: false, code: "BODY_TOO_LARGE" });
+    expect(await streamed.search({ query: "laptop", limit: 5, maxPriceDollars: 580, signal })).toEqual({ ok: false, code: "BODY_TOO_LARGE" });
 
     const urls: string[] = [];
     const ok = createFetchChannel3Transport(key, async (url) => {
@@ -461,7 +486,7 @@ describe("Channel3 discovery", () => {
       return new Response(JSON.stringify({ id: "abc" }), { status: 200 });
     });
     expect(await ok.detail({ productId: "abc", signal })).toEqual({ ok: true, body: { id: "abc" } });
-    expect(urls).toEqual(["https://api.trychannel3.com/v1/products/abc"]);
+    expect(urls).toEqual(["https://api.trychannel3.com/v1/products/abc?country=US&currency=USD"]);
   });
 
   it("answers the shopper action as unavailable and does not call fetch", async () => {

@@ -315,12 +315,16 @@ describe("URL-01: unsafe external URLs are rejected and never fetched by the ser
     const runtimeImporter = join(SRC, "server", "runtime.ts");
     const paypalAdapterImporters = new Set([runtimeImporter]);
     const channel3AdapterImporters = new Set([runtimeImporter]);
+    // Configuration-only module (no network code): parsed by config.ts, defaults read by runtime.ts.
+    const channel3ConfigModule = "./channel3-config";
+    const channel3ConfigImporters = new Set([join(SRC, "server", "config.ts"), runtimeImporter]);
     const unauthorizedProviderImport = (file: string, text: string): boolean => {
       for (const match of text.matchAll(/from\s+["']([^"']*)["']/g)) {
         const specifier = match[1] ?? "";
         if (!/(?:paypal|openai|supabase|google\/generative|genai|channel3|axios|undici|node-fetch)/i.test(specifier)) continue;
         if (specifier === internalPaypalAdapter && paypalAdapterImporters.has(file)) continue;
         if (specifier === internalChannel3Adapter && channel3AdapterImporters.has(file)) continue;
+        if (specifier === channel3ConfigModule && channel3ConfigImporters.has(file)) continue;
         return true;
       }
       return false;
@@ -356,7 +360,13 @@ describe("URL-01: unsafe external URLs are rejected and never fetched by the ser
     expect(paypalFetchOnlyInTransport(paypal)).toBe(true);
     expect(paypalFetchOnlyInTransport(`${paypal}\nfetch("https://api-m.sandbox.paypal.com/v2/checkout/orders");`)).toBe(false);
     expect(paypalFetchOnlyInTransport(paypal.replace("export function createFetchPaypalTransport()", "export function unusedTransport()"))).toBe(false);
-    expect(readFileSync(join(SRC, "server", "runtime.ts"), "utf8")).not.toMatch(/\bfetch\s*\(|createFetchPaypalTransport|createFetchChannel3Transport/);
+    const runtimeSource = readFileSync(join(SRC, "server", "runtime.ts"), "utf8");
+    expect(runtimeSource).not.toMatch(/\bfetch\s*\(|createFetchPaypalTransport/);
+    // The live Channel3 transport is constructed once, and only from a valid live configuration.
+    expect(runtimeSource.match(/createFetchChannel3Transport\(/g)).toHaveLength(1);
+    expect(runtimeSource).toContain('config.channel3?.mode === "live" ? createFetchChannel3Transport(config.channel3.apiKey) : undefined');
+    const channel3Config = readFileSync(join(SRC, "server", "channel3-config.ts"), "utf8");
+    expect(channel3Config).not.toMatch(/\bfetch\s*\(|providers\/channel3-discovery|from\s+["'](?:node:)?(?:http|https|net|tls)["']/);
     const channel3 = readFileSync(channel3Adapter, "utf8");
     expect(channel3FetchOnlyInTransport(channel3)).toBe(true);
     expect(channel3FetchOnlyInTransport(`${channel3}\nfetch("https://api.trychannel3.com/v1/search");`)).toBe(false);

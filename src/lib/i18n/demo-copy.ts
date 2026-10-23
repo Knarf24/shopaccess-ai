@@ -78,7 +78,11 @@ export interface JourneyCopy {
   readonly availabilityUnverified: string;
   readonly suitabilityUnverified: string;
   readonly retrievedLabel: string;
-  readonly sellerUnknown: string;
+  readonly listingsDisclosure: string;
+  readonly reportedDomain: string;
+  readonly domainUnknown: string;
+  readonly reportedInStock: string;
+  readonly reportedOutOfStock: string;
   readonly noSafeLink: string;
   readonly viewListing: string;
   readonly priceLabel: string;
@@ -218,16 +222,21 @@ const ENGLISH: JourneyCopy = {
   listingsPending: "External listings are being retrieved.",
   listingsSubmitError: "The search form could not be submitted. You can try again.",
   listingsUnavailable: "External listing search is turned off in this demo.",
-  listingsLimit: "External listing search has reached its limit for this session.",
+  listingsLimit: "External listing search has reached its limit. Nothing was sent.",
   listingsError: "External listings could not be retrieved.",
   listingsStale: "The request changed, so this listing result was discarded.",
   listingsEmpty: "No external listings were returned.",
   indicativePrice: "Indicative price",
-  priceNotRefreshed: "The price and link were not refreshed.",
-  availabilityUnverified: "Availability was not checked.",
+  priceNotRefreshed: "Channel3 did not report a single in-stock US dollar offer within your budget, with a link, for this listing.",
+  availabilityUnverified: "Availability was not reported for a single offer.",
   suitabilityUnverified: "Suitability was not checked.",
   retrievedLabel: "Retrieved",
-  sellerUnknown: "Seller unknown",
+  listingsDisclosure:
+    "External listings from Channel3. Links may be affiliate links. Prices and availability are reported by Channel3 and may change; ShopAccess has not independently verified them. Purchases happen on the seller’s website.",
+  reportedDomain: "Website reported by Channel3:",
+  domainUnknown: "Website not reported.",
+  reportedInStock: "Reported in stock by Channel3.",
+  reportedOutOfStock: "Reported out of stock by Channel3.",
   noSafeLink: "No safe link is available.",
   viewListing: "View listing",
   priceLabel: "Fixed demo price",
@@ -366,16 +375,21 @@ const SPANISH: JourneyCopy = {
   listingsPending: "Se están recuperando los anuncios externos.",
   listingsSubmitError: "No se pudo enviar el formulario de búsqueda. Puedes intentarlo de nuevo.",
   listingsUnavailable: "La búsqueda de anuncios externos está apagada en esta demostración.",
-  listingsLimit: "La búsqueda de anuncios externos alcanzó el límite de esta sesión.",
+  listingsLimit: "La búsqueda de anuncios externos alcanzó su límite. No se envió nada.",
   listingsError: "No se pudieron obtener los anuncios externos.",
   listingsStale: "La solicitud cambió, así que este resultado se descartó.",
   listingsEmpty: "No se devolvieron anuncios externos.",
   indicativePrice: "Precio indicativo",
-  priceNotRefreshed: "El precio y el enlace no se actualizaron.",
-  availabilityUnverified: "La disponibilidad no se comprobó.",
+  priceNotRefreshed: "Channel3 no informó una única oferta disponible en dólares estadounidenses dentro de su presupuesto, con enlace, para este anuncio.",
+  availabilityUnverified: "No se informó la disponibilidad de una sola oferta.",
   suitabilityUnverified: "La idoneidad no se comprobó.",
   retrievedLabel: "Recuperado",
-  sellerUnknown: "Vendedor desconocido",
+  listingsDisclosure:
+    "Anuncios externos de Channel3. Los enlaces pueden ser enlaces de afiliado. Channel3 informa los precios y la disponibilidad, que pueden cambiar; ShopAccess no los ha verificado de forma independiente. Las compras se realizan en el sitio web del vendedor.",
+  reportedDomain: "Sitio web informado por Channel3:",
+  domainUnknown: "Sitio web no informado.",
+  reportedInStock: "Channel3 lo informa como disponible.",
+  reportedOutOfStock: "Channel3 lo informa como agotado.",
   noSafeLink: "No hay un enlace seguro.",
   viewListing: "Ver anuncio",
   priceLabel: "Precio fijo de demostración",

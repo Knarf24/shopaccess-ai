@@ -6,14 +6,12 @@ export type { ExternalListingView };
 type ListingUse = "schoolwork" | "programming" | "general_productivity";
 
 /**
- * Live Channel3 calls stay off. A discovery switch and an API key do not change this.
- * `createFetchChannel3Transport` exists for a later authorized activation and for tests
- * that pass their own `fetch`. The runtime factory must not call it.
+ * Channel3 external-listing search (F04). The runtime installs `createFetchChannel3Transport` only when
+ * `CHANNEL3_DISCOVERY=on` and a valid `CHANNEL3_API_KEY` are configured (src/server/channel3-config.ts).
+ * Each search action reserves capacity first (per session, per UTC hour, per UTC day) through the caller's `reserve`;
+ * a refused reservation makes no request. Listings are never merchant quotes, readiness inputs or purchasable items.
  */
-export const CHANNEL3_LIVE_ACTIVATION = false;
-
 export const CHANNEL3_LIMITS = {
-  maxActionsPerSession: 3,
   maxSearchCallsPerAction: 1,
   maxDetailCallsPerAction: 5,
   actionDeadlineMs: 8_000,
@@ -36,7 +34,8 @@ export type Channel3Response =
   | { readonly ok: false; readonly code: Channel3FailureCode };
 
 export interface Channel3Transport {
-  search(request: { readonly query: string; readonly limit: number; readonly signal: AbortSignal }): Promise<Channel3Response>;
+  /** `maxPriceDollars`: the confirmed budget, sent as the documented inclusive `filters.price.max_price`. */
+  search(request: { readonly query: string; readonly limit: number; readonly maxPriceDollars: number; readonly signal: AbortSignal }): Promise<Channel3Response>;
   detail(request: { readonly productId: string; readonly signal: AbortSignal }): Promise<Channel3Response>;
 }
 
@@ -52,26 +51,35 @@ export type Channel3Snapshot =
   | { readonly status: "pending" };
 
 /**
- * Listing budgets and stored results are process-local and scoped to one session.
- * Pending work is kept by the session, draft, and version action key.
- * Nothing here is written to the session snapshot or shared with another process.
- * The budget and stored results reset when the process restarts.
+ * Stored results are process-local and scoped to one session. Pending work is kept by the session, draft, and version
+ * action key. Nothing here is written to the session snapshot or shared with another process.
+ * Stored results reset when the process restarts. The action budget is the runtime's limiter (`reserve`).
+ *
+ * The container is shared through `globalThis`, so a copy of this module loaded by another route bundle sees the same
+ * results (the lesson of the advisory scope defect).
  */
 type SessionListingState = {
-  actionsStarted: number;
   pending: Map<string, Promise<ListingOutcome>>;
   completed: Map<string, { listings: readonly ExternalListingView[]; retrievedAt: string }>;
   failure: Set<string>;
 };
 
-const listingStates = new WeakMap<object, Map<string, SessionListingState>>();
+const LISTING_STATES = Symbol.for("shopaccess.channel3ListingStates");
+type GlobalWithListingStates = typeof globalThis & { [LISTING_STATES]?: WeakMap<object, Map<string, SessionListingState>> };
+
+function listingStatesContainer(): WeakMap<object, Map<string, SessionListingState>> {
+  const holder = globalThis as GlobalWithListingStates;
+  holder[LISTING_STATES] ??= new WeakMap<object, Map<string, SessionListingState>>();
+  return holder[LISTING_STATES];
+}
 
 function stateFor(store: object, sessionId: string): SessionListingState {
-  const sessions = listingStates.get(store) ?? new Map<string, SessionListingState>();
-  listingStates.set(store, sessions);
+  const states = listingStatesContainer();
+  const sessions = states.get(store) ?? new Map<string, SessionListingState>();
+  states.set(store, sessions);
   const existing = sessions.get(sessionId);
   if (existing) return existing;
-  const created: SessionListingState = { actionsStarted: 0, pending: new Map(), completed: new Map(), failure: new Set() };
+  const created: SessionListingState = { pending: new Map(), completed: new Map(), failure: new Set() };
   sessions.set(sessionId, created);
   return created;
 }
@@ -81,20 +89,13 @@ function actionKey(sessionId: string, draftId: string, version: number): string 
   return `${sessionId}:${draftId}:${version}`;
 }
 
-export function channel3ClientForProcess(env?: Readonly<Record<string, string | undefined>>): "disabled" | "enabled" {
-  // Read and drop the switch and key so a present pair cannot select the live client.
-  void env?.CHANNEL3_DISCOVERY;
-  void env?.CHANNEL3_API_KEY;
-  return CHANNEL3_LIVE_ACTIVATION ? "enabled" : "disabled";
-}
-
 /** Query text is the confirmed use and the whole-dollar budget. Shopper free text is not accepted here. */
 export function channel3Query(use: ListingUse, budgetDollars: string): string {
   return `laptop for ${USE_QUERY[use]} under ${budgetDollars} USD`;
 }
 
 export function readChannel3Listings(store: object, sessionId: string, draftId: string, version: number): Channel3Snapshot | null {
-  const state = listingStates.get(store)?.get(sessionId);
+  const state = listingStatesContainer().get(store)?.get(sessionId);
   if (!state) return null;
   const key = actionKey(sessionId, draftId, version);
   if (state.pending.has(key)) return { status: "pending" };
@@ -113,6 +114,11 @@ export interface ListingSearchInput {
   readonly budgetDollars: string;
   readonly transport: Channel3Transport;
   readonly currentDraft: () => { readonly draftId: string; readonly version: number } | null;
+  /**
+   * Reserves one search action (session, UTC hour, UTC day) synchronously, before any request. `false` means the limit
+   * was reached and nothing is sent. A reserved action counts even if it later fails or is discarded.
+   */
+  readonly reserve: () => boolean;
   readonly now: () => string;
   readonly actionDeadlineMs?: number;
   readonly requestTimeoutMs?: number;
@@ -120,7 +126,8 @@ export interface ListingSearchInput {
 
 /**
  * Starts at most one search and five sequential detail calls.
- * The action budget is counted when the action starts, including when the result is later discarded.
+ * The action is reserved when it starts (no await before the reservation), including when the result is later
+ * discarded or the request fails.
  * A completed result for the same draft version is returned again without a request.
  * A second click for an action already in flight joins that action.
  */
@@ -131,11 +138,12 @@ export function searchChannel3Listings(input: ListingSearchInput): Promise<Listi
   if (completed) return Promise.resolve({ status: "ready", listings: completed.listings, retrievedAt: completed.retrievedAt });
   const pending = state.pending.get(key);
   if (pending) return pending;
-  if (state.actionsStarted >= CHANNEL3_LIMITS.maxActionsPerSession) return Promise.resolve({ status: "limit" });
   const current = input.currentDraft();
   if (!current || current.draftId !== input.draftId || current.version !== input.version) return Promise.resolve({ status: "stale" });
+  // The confirmed budget bounds the search and every displayed price. Without a valid one nothing is reserved or sent.
+  if (budgetCents(input.budgetDollars) === null) return Promise.resolve({ status: "error" });
+  if (!input.reserve()) return Promise.resolve({ status: "limit" });
 
-  state.actionsStarted += 1;
   const promise = executeListingSearch(input, state, key).finally(() => {
     if (state.pending.get(key) === promise) state.pending.delete(key);
   });
@@ -153,8 +161,9 @@ async function executeListingSearch(input: ListingSearchInput, state: SessionLis
   }
 
   const query = channel3Query(input.use, input.budgetDollars);
+  const maxCents = budgetCents(input.budgetDollars)!;
   const search = await withDeadline(action, requestMs, (signal) =>
-    input.transport.search({ query, limit: CHANNEL3_LIMITS.maxDetailCallsPerAction, signal }),
+    input.transport.search({ query, limit: CHANNEL3_LIMITS.maxDetailCallsPerAction, maxPriceDollars: maxCents / 100, signal }),
   );
   if (search.status !== "ok" || !search.body.ok) {
     if (!draftStillCurrent(input)) return { status: "stale" };
@@ -178,17 +187,10 @@ async function executeListingSearch(input: ListingSearchInput, state: SessionLis
     if (!draftStillCurrent(input)) return { status: "stale" };
     if (detail.status === "deadline" && action.aborted) return deadlineError(state, key);
     if (detail.status !== "ok" || !detail.body.ok) {
-      listings.push({
-        externalId: `ext_${candidate.id}`,
-        title: candidate.title,
-        sellerLabel: null,
-        indicativePriceCents: null,
-        url: null,
-        retrievedAt,
-      });
+      listings.push(unknownListing(candidate, retrievedAt));
       continue;
     }
-    const selected = listingFromDetail(detail.body.body, candidate, retrievedAt);
+    const selected = listingFromDetail(detail.body.body, candidate, retrievedAt, maxCents);
     if (selected) listings.push(selected);
   }
 
@@ -250,15 +252,15 @@ function plain(value: unknown, max: number): string | null {
   return text;
 }
 
+/** Documented search shape: `{ products: [{ id, title, … }] }`. Undocumented alternatives are not accepted. */
 function showableProducts(body: unknown): { id: string; title: string }[] {
-  if (!isRecord(body)) return [];
-  const list = Array.isArray(body.products) ? body.products : Array.isArray(body.results) ? body.results : [];
+  if (!isRecord(body) || !Array.isArray(body.products)) return [];
   const products: { id: string; title: string }[] = [];
   const seen = new Set<string>();
-  for (const entry of list) {
+  for (const entry of body.products) {
     if (!isRecord(entry)) continue;
-    const id = plain(entry.id, 64) ?? plain(entry.product_id, 64);
-    const title = plain(entry.title, 200) ?? plain(entry.name, 200);
+    const id = plain(entry.id, 64);
+    const title = plain(entry.title, 200);
     if (!id || !title || !SHOWABLE_ID.test(id) || seen.has(id)) continue;
     seen.add(id);
     products.push({ id, title });
@@ -266,35 +268,71 @@ function showableProducts(body: unknown): { id: string; title: string }[] {
   return products;
 }
 
-function listingFromDetail(
-  body: unknown,
-  candidate: { id: string; title: string },
-  retrievedAt: string,
-): ExternalListingView | null {
-  if (!isRecord(body)) return null;
-  const id = plain(body.id, 64) ?? plain(body.product_id, 64);
-  if (id !== candidate.id) return null;
-  const title = plain(body.title, 200) ?? plain(body.name, 200) ?? candidate.title;
-  const offer = singleOffer(body);
-  const sellerLabel = offer ? sellerFromOffer(offer) : null;
-  const price = offer ? usdCents(offer) : null;
-  const url = offer ? safeOfferUrl(offer) : null;
-  const priced = price !== null && url !== null;
+/** A row whose detail could not be read: title only, everything else unknown. */
+function unknownListing(candidate: { id: string; title: string }, retrievedAt: string): ExternalListingView {
   return {
     externalId: `ext_${candidate.id}`,
-    title,
-    sellerLabel,
-    indicativePriceCents: priced ? price : null,
-    url: priced ? url : null,
+    title: candidate.title,
+    reportedDomain: null,
+    reportedAvailability: null,
+    indicativePriceCents: null,
+    url: null,
     retrievedAt,
   };
 }
 
-function singleOffer(body: Record<string, unknown>): Record<string, unknown> | null {
-  const offers = Array.isArray(body.offers) ? body.offers : Array.isArray(body.listings) ? body.listings : null;
-  if (!offers || offers.length !== 1) return null;
-  const offer = offers[0];
-  return isRecord(offer) ? offer : null;
+type OfferReading = {
+  readonly domain: string | null;
+  readonly availability: "InStock" | "OutOfStock" | null;
+  readonly cents: number | null;
+  readonly url: string | null;
+};
+
+/** Whole-dollar confirmed budget (10–99999) in cents, or `null` when it is not one. */
+function budgetCents(budgetDollars: string): number | null {
+  return /^[1-9][0-9]{1,4}$/.test(budgetDollars) ? Number(budgetDollars) * 100 : null;
+}
+
+/**
+ * Documented detail shape: `{ id, title, offers: [{ url, domain, price: { price, currency }, availability }] }`.
+ * A price, link and domain are shown only when exactly one offer is in stock with a valid USD price **at or below the
+ * confirmed budget** and a safe link. The budget is enforced here on every parsed offer; the provider's price filter is
+ * not trusted. With no offers, several such offers, or anything absent, malformed or over budget, those fields stay
+ * unknown (`null`).
+ */
+function listingFromDetail(
+  body: unknown,
+  candidate: { id: string; title: string },
+  retrievedAt: string,
+  maxCents: number,
+): ExternalListingView | null {
+  if (!isRecord(body)) return null;
+  const id = plain(body.id, 64);
+  if (id !== candidate.id) return null;
+  const title = plain(body.title, 200) ?? candidate.title;
+  const offers = Array.isArray(body.offers) ? body.offers.filter(isRecord).map(readOffer) : [];
+  const usable = offers.filter((offer) => offer.availability === "InStock" && offer.cents !== null && offer.cents <= maxCents && offer.url !== null);
+  if (usable.length === 1) {
+    const offer = usable[0]!;
+    return {
+      externalId: `ext_${candidate.id}`,
+      title,
+      reportedDomain: offer.domain,
+      reportedAvailability: "InStock",
+      indicativePriceCents: offer.cents,
+      url: offer.url,
+      retrievedAt,
+    };
+  }
+  // Not exactly one usable offer: report availability only when every offer agrees on a documented value.
+  const states = new Set(offers.map((offer) => offer.availability));
+  const reportedAvailability = offers.length > 0 && states.size === 1 && !states.has(null) ? [...states][0]! : null;
+  return { ...unknownListing({ id: candidate.id, title }, retrievedAt), reportedAvailability: usable.length > 1 ? null : reportedAvailability };
+}
+
+function readOffer(offer: Record<string, unknown>): OfferReading {
+  const availability = offer.availability === "InStock" || offer.availability === "OutOfStock" ? offer.availability : null;
+  return { domain: reportedDomain(offer.domain), availability, cents: usdCents(offer.price), url: safeOfferUrl(offer.url) };
 }
 
 function isTrackingHost(host: string): boolean {
@@ -302,50 +340,36 @@ function isTrackingHost(host: string): boolean {
   return name === "buy.trychannel3.com" || name.endsWith(".buy.trychannel3.com");
 }
 
-function hostnameOf(value: string): string | null {
-  if (!/^[a-z0-9.-]{1,253}$/i.test(value) || !value.includes(".") || value.startsWith(".") || value.endsWith(".")) return null;
-  return value.toLowerCase();
+/** The offer's `domain` as Channel3 reports it. Not a verified seller identity; a tracking host is not shown. */
+function reportedDomain(value: unknown): string | null {
+  const domain = plain(value, 253);
+  if (!domain) return null;
+  if (!/^[a-z0-9.-]{1,253}$/i.test(domain) || !domain.includes(".") || domain.startsWith(".") || domain.endsWith(".")) return null;
+  const host = domain.toLowerCase();
+  return isTrackingHost(host) ? null : host;
 }
 
-function sellerFromOffer(offer: Record<string, unknown>): string | null {
-  const retailer = plain(offer.retailer, 80) ?? plain(offer.retailer_name, 80) ?? plain(offer.seller, 80);
-  if (retailer) return retailer;
-  const domain = plain(offer.domain, 253);
-  const domainHost = domain ? hostnameOf(domain) : null;
-  if (domainHost && !isTrackingHost(domainHost)) return domainHost;
-  const url = plain(offer.url, 2048);
-  if (!url) return null;
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (!host || isTrackingHost(host)) return null;
-    return host;
-  } catch {
-    return null;
-  }
-}
-
-function usdCents(offer: Record<string, unknown>): number | null {
-  const prices = Array.isArray(offer.prices) ? offer.prices : offer.price !== undefined ? [offer.price] : [];
-  if (prices.length !== 1 || !isRecord(prices[0])) return null;
-  const price = prices[0];
-  const currency = plain(price.currency, 8);
-  if (currency !== "USD") return null;
-  const amount = typeof price.amount === "number" ? String(price.amount) : plain(price.amount, 16);
-  if (!amount || !/^\d{1,7}(\.\d{2})?$/.test(amount)) return null;
-  const [whole, fraction = "00"] = amount.split(".");
-  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
-  if (!Number.isSafeInteger(cents) || cents < 0) return null;
+/**
+ * Documented price: `{ price: number, currency: string }` in major units. Only an exact `USD` currency and a finite,
+ * positive amount with at most two decimals (and below USD 100,000) is accepted; anything else is unknown.
+ */
+function usdCents(value: unknown): number | null {
+  if (!isRecord(value) || value.currency !== "USD") return null;
+  const amount = value.price;
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0 || amount >= 100_000) return null;
+  const cents = Math.round(amount * 100);
+  if (Math.abs(amount * 100 - cents) > 1e-6 || !Number.isSafeInteger(cents)) return null;
   return cents;
 }
 
-function safeOfferUrl(offer: Record<string, unknown>): string | null {
-  const parsed = parseSafeExternalUrl(offer.url);
+function safeOfferUrl(value: unknown): string | null {
+  const parsed = parseSafeExternalUrl(value);
   return parsed.ok ? parsed.value : null;
 }
 
 /**
- * Production transport. Redirects are refused so the API key is not forwarded to another origin.
- * Tests pass their own fetch. The runtime does not install this function.
+ * Production transport, installed by the runtime only from a valid configuration (CHANNEL3_DISCOVERY=on and a key).
+ * Redirects are refused so the API key is not forwarded to another origin. Tests pass their own fetch.
  */
 export function createFetchChannel3Transport(apiKey: string, fetchImpl: typeof fetch = globalThis.fetch): Channel3Transport {
   const fetch = fetchImpl;
@@ -368,14 +392,20 @@ export function createFetchChannel3Transport(apiKey: string, fetchImpl: typeof f
         {
           method: "POST",
           headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify({ query: request.query, limit: request.limit }),
+          // Explicit US/USD locale, the documented default filters (new, in stock) and the inclusive maximum price.
+          body: JSON.stringify({
+            query: request.query,
+            limit: request.limit,
+            filters: { conditions: ["new"], availability: ["InStock"], price: { max_price: request.maxPriceDollars } },
+            config: { country: "US", currency: "USD" },
+          }),
         },
         request.signal,
       );
     },
     detail(request) {
       return call(
-        `${API_ORIGIN}/v1/products/${encodeURIComponent(request.productId)}`,
+        `${API_ORIGIN}/v1/products/${encodeURIComponent(request.productId)}?country=US&currency=USD`,
         { method: "GET", headers },
         request.signal,
       );

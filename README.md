@@ -163,7 +163,8 @@ Open http://127.0.0.1:3000.
   missing or malformed setting switches the shop off. With
   `PAYMENT_PROVIDER_MODE=mock`, any `PAYPAL_*` setting is refused.
 - **Other providers:** leave the `SHOPACCESS_AI_*` settings unset (local
-  assistant). Channel3 stays disabled in source.
+  assistant). Leave `CHANNEL3_DISCOVERY` and `CHANNEL3_API_KEY` unset (external
+  listings answer "turned off"); setting both enables live Channel3 requests.
 - **Storage:** Sandbox mode uses the memory-mode subshell above, or a fresh
   disposable snapshot store created for that run with the initializer above.
   The format-7 file persists the shopper state listed in the snapshot section.

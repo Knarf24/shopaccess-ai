@@ -153,13 +153,23 @@ describe("external listing and suggestion labels", () => {
     await harness.restore();
   });
 
-  it("renders the explicit search, indicative price, and both languages without an image", () => {
+  it("renders the explicit search, disclosure, indicative price, and both languages without an image or purchase form", () => {
     const listing = {
       externalId: "ext_abc",
       title: "Example Laptop",
-      sellerLabel: null,
+      reportedDomain: null,
+      reportedAvailability: null,
       indicativePriceCents: 1999,
       url: "https://shop.example/buy",
+      retrievedAt: "2026-10-15T16:00:00.000Z",
+    };
+    const reported = {
+      externalId: "ext_def",
+      title: "Reported Laptop",
+      reportedDomain: "shop.example",
+      reportedAvailability: "InStock" as const,
+      indicativePriceCents: 57999,
+      url: "https://shop.example/def",
       retrievedAt: "2026-10-15T16:00:00.000Z",
     };
     for (const language of ["en", "es"] as const) {
@@ -172,7 +182,7 @@ describe("external listing and suggestion labels", () => {
           draftId={"nd_" + "ab".repeat(16)}
           version={2}
           notice="unavailable"
-          listings={[listing]}
+          listings={[listing, reported]}
         />,
       );
       expect(markup).toContain('action="/shop/needs/listings"');
@@ -181,14 +191,21 @@ describe("external listing and suggestion labels", () => {
       expect(markup).toContain('role="alert"');
       expect(markup).toContain(copy.listingsUnavailable);
       expect(markup).toContain(copy.indicativePrice);
-      expect(markup).toContain(copy.sellerUnknown);
+      expect(markup).toContain(copy.domainUnknown);
+      expect(markup).toContain(copy.listingsDisclosure);
+      expect(markup).toContain(`${copy.reportedDomain} shop.example`);
+      expect(markup).toContain(copy.reportedInStock);
+      // The domain is labelled as reported by Channel3, never as a verified seller.
+      expect(copy.reportedDomain).toContain("Channel3");
+      expect(markup).not.toContain('action="/checkout/start"');
+      expect(markup).not.toContain('name="variantId"');
       expect(markup).toContain(copy.availabilityUnverified);
       expect(markup).toContain(copy.suitabilityUnverified);
       expect(markup).toContain('dateTime="2026-10-15T16:00:00.000Z"');
       expect(markup).toContain('rel="noopener noreferrer nofollow"');
       expect(markup).not.toContain("<img");
       expect(markup).not.toContain("suitable");
-      expect(markup).not.toContain("in stock");
+      expect(markup).not.toContain(">In stock");
     }
   });
 

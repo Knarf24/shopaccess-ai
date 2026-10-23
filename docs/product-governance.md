@@ -131,7 +131,7 @@ The in-memory shop catalog is now revision 2. It has three researched configurat
 
 Inventory in the shop is simulated. Acer, ASUS, Newegg, and their sellers are not ShopAccess partners. Checkout remains a PayPal sandbox demonstration with no physical fulfillment. Pictures are original illustrations. Readiness thresholds are unchanged.
 
-Channel3 discovery is implemented. Offline tests inject responses. Live activation is disabled, including when a discovery switch and an API key are present, and the application does not install the live transport. That status is not a live-verified integration.
+Channel3 discovery is implemented and offline-tested. The live transport is installed only when `CHANNEL3_DISCOVERY=on` and a valid `CHANNEL3_API_KEY` are configured; no deployment configures them, and it is not a live-verified integration. Search actions are limited before any request (3 per session, 10 per UTC hour, 30 per UTC day by default; process-local, reset on restart). Listings follow the documented Channel3 schema; absent or ambiguous price, link, website or availability stays unknown, the website is shown as reported by Channel3 rather than as a verified seller, and listings carry a disclosure. External listings have no purchase form and `ext_` IDs cannot start checkout.
 
 Channel3 search and product detail were explored through Postman. The returned fields conflicted and required checking before any catalog use. The account, the redeemed sponsor credits, and that Postman exploration are owner-reported. They are not a verified current balance and they are not credential approval. That exploration did not authorize a live API call from this application or a claim that Channel3 supplied these three rows.
 

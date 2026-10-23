@@ -713,9 +713,9 @@ export async function handleNeedsConfirm(request: Request, runtime: Runtime): Pr
 }
 
 /**
- * POST /shop/needs/listings. The shopper asks for external listings.
- * Live Channel3 is not installed, so this route never calls a transport.
- * A present discovery switch and API key do not change that.
+ * POST /shop/needs/listings. The shopper asks for external listings for the confirmed brief.
+ * Without a configured Channel3 transport the answer is "unavailable" and nothing is sent. With one, the search action
+ * reserves its limits first; a refusal answers "limit" and nothing is sent.
  */
 export async function handleNeedsListings(request: Request, runtime: Runtime): Promise<Response> {
   const refused = admissionRefusal(request, runtime);
@@ -733,7 +733,7 @@ export async function handleNeedsListings(request: Request, runtime: Runtime): P
   if (draft.version !== version) return seeOther(needsBack(language, "STALE_DRAFT"));
   if (!draft.confirmedUse || !draft.confirmedBudgetDollars) return seeOther(needsBack(language, "CONFIRM_INCOMPLETE"));
   const search = runtime.channel3.search;
-  if (!search || runtime.channel3.mode !== "disabled") return seeOther(listingsBack(language, "unavailable"));
+  if (!search || runtime.channel3.mode !== "live") return seeOther(listingsBack(language, "unavailable"));
   const use = draft.confirmedUse;
   const budgetDollars = draft.confirmedBudgetDollars;
   const outcome = await search({
