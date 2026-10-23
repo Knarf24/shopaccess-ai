@@ -189,6 +189,91 @@ describe("Channel3 documented schema", () => {
   });
 });
 
+describe("Channel3 budget bound", () => {
+  // The confirmed budget is sent as the documented inclusive max_price AND enforced locally on every parsed offer.
+  async function run(budget: string, offers: unknown[], capture?: (request: { maxPriceDollars: number }) => void) {
+    const current = { draftId: "nd_" + "ef".repeat(16), version: 1 };
+    let reserved = 0;
+    const result = await searchChannel3Listings({
+      store: {},
+      sessionId: "s",
+      ...current,
+      use: "programming",
+      budgetDollars: budget,
+      transport: {
+        async search(request) {
+          capture?.(request);
+          return { ok: true, body: { products: [{ id: "abc", title: "Laptop" }] } };
+        },
+        async detail() {
+          return { ok: true, body: { id: "abc", title: "Laptop", offers } };
+        },
+      },
+      currentDraft: () => current,
+      now: () => RETRIEVED,
+      reserve: () => {
+        reserved += 1;
+        return true;
+      },
+    });
+    return { result, reserved };
+  }
+  const offer = (price: number, overrides: Record<string, unknown> = {}) => ({
+    url: "https://shop.example/buy",
+    domain: "shop.example",
+    price: { price, currency: "USD" },
+    availability: "InStock",
+    ...overrides,
+  });
+  const withheld = { reportedDomain: null, indicativePriceCents: null, url: null };
+
+  it("sends the confirmed budget as the inclusive max_price", async () => {
+    let sent = 0;
+    await run("900", [offer(579.99)], (request) => {
+      sent = request.maxPriceDollars;
+    });
+    expect(sent).toBe(900);
+  });
+
+  it("prices an in-stock USD offer below and exactly at the budget", async () => {
+    expect((await run("900", [offer(579.99)])).result).toMatchObject({ status: "ready", listings: [{ indicativePriceCents: 57999, url: "https://shop.example/buy" }] });
+    expect((await run("900", [offer(900)])).result).toMatchObject({ status: "ready", listings: [{ indicativePriceCents: 90000, url: "https://shop.example/buy" }] });
+  });
+
+  it("never prices or links an offer above the budget, even by one cent, when the provider ignores the filter", async () => {
+    for (const price of [900.01, 1099.99, 1868]) {
+      const { result } = await run("900", [offer(price)]);
+      expect(result).toMatchObject({ status: "ready", listings: [{ externalId: "ext_abc", ...withheld }] });
+      expect(JSON.stringify(result)).not.toContain("https://shop.example/buy");
+    }
+  });
+
+  it("uses the single in-budget offer when another offer is over budget, and still withholds when two are in budget", async () => {
+    const one = await run("600", [offer(1099.99, { domain: "dell.example", url: "https://dell.example/x" }), offer(579, { domain: "ok.example", url: "https://ok.example/y" })]);
+    expect(one.result).toMatchObject({ status: "ready", listings: [{ indicativePriceCents: 57900, reportedDomain: "ok.example", url: "https://ok.example/y" }] });
+    const two = await run("600", [offer(546.03), offer(579, { domain: "two.example", url: "https://two.example/z" }), offer(629.99)]);
+    expect(two.result).toMatchObject({ status: "ready", listings: [{ ...withheld, reportedAvailability: null }] });
+  });
+
+  it("keeps USD, availability and link rules alongside the budget", async () => {
+    for (const bad of [offer(500, { price: { price: 500, currency: "CAD" } }), offer(500, { availability: "OutOfStock" }), offer(500, { url: "http://shop.example/buy" })]) {
+      expect((await run("900", [bad])).result).toMatchObject({ status: "ready", listings: [withheld] });
+    }
+  });
+
+  it("reserves and sends nothing without a valid whole-dollar budget", async () => {
+    for (const budget of ["", "0", "9", "900.50", "100000", "abc"]) {
+      let searched = false;
+      const { result, reserved } = await run(budget, [offer(1)], () => {
+        searched = true;
+      });
+      expect(result).toEqual({ status: "error" });
+      expect(reserved).toBe(0);
+      expect(searched).toBe(false);
+    }
+  });
+});
+
 describe("Channel3 transport", () => {
   it("requests US/USD explicitly with the documented in-stock filter, sends no user id, and maps HTTP and body failures", async () => {
     const calls: { url: string; init: RequestInit }[] = [];
@@ -197,13 +282,13 @@ describe("Channel3 transport", () => {
       return new Response(JSON.stringify({ products: [] }), { status: 200 });
     });
     const signal = new AbortController().signal;
-    await ok.search({ query: "laptop for programming under 900 USD", limit: 5, signal });
+    await ok.search({ query: "laptop for programming under 900 USD", limit: 5, maxPriceDollars: 900, signal });
     await ok.detail({ productId: "abc", signal });
     expect(calls[0]!.url).toBe("https://api.trychannel3.com/v1/search");
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
       query: "laptop for programming under 900 USD",
       limit: 5,
-      filters: { conditions: ["new"], availability: ["InStock"] },
+      filters: { conditions: ["new"], availability: ["InStock"], price: { max_price: 900 } },
       config: { country: "US", currency: "USD" },
     });
     expect(calls[1]!.url).toBe("https://api.trychannel3.com/v1/products/abc?country=US&currency=USD");
@@ -213,12 +298,12 @@ describe("Channel3 transport", () => {
     }
     for (const status of [401, 402, 404, 422, 429, 500]) {
       const failing = createFetchChannel3Transport(KEY, async () => new Response("{}", { status, headers: { "retry-after": "5" } }));
-      const result = await failing.search({ query: "q", limit: 5, signal });
+      const result = await failing.search({ query: "q", limit: 5, maxPriceDollars: 900, signal });
       expect(result).toEqual({ ok: false, code: "HTTP_STATUS" });
       expect(JSON.stringify(result)).not.toContain(KEY);
     }
     const text = createFetchChannel3Transport(KEY, async () => new Response("<html>", { status: 200 }));
-    expect(await text.search({ query: "q", limit: 5, signal })).toEqual({ ok: false, code: "NOT_JSON" });
+    expect(await text.search({ query: "q", limit: 5, maxPriceDollars: 900, signal })).toEqual({ ok: false, code: "NOT_JSON" });
     const network = createFetchChannel3Transport(KEY, async () => {
       throw new TypeError("fetch failed");
     });

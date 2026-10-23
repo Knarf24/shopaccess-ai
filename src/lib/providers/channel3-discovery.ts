@@ -34,7 +34,8 @@ export type Channel3Response =
   | { readonly ok: false; readonly code: Channel3FailureCode };
 
 export interface Channel3Transport {
-  search(request: { readonly query: string; readonly limit: number; readonly signal: AbortSignal }): Promise<Channel3Response>;
+  /** `maxPriceDollars`: the confirmed budget, sent as the documented inclusive `filters.price.max_price`. */
+  search(request: { readonly query: string; readonly limit: number; readonly maxPriceDollars: number; readonly signal: AbortSignal }): Promise<Channel3Response>;
   detail(request: { readonly productId: string; readonly signal: AbortSignal }): Promise<Channel3Response>;
 }
 
@@ -139,6 +140,8 @@ export function searchChannel3Listings(input: ListingSearchInput): Promise<Listi
   if (pending) return pending;
   const current = input.currentDraft();
   if (!current || current.draftId !== input.draftId || current.version !== input.version) return Promise.resolve({ status: "stale" });
+  // The confirmed budget bounds the search and every displayed price. Without a valid one nothing is reserved or sent.
+  if (budgetCents(input.budgetDollars) === null) return Promise.resolve({ status: "error" });
   if (!input.reserve()) return Promise.resolve({ status: "limit" });
 
   const promise = executeListingSearch(input, state, key).finally(() => {
@@ -158,8 +161,9 @@ async function executeListingSearch(input: ListingSearchInput, state: SessionLis
   }
 
   const query = channel3Query(input.use, input.budgetDollars);
+  const maxCents = budgetCents(input.budgetDollars)!;
   const search = await withDeadline(action, requestMs, (signal) =>
-    input.transport.search({ query, limit: CHANNEL3_LIMITS.maxDetailCallsPerAction, signal }),
+    input.transport.search({ query, limit: CHANNEL3_LIMITS.maxDetailCallsPerAction, maxPriceDollars: maxCents / 100, signal }),
   );
   if (search.status !== "ok" || !search.body.ok) {
     if (!draftStillCurrent(input)) return { status: "stale" };
@@ -186,7 +190,7 @@ async function executeListingSearch(input: ListingSearchInput, state: SessionLis
       listings.push(unknownListing(candidate, retrievedAt));
       continue;
     }
-    const selected = listingFromDetail(detail.body.body, candidate, retrievedAt);
+    const selected = listingFromDetail(detail.body.body, candidate, retrievedAt, maxCents);
     if (selected) listings.push(selected);
   }
 
@@ -284,22 +288,30 @@ type OfferReading = {
   readonly url: string | null;
 };
 
+/** Whole-dollar confirmed budget (10–99999) in cents, or `null` when it is not one. */
+function budgetCents(budgetDollars: string): number | null {
+  return /^[1-9][0-9]{1,4}$/.test(budgetDollars) ? Number(budgetDollars) * 100 : null;
+}
+
 /**
  * Documented detail shape: `{ id, title, offers: [{ url, domain, price: { price, currency }, availability }] }`.
- * A price, link and domain are shown only when exactly one offer is in stock with a valid USD price and a safe link.
- * With no offers, several such offers, or anything absent or malformed, those fields stay unknown (`null`).
+ * A price, link and domain are shown only when exactly one offer is in stock with a valid USD price **at or below the
+ * confirmed budget** and a safe link. The budget is enforced here on every parsed offer; the provider's price filter is
+ * not trusted. With no offers, several such offers, or anything absent, malformed or over budget, those fields stay
+ * unknown (`null`).
  */
 function listingFromDetail(
   body: unknown,
   candidate: { id: string; title: string },
   retrievedAt: string,
+  maxCents: number,
 ): ExternalListingView | null {
   if (!isRecord(body)) return null;
   const id = plain(body.id, 64);
   if (id !== candidate.id) return null;
   const title = plain(body.title, 200) ?? candidate.title;
   const offers = Array.isArray(body.offers) ? body.offers.filter(isRecord).map(readOffer) : [];
-  const usable = offers.filter((offer) => offer.availability === "InStock" && offer.cents !== null && offer.url !== null);
+  const usable = offers.filter((offer) => offer.availability === "InStock" && offer.cents !== null && offer.cents <= maxCents && offer.url !== null);
   if (usable.length === 1) {
     const offer = usable[0]!;
     return {
@@ -380,11 +392,11 @@ export function createFetchChannel3Transport(apiKey: string, fetchImpl: typeof f
         {
           method: "POST",
           headers: { ...headers, "content-type": "application/json" },
-          // Explicit US/USD locale and the documented default filters (new, in stock).
+          // Explicit US/USD locale, the documented default filters (new, in stock) and the inclusive maximum price.
           body: JSON.stringify({
             query: request.query,
             limit: request.limit,
-            filters: { conditions: ["new"], availability: ["InStock"] },
+            filters: { conditions: ["new"], availability: ["InStock"], price: { max_price: request.maxPriceDollars } },
             config: { country: "US", currency: "USD" },
           }),
         },

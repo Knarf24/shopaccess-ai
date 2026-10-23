@@ -458,7 +458,7 @@ describe("Channel3 discovery", () => {
       throw new TypeError("unexpected redirect");
     });
     const signal = new AbortController().signal;
-    const redirected = await redirecting.search({ query: "laptop", limit: 5, signal });
+    const redirected = await redirecting.search({ query: "laptop", limit: 5, maxPriceDollars: 580, signal });
     expect(redirected).toEqual({ ok: false, code: "REDIRECT" });
     expect(JSON.stringify(redirected)).not.toContain(key);
     expect(calls[0]?.redirect).toBe("error");
@@ -478,7 +478,7 @@ describe("Channel3 discovery", () => {
       });
       return new Response(stream);
     });
-    expect(await streamed.search({ query: "laptop", limit: 5, signal })).toEqual({ ok: false, code: "BODY_TOO_LARGE" });
+    expect(await streamed.search({ query: "laptop", limit: 5, maxPriceDollars: 580, signal })).toEqual({ ok: false, code: "BODY_TOO_LARGE" });
 
     const urls: string[] = [];
     const ok = createFetchChannel3Transport(key, async (url) => {
