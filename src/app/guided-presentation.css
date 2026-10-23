@@ -8,7 +8,8 @@
   --gp-paper: #fffefa;
   --gp-line: #d9e2dc;
   --gp-muted: #3f5552;
-  --gp-focus: #efad4d;
+  /* Ink keeps the 3px-offset ring at least 3:1 on every page and card background; the former amber was 1.82:1 on cream. */
+  --gp-focus: var(--gp-ink);
   background: var(--gp-cream);
   color: var(--gp-ink);
   min-height: 100vh;
