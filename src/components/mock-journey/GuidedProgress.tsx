@@ -12,14 +12,23 @@ export function GuidedProgress({ copy, current }: { readonly copy: JourneyCopy; 
     results: copy.advisoryHeading,
     purchase: copy.confirmation.heading,
   };
+  const currentIndex = STEP_IDS.indexOf(current);
   return (
     <ol className="journey-steps" aria-label={copy.pageTitle}>
-      {STEP_IDS.map((id, index) => (
-        <li key={id} aria-current={id === current ? "step" : undefined}>
-          <span className="step-index">{index + 1}</span>
-          <span className="step-label">{labels[id]}</span>
-        </li>
-      ))}
+      {STEP_IDS.map((id, index) => {
+        const isCurrent = id === current;
+        const isCompleted = currentIndex >= 0 && index < currentIndex;
+        return (
+          <li
+            key={id}
+            aria-current={isCurrent ? "step" : undefined}
+            data-status={isCurrent ? "current" : isCompleted ? "completed" : "upcoming"}
+          >
+            <span className="step-index">{index + 1}</span>
+            <span className="step-label">{labels[id]}</span>
+          </li>
+        );
+      })}
     </ol>
   );
 }
