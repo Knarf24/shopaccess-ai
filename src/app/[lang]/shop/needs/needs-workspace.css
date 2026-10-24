@@ -972,3 +972,28 @@
     padding: 0.5rem 0.65rem;
   }
 }
+
+/*
+ * Mobile progress indicator (correction to the redesign): four equal columns clip the step labels on narrow screens.
+ * Two columns below 640px and one column below 360px; labels wrap. Order, names and aria-current are unchanged.
+ */
+@media (max-width: 639px) {
+  .needs-workspace .journey-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .needs-workspace .journey-steps li {
+    align-items: flex-start;
+  }
+
+  .needs-workspace .step-label {
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+}
+
+@media (max-width: 359px) {
+  .needs-workspace .journey-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
