@@ -31,11 +31,12 @@ export const SOURCES: Readonly<Record<SourceId, EvidenceSource>> = {
 };
 
 /**
- * Connector types as Apple names them. A cable is "unsupported" only when positive evidence says the device's documented
- * charging ports are its complete list and the cable's connector is not among them. The absence of a connector from a
- * page is not such evidence. Whether different MagSafe generations fit each other is not stated by these sources.
+ * Connector types as Apple names them, plus a DC barrel input (C1; no curated entry uses it). A cable is "unsupported" only
+ * when positive evidence says the device's documented charging ports are its complete list and the cable's connector is
+ * not among them. The absence of a connector from a page is not such evidence. Whether different MagSafe generations fit
+ * each other is not stated by these sources, and a barrel's fit is never inferred from its appearance.
  */
-export type ConnectorType = "usb-c" | "magsafe-2" | "magsafe-3";
+export type ConnectorType = "usb-c" | "magsafe-2" | "magsafe-3" | "dc-barrel";
 
 export type DeviceId = "Mac14,2" | "MacBookPro12,1";
 export type ChargerId = "A2743" | "A2452";
@@ -46,11 +47,62 @@ export interface CuratedFact<T> {
   readonly sources: readonly SourceId[];
 }
 
-export interface DeviceEvidence {
-  readonly id: DeviceId;
-  /** Apple's exact name for the model. */
+/**
+ * F03 C1: the state of one manufacturer fact (used only by the non-Apple fields below; the Apple fields keep
+ * `CuratedFact | null`). A fact is usable only when sourced for the exact SKU. A family-scoped fact (for example from a
+ * manual covering several models) is recorded but never satisfies a requirement. Differing sources are "discrepant":
+ * "unresolved" when they need not concern the same claim for the same configuration, "contradiction" only when they
+ * demonstrably do. Either kind makes every claim that needs the fact unknown.
+ */
+export type FactScope = "sku" | "family";
+export type FactState<T> =
+  | { readonly status: "sourced"; readonly value: T; readonly scope: FactScope; readonly sources: readonly SourceId[] }
+  | { readonly status: "unknown"; readonly reason: string }
+  | {
+      readonly status: "discrepant";
+      readonly kind: "unresolved" | "contradiction";
+      readonly claims: readonly { readonly statement: string; readonly scope: FactScope; readonly sources: readonly SourceId[] }[];
+    };
+
+/** One USB Power Delivery voltage/current profile. */
+export interface PdProfile {
+  readonly volts: number;
+  readonly amps: number;
+}
+
+/** A DC barrel connector's details. None is inferred from appearance, a wattage or another model. */
+export interface BarrelSpec {
+  readonly outerDiameterMm: FactState<number>;
+  readonly innerDiameterMm: FactState<number>;
+  readonly volts: FactState<number>;
+  readonly polarity: FactState<"center-positive" | "center-negative">;
+}
+
+/** One charging input of a non-Apple device. */
+export interface PowerInput {
+  readonly connector: "usb-c" | "dc-barrel";
+  /** Which physical port(s), as the source names them. */
+  readonly whichPorts: FactState<string>;
+  /** Whether the input accepts a USB Power Delivery source (USB-C only). Generic PD support alone never establishes a result. */
+  readonly acceptsUsbPdSource: FactState<boolean>;
+  /** The PD profiles the device requires: ALL of them must be offered by the adapter (same voltage, at least the current). */
+  readonly requiredPdProfiles: FactState<readonly PdProfile[]>;
+  /** The power the input requires, as the source states it (kept separately from any adapter rating); must agree with the profiles. */
+  readonly requirement: FactState<{ readonly watts: number; readonly volts: number }>;
+  readonly barrel?: BarrelSpec;
+}
+
+/** Shared by every device entry. */
+interface DeviceBase<D extends string> {
+  readonly id: D;
+  /** The manufacturer's exact name for the model. */
   readonly name: string;
-  readonly identity: CuratedFact<{ readonly modelIdentifier: DeviceId }>;
+}
+
+/** An Apple device (the existing curated shape; unchanged). */
+export interface DeviceEvidence<D extends string = DeviceId> extends DeviceBase<D> {
+  readonly maker?: undefined;
+  readonly identity: CuratedFact<{ readonly modelIdentifier: D }>;
   /** Charging ports a source positively documents for this model; null when none is curated. */
   readonly chargingPorts: CuratedFact<readonly ConnectorType[]> | null;
   /** Positive evidence that `chargingPorts` is the complete list of charging inputs; null when no source states it. */
@@ -59,8 +111,42 @@ export interface DeviceEvidence {
   readonly includedAdapterWatts: CuratedFact<readonly number[]> | null;
 }
 
-export interface ChargerEvidence {
-  readonly id: ChargerId;
+/**
+ * F03 C1: a non-Apple device identified by the manufacturer's model and part number. No real entry exists yet. Input
+ * requirements, charging methods, adapter ratings and the included adapter are separate facts, each with its own scope.
+ */
+export interface MakerDeviceEvidence<D extends string = string> extends DeviceBase<D> {
+  readonly maker: "Acer" | "ASUS";
+  /** Verified only when an official manufacturer source names this exact model and part number. */
+  readonly partIdentity: {
+    readonly model: string;
+    readonly partNumber: string;
+    readonly status: "verified" | "unverified";
+    readonly sources: readonly SourceId[];
+  };
+  /** Every charging input a source documents for this SKU. */
+  readonly powerInputs: FactState<readonly PowerInput[]>;
+  /** Positive evidence that `powerInputs` is the complete list of charging inputs. */
+  readonly powerInputsComplete: FactState<true>;
+  /** Ratings the manufacturer states for adapters for this model (not necessarily the one in the box). */
+  readonly adapterRatings: FactState<readonly { readonly watts: number; readonly volts: number; readonly amps?: number }[]>;
+  /** What is actually in this SKU's box. */
+  readonly includedAdapter: {
+    readonly rating: FactState<{ readonly watts: number; readonly volts: number; readonly amps?: number }>;
+    readonly partNumber: FactState<string>;
+  };
+  /** A spec-page "power supply wattage" whose meaning the page does not define; never used as a requirement. */
+  readonly specPagePowerSupplyWatts: FactState<number>;
+}
+
+export type AnyDeviceEvidence<D extends string = string> = DeviceEvidence<D> | MakerDeviceEvidence<D>;
+
+export function isMakerDevice<D extends string>(device: AnyDeviceEvidence<D>): device is MakerDeviceEvidence<D> {
+  return device.maker !== undefined;
+}
+
+export interface ChargerEvidence<C extends string = ChargerId> {
+  readonly id: C;
   readonly name: string;
   readonly output: CuratedFact<ConnectorType>;
   readonly watts: CuratedFact<number>;
@@ -68,32 +154,54 @@ export interface ChargerEvidence {
   readonly modelNumber: CuratedFact<string>;
   /** USB Power Delivery support of this adapter; null where no source states it (not invented). */
   readonly usbPd: CuratedFact<boolean> | null;
+  /** F03 C1: the PD profiles this adapter offers. Required for any non-Apple specification result; absent on curated entries. */
+  readonly pdProfiles?: FactState<readonly PdProfile[]>;
+  /** F03 C1: barrel details of a DC adapter's plug. Absent on curated entries. */
+  readonly barrel?: BarrelSpec;
 }
 
-export interface CableEvidence {
-  readonly id: CableId;
+export interface CableEvidence<K extends string = CableId> {
+  readonly id: K;
   readonly name: string;
   readonly chargerEnd: ConnectorType;
   readonly deviceEnd: ConnectorType;
+  /** F03 C1: the cable's sourced current rating. Required for any non-Apple specification result; absent on curated entries. */
+  readonly currentRatingAmps?: FactState<number>;
+  /**
+   * F03 C1: cited evidence of the connector at each end. Required, at exact scope and consistent with `chargerEnd` and
+   * `deviceEnd`, for any non-Apple specification result or unsupported verdict; a current rating does not establish it.
+   * Absent on curated entries (the Apple path does not use it).
+   */
+  readonly connectorEnds?: FactState<{ readonly chargerEnd: ConnectorType; readonly deviceEnd: ConnectorType }>;
 }
 
-/** An exact device + adapter + cable configuration that Apple documents. */
-export interface DocumentedConfiguration {
-  readonly device: DeviceId;
-  readonly charger: ChargerId;
-  readonly cable: CableId;
-  /** "pairing": Apple lists or recommends it for charging. "fast-charge": on Apple's fast-charge list. */
+export type ListingBasis = "apple-listed" | "manufacturer-listed";
+
+/** An exact device + adapter + cable configuration that the device's manufacturer documents. */
+export interface DocumentedConfiguration<D extends string = DeviceId, C extends string = ChargerId, K extends string = CableId, B extends ListingBasis = ListingBasis> {
+  readonly device: D;
+  readonly charger: C;
+  readonly cable: K;
+  /** "pairing": listed or recommended for charging. "fast-charge": on Apple's fast-charge list. */
   readonly kind: "pairing" | "fast-charge";
   /** Every curated configuration is Apple-listed; none is described by Apple as tested on this model. */
-  readonly basis: "apple-listed";
+  readonly basis: B;
+  /** F03 C1: for a non-Apple device, only an exact-SKU listing counts. Absent on curated (Apple) entries. */
+  readonly scope?: FactScope;
   readonly sources: readonly SourceId[];
 }
 
-export interface CompatibilityEvidence {
-  readonly devices: Readonly<Record<DeviceId, DeviceEvidence>>;
-  readonly chargers: Readonly<Record<ChargerId, ChargerEvidence>>;
-  readonly cables: Readonly<Record<CableId, CableEvidence>>;
-  readonly configurations: readonly DocumentedConfiguration[];
+export interface CompatibilityEvidence<
+  D extends string = DeviceId,
+  C extends string = ChargerId,
+  K extends string = CableId,
+  V extends AnyDeviceEvidence<D> = DeviceEvidence<D>,
+> {
+  readonly devices: Readonly<Record<D, V>>;
+  readonly chargers: Readonly<Record<C, ChargerEvidence<C>>>;
+  readonly cables: Readonly<Record<K, CableEvidence<K>>>;
+  /** Apple-only evidence (the default) can hold only Apple listings; a manufacturer listing needs a non-Apple device type. */
+  readonly configurations: readonly DocumentedConfiguration<D, C, K, [V] extends [DeviceEvidence<D>] ? "apple-listed" : ListingBasis>[];
 }
 
 export const DEVICE_IDS: readonly DeviceId[] = ["Mac14,2", "MacBookPro12,1"];
