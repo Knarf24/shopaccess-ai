@@ -18,6 +18,7 @@ import { documentLocale } from "@/lib/i18n/locale-segment";
 import { sellerName } from "@/lib/i18n/seller-name";
 import { PermissionRefusal } from "@/components/PermissionRefusal";
 import "../../../guided-presentation.css";
+import "../../../ui-refresh.css";
 import { CHECKOUT_ALERT_ID, CHECKOUT_CONFIRM_HEADING_ID, CHECKOUT_NOTICE_ID, CHECKOUT_QUOTE_HEADING_ID, CHECKOUT_QUOTE_PROBLEM_ID, checkoutCurrentTargetId, checkoutMessages } from "./checkout-targets";
 import type { PgRuntime } from "@/server/pg-runtime";
 import { buildPgCheckoutView, PG_STATUS_LABELS, pgCookieHeader, resolvePgPageSession } from "@/server/pg-views";
@@ -218,7 +219,7 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
   });
 
   return (
-    <main className="guided-presentation" lang={language}>
+    <main className="guided-presentation ui-refresh" lang={language}>
       <DocumentLanguageSync language={language} />
       <div className="presentation-column presentation-column-narrow">
       <SkipToCurrentStep label={copy.skipToCurrentStep} targetId={skipTarget} />

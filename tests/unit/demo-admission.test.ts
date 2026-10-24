@@ -576,7 +576,7 @@ describe("demo admission", () => {
     expect(english).toContain("Enter the demonstration");
     expect(english).toContain("Passphrase");
     expect(english).toContain("The passphrase was not accepted.");
-    expect(english).toContain('class="guided-presentation"');
+    expect(english).toContain('class="guided-presentation ui-refresh"');
     expect(english).toContain('class="presentation-column presentation-column-narrow admission-screen"');
     expect(english).toContain('class="text-3xl font-semibold"');
     expect(english).toContain('class="guided-entry"');
@@ -649,7 +649,7 @@ describe("demo admission", () => {
     expect(bootstrapMarkup).toContain('lang="es"');
     expect(bootstrapMarkup).toContain("Continuar");
     expect(bootstrapMarkup).toContain("El siguiente paso pide la frase de acceso.");
-    expect(bootstrapMarkup).toContain('class="guided-presentation"');
+    expect(bootstrapMarkup).toContain('class="guided-presentation ui-refresh"');
     expect(bootstrapMarkup).toContain('class="journey-form"');
     expect(bootstrapMarkup.includes('type="password"')).toBe(false);
     expect(bootstrapMarkup.includes("aria-describedby")).toBe(false);
@@ -662,7 +662,7 @@ describe("demo admission", () => {
     const closedMarkup = render(closed);
     expect(closedMarkup).toContain('lang="en"');
     expect(closedMarkup).toContain("This demonstration is not available.");
-    expect(closedMarkup).toContain('class="guided-presentation"');
+    expect(closedMarkup).toContain('class="guided-presentation ui-refresh"');
     expect(closedMarkup).toContain('class="journey-panel"');
     expect(closedMarkup.includes('type="password"')).toBe(false);
     expect(closedMarkup.includes(DEMO_PASSPHRASE_REFUSAL_ID)).toBe(false);

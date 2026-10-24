@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { MerchantProductCard } from "@/components/MerchantProductCard";
 import "../guided-presentation.css";
+import "../ui-refresh.css";
 import { PreferencesForm } from "@/components/PreferencesForm";
 import { SessionNotice } from "@/components/SessionNotice";
 import { GuidedLanguageChoice } from "@/components/mock-journey/GuidedLanguageChoice";
@@ -74,7 +75,7 @@ async function HomeContentUnguarded({ searchParams }: { searchParams: SearchPara
   const application = opened;
   if (application.mode === "mock") {
     return (
-      <main className="guided-presentation">
+      <main className="guided-presentation ui-refresh">
         <div className="presentation-column">
           <HomeHeader />
           <section className="home-hero">

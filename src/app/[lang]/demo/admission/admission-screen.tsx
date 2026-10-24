@@ -15,7 +15,7 @@ export function AdmissionScreen({ model }: { readonly model: AdmissionScreenMode
   const retryRefusalId = model.kind === "login" && model.notice === "retry" ? DEMO_ADMISSION_RETRY_ID : undefined;
   const passphraseDescribedBy = [passphraseRefusalId, retryRefusalId].filter((id) => id !== undefined).join(" ") || undefined;
   return (
-    <main className="guided-presentation">
+    <main className="guided-presentation ui-refresh">
       <div lang={language} className="presentation-column presentation-column-narrow admission-screen">
         <DocumentLanguageSync language={language} />
         <h1 className="text-3xl font-semibold">{copy.title}</h1>

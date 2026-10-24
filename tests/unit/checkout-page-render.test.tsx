@@ -444,7 +444,7 @@ describe("checkout page: language of parts (language-marker correction)", () => 
   it("a Spanish checkout is marked Spanish: refusal, skip link, steps and catalog notice; English-only parts are marked English", async () => {
     const { intent } = await refusedCheckout("es");
     const html = await render(intent.id, { notice: "CONFIRMED" });
-    expect(html).toMatch(/^<main class="guided-presentation" lang="es">/);
+    expect(html).toMatch(/^<main class="guided-presentation ui-refresh" lang="es">/);
     expect(langAt(html, /id="checkout-alert"/)).toBe("es");
     expect(html).toContain(permissionCopy("es").refusals.PERMISSION_REVOKED);
     expect(langAt(html, /class="skip-link"/)).toBe("es");
@@ -486,7 +486,7 @@ describe("checkout page: language of parts (language-marker correction)", () => 
   it("an English checkout is marked English and nothing is marked Spanish", async () => {
     const { intent } = await refusedCheckout();
     const html = await render(intent.id);
-    expect(html).toMatch(/^<main class="guided-presentation" lang="en">/);
+    expect(html).toMatch(/^<main class="guided-presentation ui-refresh" lang="en">/);
     expect(langAt(html, /id="checkout-alert"/)).toBe("en");
     expect(langAt(html, /class="skip-link"/)).toBe("en");
     expect(html).not.toContain('lang="es"');
