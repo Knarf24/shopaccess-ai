@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import "../../../guided-presentation.css";
+import "../../../ui-refresh.css";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { PurchasePermissions, type CatalogChoice, type PermissionResult, type PermissionReview, type ShownPermission } from "@/components/PurchasePermissions";
 import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
@@ -151,7 +152,7 @@ async function PermissionsContent(props: { params: PageParams; searchParams: Sea
 
 export default function PermissionsPage({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   return (
-    <main className="guided-presentation">
+    <main className="guided-presentation ui-refresh">
       <div className="presentation-column">
         <Suspense fallback={<p>Loading…</p>}>
           <PermissionsContent params={params} searchParams={searchParams} />

@@ -1,0 +1,276 @@
+/*
+ * Visual refresh for the home, admission, permissions and checkout pages: the guided needs workspace's look (tokens, fonts,
+ * cards, inputs, pill buttons, focus ring and progress indicator from needs-workspace.css) applied to pages that opt in with
+ * `ui-refresh` next to `guided-presentation`. Presentation only: markup, form actions, wording and payment states are unchanged.
+ * Font files are the needs workspace's own (SIL Open Font License beside each file); nothing is fetched from elsewhere.
+ */
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./[lang]/shop/needs/fonts/plus-jakarta-sans/PlusJakartaSans[wght].ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./[lang]/shop/needs/fonts/dm-sans/DMSans[opsz,wght].ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./[lang]/shop/needs/fonts/ibm-plex-mono/IBMPlexMono-Regular.ttf") format("truetype");
+}
+
+/* Tokens: the needs workspace's values mapped onto the guided presentation's own names, so its existing rules follow. */
+.guided-presentation.ui-refresh {
+  --gp-ink: #0f172a;
+  --gp-teal: #0f172a;
+  --gp-teal-soft: #e0f2fe;
+  --gp-cream: #f5f6f8;
+  --gp-paper: #ffffff;
+  --gp-line: #e2e8f0;
+  --gp-muted: #475569;
+  --gp-focus: #0369a1;
+  --ui-brand: #0369a1;
+  --ui-input: #64748b;
+  --ui-panel: #fbfbfc;
+  --ui-font-heading: "Plus Jakarta Sans", Arial, Helvetica, sans-serif;
+  --ui-font-body: "DM Sans", Arial, Helvetica, sans-serif;
+  --ui-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: var(--gp-cream);
+  color: var(--gp-ink);
+  font-family: var(--ui-font-body);
+}
+
+.guided-presentation.ui-refresh h1,
+.guided-presentation.ui-refresh h2,
+.guided-presentation.ui-refresh h3 {
+  font-family: var(--ui-font-heading);
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--gp-ink);
+}
+
+.guided-presentation.ui-refresh h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+}
+
+.guided-presentation.ui-refresh p,
+.guided-presentation.ui-refresh li,
+.guided-presentation.ui-refresh dd,
+.guided-presentation.ui-refresh dt {
+  line-height: 1.5;
+}
+
+.guided-presentation.ui-refresh a {
+  color: var(--ui-brand);
+}
+
+.guided-presentation.ui-refresh code {
+  font-family: var(--ui-font-mono);
+}
+
+/* Cards and panels. */
+.guided-presentation.ui-refresh .journey-panel,
+.guided-presentation.ui-refresh .guided-entry,
+.guided-presentation.ui-refresh .direct-entry,
+.guided-presentation.ui-refresh .journey-form,
+.guided-presentation.ui-refresh .rounded-lg.border,
+.guided-presentation.ui-refresh form[aria-labelledby="confirm-heading"] {
+  background: var(--gp-paper);
+  border: 1px solid var(--gp-line);
+  border-radius: 1.25rem;
+  box-shadow: 0 1px 3px 0 rgb(15 23 42 / 0.04);
+}
+
+.guided-presentation.ui-refresh .catalog-board article {
+  background: var(--gp-paper);
+  border-color: var(--gp-line);
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px 0 rgb(15 23 42 / 0.04);
+}
+
+.guided-presentation.ui-refresh .catalog-board article li,
+.guided-presentation.ui-refresh .direct-entry form {
+  border-color: var(--gp-line);
+  border-radius: 0.75rem;
+}
+
+.guided-presentation.ui-refresh .demo-illustration {
+  background: var(--gp-teal-soft);
+  border-radius: 1.25rem;
+}
+
+/* Notices keep their meaning colours; only the shape follows the refresh. */
+.guided-presentation.ui-refresh .sandbox-notice,
+.guided-presentation.ui-refresh [role="alert"].rounded,
+.guided-presentation.ui-refresh [role="status"].rounded {
+  border-radius: 1rem;
+}
+
+.guided-presentation.ui-refresh .sandbox-notice {
+  border-width: 1px;
+  border-left-width: 4px;
+}
+
+/* Inputs. */
+.guided-presentation.ui-refresh input[type="text"],
+.guided-presentation.ui-refresh input[type="password"],
+.guided-presentation.ui-refresh input:not([type]),
+.guided-presentation.ui-refresh select,
+.guided-presentation.ui-refresh textarea {
+  border: 1.5px solid var(--ui-input);
+  border-radius: 0.75rem;
+  background: var(--gp-paper);
+  color: var(--gp-ink);
+  padding: 0.625rem 0.75rem;
+  font-size: 0.9375rem;
+}
+
+.guided-presentation.ui-refresh input:focus,
+.guided-presentation.ui-refresh select:focus,
+.guided-presentation.ui-refresh textarea:focus {
+  border-color: var(--ui-brand);
+}
+
+.guided-presentation.ui-refresh input[type="radio"],
+.guided-presentation.ui-refresh input[type="checkbox"] {
+  accent-color: var(--gp-ink);
+}
+
+/* Primary buttons: the workspace's dark pill. Includes the checkout's utility-styled buttons. */
+.guided-presentation.ui-refresh button[type="submit"]:not(:disabled),
+.guided-presentation.ui-refresh .bg-blue-800 {
+  min-height: 2.875rem;
+  padding: 0.625rem 1.5rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--gp-ink);
+  color: #f8fafc;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.1);
+}
+
+.guided-presentation.ui-refresh button[type="submit"]:not(:disabled):hover,
+.guided-presentation.ui-refresh .bg-blue-800:hover {
+  background: #1e293b;
+}
+
+.guided-presentation.ui-refresh button[type="submit"]:disabled {
+  border-radius: 999px;
+}
+
+/* Simulation steps are choices, not the page's main action: an outlined secondary style (including "Cancel this checkout"). */
+.guided-presentation.ui-refresh button[type="submit"][name="step"]:not(:disabled) {
+  min-height: 2.75rem;
+  padding: 0.5rem 1rem;
+  border: 1.5px solid var(--ui-input);
+  border-radius: 0.75rem;
+  background: var(--gp-paper);
+  color: var(--gp-ink);
+  font-weight: 600;
+  text-align: left;
+  box-shadow: none;
+}
+
+.guided-presentation.ui-refresh button[type="submit"][name="step"]:not(:disabled):hover {
+  background: #f1f5f9;
+}
+
+/* Focus: the workspace's brand ring (≥3:1 on every page and card background used here). */
+.guided-presentation.ui-refresh :focus-visible,
+.guided-presentation.ui-refresh [tabindex="-1"]:focus {
+  outline: 3px solid var(--ui-brand);
+  outline-offset: 2px;
+}
+
+.guided-presentation.ui-refresh .skip-link:focus-visible {
+  background: var(--gp-ink);
+  color: #f8fafc;
+  border-radius: 999px;
+}
+
+/* Progress indicator: the workspace's pill steps with completed, current and upcoming states. */
+.guided-presentation.ui-refresh .journey-steps {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: var(--gp-paper);
+  border: 1px solid var(--gp-line);
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+}
+
+.guided-presentation.ui-refresh .journey-steps li {
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.75rem;
+  color: var(--gp-muted);
+}
+
+.guided-presentation.ui-refresh .journey-steps li[data-status="completed"] {
+  color: var(--gp-ink);
+}
+
+.guided-presentation.ui-refresh .journey-steps li[aria-current="step"] {
+  color: var(--ui-brand);
+  font-weight: 700;
+  background: var(--gp-teal-soft);
+}
+
+.guided-presentation.ui-refresh .step-index {
+  font-family: var(--ui-font-mono);
+  font-weight: 700;
+  background: #ffffff;
+  color: var(--gp-muted);
+}
+
+.guided-presentation.ui-refresh .journey-steps li[data-status="completed"] .step-index {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: var(--gp-ink);
+}
+
+.guided-presentation.ui-refresh .journey-steps li[aria-current="step"] .step-index {
+  background: var(--gp-ink);
+  border-color: var(--gp-ink);
+  color: #f8fafc;
+}
+
+/* Narrow screens: two columns, then one, so every step label stays readable (same rule as the needs workspace). */
+@media (max-width: 639px) {
+  .guided-presentation.ui-refresh .journey-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .guided-presentation.ui-refresh .journey-steps li {
+    align-items: flex-start;
+  }
+
+  .guided-presentation.ui-refresh .step-label {
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+
+  .guided-presentation.ui-refresh button[type="submit"]:not(:disabled),
+  .guided-presentation.ui-refresh .bg-blue-800 {
+    width: 100%;
+  }
+}
+
+@media (max-width: 359px) {
+  .guided-presentation.ui-refresh .journey-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

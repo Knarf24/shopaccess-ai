@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import "../../../guided-presentation.css";
+import "../../../ui-refresh.css";
 import { documentLocale } from "@/lib/i18n/locale-segment";
 import { admissionScreen } from "@/server/demo-admission";
 import { AdmissionScreen } from "./admission-screen";
