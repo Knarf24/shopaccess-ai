@@ -30,6 +30,10 @@ export interface ChargerCopy {
     readonly "supported-apple-listed": string;
     readonly "supported-apple-fast-charge-list": string;
     readonly "supported-specification": string;
+    /** F03 C1 (non-Apple; not rendered yet). */
+    readonly "supported-manufacturer-listed": string;
+    /** F03 C1 (non-Apple; not rendered yet). */
+    readonly "supported-pd-profile": string;
     readonly unsupported: string;
   };
   /** Why basic support is unknown, naming only the ports a source documents and the cable's connector. */
@@ -72,11 +76,21 @@ export interface ChargerCopy {
 
 const W = (watts: number, space: string) => `${watts}${space}W`;
 
-/** Apple's connector names (the same in both languages). */
-const PORT_NAMES: Readonly<Record<ConnectorType, string>> = { "usb-c": "USB-C", "magsafe-2": "MagSafe 2", "magsafe-3": "MagSafe 3" };
+/** Apple's connector names (the same in both languages), and the manufacturers' "DC-in" label for a barrel input (F03 C1). */
+const PORT_NAMES: Readonly<Record<ConnectorType, string>> = { "usb-c": "USB-C", "magsafe-2": "MagSafe 2", "magsafe-3": "MagSafe 3", "dc-barrel": "DC-in" };
 /** The cable whose device end is this connector, as named in the gap explanation. */
-const CABLE_NAMES_EN: Readonly<Record<ConnectorType, string>> = { "usb-c": "USB-C charge cable", "magsafe-2": "MagSafe 2 cable", "magsafe-3": "USB-C to MagSafe 3 Cable" };
-const CABLE_NAMES_ES: Readonly<Record<ConnectorType, string>> = { "usb-c": "cable de carga USB-C", "magsafe-2": "cable MagSafe 2", "magsafe-3": "cable USB-C a MagSafe 3" };
+const CABLE_NAMES_EN: Readonly<Record<ConnectorType, string>> = {
+  "usb-c": "USB-C charge cable",
+  "magsafe-2": "MagSafe 2 cable",
+  "magsafe-3": "USB-C to MagSafe 3 Cable",
+  "dc-barrel": "DC barrel plug",
+};
+const CABLE_NAMES_ES: Readonly<Record<ConnectorType, string>> = {
+  "usb-c": "cable de carga USB-C",
+  "magsafe-2": "cable MagSafe 2",
+  "magsafe-3": "cable USB-C a MagSafe 3",
+  "dc-barrel": "conector de barril de CC",
+};
 function includedList(included: readonly number[], space: string, or: string, depending: string): string {
   if (included.length === 1) return W(included[0]!, space);
   return `${included.map((w) => W(w, space)).join(` ${or} `)}, ${depending}`;
@@ -109,6 +123,9 @@ const ENGLISH: ChargerCopy = {
     "supported-apple-listed": "Apple lists this adapter and cable for this Mac.",
     "supported-apple-fast-charge-list": "Apple's fast-charge list includes this exact adapter and cable for this Mac, which shows that this configuration charges it.",
     "supported-specification": "Supported by specification: Apple's USB-C charging guidance and the cited specifications for this Mac and adapter.",
+    "supported-manufacturer-listed": "The manufacturer lists this adapter and cable for this exact model and part number.",
+    "supported-pd-profile":
+      "The cited sources give this adapter a USB Power Delivery voltage and current that match what this exact model and part number requires, and rate this cable for that current.",
     unsupported:
       "Not supported in this configuration: the sources establish that this Mac's charging ports do not include this cable's connector. This covers this adapter and cable only, without converters or other adapters.",
   },
@@ -123,6 +140,25 @@ const ENGLISH: ChargerCopy = {
         return "Not established: the captured Apple pages do not list this configuration for this Mac, and no adapter specification here supports it.";
       case "no-evidence":
         return "Not established: the captured sources do not show whether this configuration charges this Mac.";
+      // F03 C1 (non-Apple; not rendered yet). Neutral: none of these says that a configuration works or fails.
+      case "identity-unverified":
+        return "Not assessed: no official manufacturer source confirms this exact model and part number.";
+      case "discrepancy-unresolved":
+        return "Not established: the cited information differs on something this result needs, and the difference has not been resolved.";
+      case "sources-contradict":
+        return "Not established: the sources contradict each other on a fact this result needs, for this exact configuration.";
+      case "family-scoped-only":
+        return "Not established: the available information describes a model family, not this exact model and part number.";
+      case "connector-details-unknown":
+        return "Not established: the sources do not give every detail of this connector (size, voltage and polarity), and a barrel connector is assessed only from a manufacturer listing for this exact model.";
+      case "pd-profile-not-established":
+        return "Not established: the sources do not show a matching USB Power Delivery voltage and current for this model and adapter.";
+      case "cable-capability-not-established":
+        return "Not established: the sources do not show that this cable is rated for the current this configuration needs.";
+      case "cable-connectors-not-established":
+        return "Not established: the sources do not show which connector this cable has at each end for this exact configuration.";
+      case "no-manufacturer-listing":
+        return "Not established: the manufacturer does not list this configuration for this model, and the cited specifications do not establish it.";
     }
   },
   disclaimer:
@@ -205,6 +241,9 @@ const SPANISH: ChargerCopy = {
     "supported-apple-listed": "Apple indica este adaptador y este cable para este Mac.",
     "supported-apple-fast-charge-list": "La lista de carga rápida de Apple incluye este adaptador y este cable exactos para este Mac, lo que muestra que esta configuración lo carga.",
     "supported-specification": "Admitido según las especificaciones: la guía de carga USB-C de Apple y las especificaciones citadas de este Mac y del adaptador.",
+    "supported-manufacturer-listed": "El fabricante indica este adaptador y este cable para este modelo y número de pieza exactos.",
+    "supported-pd-profile":
+      "Las fuentes citadas dan a este adaptador un voltaje y una corriente USB Power Delivery que coinciden con lo que requiere este modelo y número de pieza exactos, y especifican este cable para esa corriente.",
     unsupported:
       "No admitido en esta configuración: las fuentes establecen que los puertos de carga de este Mac no incluyen el conector de este cable. Esto se refiere solo a este adaptador y este cable, sin convertidores ni otros adaptadores.",
   },
@@ -219,6 +258,25 @@ const SPANISH: ChargerCopy = {
         return "No establecido: las páginas de Apple capturadas no indican esta configuración para este Mac, y ninguna especificación de adaptador de esta página la respalda.";
       case "no-evidence":
         return "No establecido: las fuentes capturadas no muestran si esta configuración carga este Mac.";
+      // F03 C1 (no Apple; aún no se muestra). Neutral: ninguno dice que una configuración funcione o no.
+      case "identity-unverified":
+        return "No evaluado: ninguna fuente oficial del fabricante confirma este modelo y número de pieza exactos.";
+      case "discrepancy-unresolved":
+        return "No establecido: la información citada difiere en algo que este resultado necesita, y la diferencia no se ha resuelto.";
+      case "sources-contradict":
+        return "No establecido: las fuentes se contradicen en un dato que este resultado necesita, para esta misma configuración.";
+      case "family-scoped-only":
+        return "No establecido: la información disponible describe una familia de modelos, no este modelo y número de pieza exactos.";
+      case "connector-details-unknown":
+        return "No establecido: las fuentes no dan todos los datos de este conector (tamaño, voltaje y polaridad), y un conector de barril solo se evalúa con una indicación del fabricante para este modelo exacto.";
+      case "pd-profile-not-established":
+        return "No establecido: las fuentes no muestran un voltaje y una corriente USB Power Delivery coincidentes para este modelo y adaptador.";
+      case "cable-capability-not-established":
+        return "No establecido: las fuentes no muestran que este cable esté especificado para la corriente que necesita esta configuración.";
+      case "cable-connectors-not-established":
+        return "No establecido: las fuentes no muestran qué conector tiene este cable en cada extremo para esta configuración exacta.";
+      case "no-manufacturer-listing":
+        return "No establecido: el fabricante no indica esta configuración para este modelo, y las especificaciones citadas no la establecen.";
     }
   },
   disclaimer:

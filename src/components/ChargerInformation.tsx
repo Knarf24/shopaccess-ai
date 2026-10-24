@@ -34,7 +34,9 @@ export function ChargerInformation({
   const english = (value: string): ReactNode => (language === "en" ? value : <span lang="en">{value}</span>);
   const device = selection.kind === "identified" ? EVIDENCE.devices[selection.device] : null;
   const results = device ? CHARGER_IDS.flatMap((charger) => CABLE_IDS.map((cable) => evaluateCombination(EVIDENCE, device.id, charger, cable))) : [];
-  const skipTarget = selection.kind === "unidentified" ? CHARGER_ALERT_ID : device ? CHARGER_RESULTS_HEADING_ID : CHARGER_HEADING_ID;
+  // F03 C1: an unverified non-Apple match (none exists in the curated evidence) shows the same notice as an unidentified one.
+  const notIdentified = selection.kind === "unidentified" || selection.kind === "unverified";
+  const skipTarget = notIdentified ? CHARGER_ALERT_ID : device ? CHARGER_RESULTS_HEADING_ID : CHARGER_HEADING_ID;
   const otherLanguage = language === "en" ? "es" : "en";
   const switchQuery = new URLSearchParams(device ? { device: device.id } : {});
   const switchHref = `/${otherLanguage}/shop/chargers${switchQuery.toString() ? `?${switchQuery.toString()}` : ""}`;
@@ -133,7 +135,7 @@ export function ChargerInformation({
         </button>
       </form> : null}
 
-      {selection.kind === "unidentified" ? (
+      {notIdentified ? (
         <p id={CHARGER_ALERT_ID} tabIndex={-1} role="alert" className="rounded border-2 border-red-700 p-3">
           {copy.unidentified}
         </p>
