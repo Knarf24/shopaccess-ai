@@ -90,7 +90,7 @@ describe("panel turns on the shared conversation", () => {
 
     const after = draft();
     await handleNeedsSubmit(site("/shop/needs/submit", { lang: "en", draftId: after.draftId, version: String(after.version), shopperText: "make it 950", csrfToken: buyer.csrfToken }, buyer), runtime);
-    const read = await (await handleExtensionConversation(new Request(`${API}/conversation`, { headers: { origin: EXT, authorization: `Bearer ${bearer}` } }), runtime)).json();
+    const read = await (await handleExtensionConversation(new Request(`${API}/conversation`, { method: "POST", headers: { origin: EXT, "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: "{}" }), runtime)).json();
     expect(read.value.conversation.turns.map((t: { text: string }) => t.text)).toContain("make it 950");
   });
 
@@ -99,7 +99,7 @@ describe("panel turns on the shared conversation", () => {
     const buyer = await shopper(runtime);
     await handleNeedsSubmit(site("/shop/needs/submit", { lang: "es", shopperText: "una laptop para tareas, presupuesto 600", csrfToken: buyer.csrfToken }, buyer), runtime);
     const bearer = await pairedBearer(runtime, buyer.sessionId);
-    const read = await (await handleExtensionConversation(new Request(`${API}/conversation`, { headers: { origin: EXT, authorization: `Bearer ${bearer}` } }), runtime)).json();
+    const read = await (await handleExtensionConversation(new Request(`${API}/conversation`, { method: "POST", headers: { origin: EXT, "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: "{}" }), runtime)).json();
     const stored = readConversation(runtime.store, buyer.sessionId)!.turns;
     const assistant = stored.findIndex((t) => t.role === "assistant");
     expect(assistant).toBeGreaterThan(-1);

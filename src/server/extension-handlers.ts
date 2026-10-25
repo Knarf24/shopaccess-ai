@@ -47,7 +47,7 @@ const refusal = (code: string, origin: string | null) => refuseExtension(code, S
 export async function handleExtensionPairingStart(request: Request, runtime: Runtime): Promise<Response> {
   const guard = guardExtensionRequest(request, runtime.extensionOrigins);
   if (!guard.ok) return guard.response;
-  const origin = guard.origin as string;
+  const origin = guard.origin;
   const body = await readExtensionJson(request, ["protocolVersion", "challenge", "installationId"]);
   if (!body || body.protocolVersion !== 1) return refusal("BAD_REQUEST", origin);
   const started = runtime.pairing.start({ challenge: body.challenge, extensionOrigin: origin, installationId: body.installationId }, runtime.clock().getTime());
@@ -57,7 +57,7 @@ export async function handleExtensionPairingStart(request: Request, runtime: Run
 export async function handleExtensionPairingStatus(request: Request, runtime: Runtime, pairingId: string): Promise<Response> {
   const guard = guardExtensionRequest(request, runtime.extensionOrigins);
   if (!guard.ok) return guard.response;
-  const origin = guard.origin as string;
+  const origin = guard.origin;
   if (!PAIRING_ID.test(pairingId)) return refusal("PAIRING_UNKNOWN", origin);
   const body = await readExtensionJson(request, ["exchangeSecret"]);
   if (!body) return refusal("BAD_REQUEST", origin);
@@ -68,7 +68,7 @@ export async function handleExtensionPairingStatus(request: Request, runtime: Ru
 export async function handleExtensionPairingExchange(request: Request, runtime: Runtime, pairingId: string): Promise<Response> {
   const guard = guardExtensionRequest(request, runtime.extensionOrigins);
   if (!guard.ok) return guard.response;
-  const origin = guard.origin as string;
+  const origin = guard.origin;
   if (!PAIRING_ID.test(pairingId)) return refusal("PAIRING_UNKNOWN", origin);
   const body = await readExtensionJson(request, ["exchangeSecret", "verifier"]);
   if (!body) return refusal("BAD_REQUEST", origin);
@@ -114,12 +114,27 @@ export function extensionConversationView(runtime: Runtime, sessionId: string) {
   };
 }
 
+/**
+ * POST /api/extension/v1/conversation: the panel's read of the shared conversation. A POST so that the browser always sends
+ * the extension's Origin; the body must be exactly `{}`. Side-effect free: it changes no draft, conversation, grant or limit.
+ */
 export async function handleExtensionConversation(request: Request, runtime: Runtime): Promise<Response> {
   const guard = guardExtensionRequest(request, runtime.extensionOrigins);
   if (!guard.ok) return guard.response;
-  const resolved = runtime.pairing.resolve(bearerOf(request), "conversation:read", guard.origin, runtime.clock());
-  if (!resolved.ok) return refusal(resolved.code, guard.origin);
-  return extensionJson({ ok: true, value: extensionConversationView(runtime, resolved.value.sessionId) }, 200, guard.origin);
+  const origin = guard.origin;
+  const resolved = runtime.pairing.resolve(bearerOf(request), "conversation:read", origin, runtime.clock());
+  if (!resolved.ok) return refusal(resolved.code, origin);
+  if (!(await readExtensionJson(request, []))) return refusal("BAD_REQUEST", origin);
+  return extensionJson({ ok: true, value: extensionConversationView(runtime, resolved.value.sessionId) }, 200, origin);
+}
+
+/**
+ * GET /api/extension/v1/conversation: retired (the read is a POST). 405 with `Allow: POST`, no-store; still "not found" when
+ * no extension origin is configured, like every other extension route. Nothing is read or resolved.
+ */
+export function handleExtensionConversationGet(runtime: Runtime): Response {
+  if (runtime.extensionOrigins.size === 0) return refuseExtension("NOT_FOUND", 404);
+  return Response.json({ ok: false, code: "METHOD_NOT_ALLOWED" }, { status: 405, headers: { allow: "POST", "cache-control": "no-store", vary: "Origin" } });
 }
 
 const DRAFT_ID = /^nd_[0-9a-f]{32}$/;

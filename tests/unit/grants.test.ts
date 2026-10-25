@@ -131,7 +131,8 @@ describe("grants", () => {
     if (!granted.ok) throw new Error();
     const { bearer } = granted.value;
     expect(world.authority.resolve(bearer, "conversation:read", EXT, T0)).toEqual({ ok: true, value: { sessionId: sid(1), grantId: granted.value.grantId } });
-    expect(world.authority.resolve(bearer, "conversation:read", null, T0).ok).toBe(true);
+    // No originless path: a missing origin (only possible by bypassing the types) never resolves.
+    expect(world.authority.resolve(bearer, "conversation:read", null as unknown as string, T0)).toEqual({ ok: false, code: "TOKEN_INVALID" });
     expect(world.authority.resolve(bearer, "conversation:read", OTHER_EXT, T0)).toEqual({ ok: false, code: "TOKEN_INVALID" });
     expect(world.authority.resolve("0".repeat(64), "conversation:read", EXT, T0)).toEqual({ ok: false, code: "TOKEN_INVALID" });
     expect(world.authority.resolve(null, "conversation:read", EXT, T0)).toEqual({ ok: false, code: "TOKEN_INVALID" });

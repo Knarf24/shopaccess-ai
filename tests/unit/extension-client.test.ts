@@ -20,6 +20,7 @@ import { parseTrustedOrigins } from "@/lib/session/request-guard";
 import { needsDraftsFor } from "@/lib/session/store";
 import {
   handleExtensionConversation,
+  handleExtensionConversationGet,
   handleExtensionPairingExchange,
   handleExtensionPairingStart,
   handleExtensionPairingStatus,
@@ -65,7 +66,7 @@ function handlerFetch(runtime: Runtime, calls: { method: string; path: string; h
     if (path === "/pairings") return handleExtensionPairingStart(request, runtime);
     if (status) return handleExtensionPairingStatus(request, runtime, status[1]);
     if (exchange) return handleExtensionPairingExchange(request, runtime, exchange[1]);
-    if (path === "/conversation") return handleExtensionConversation(request, runtime);
+    if (path === "/conversation") return request.method === "GET" ? handleExtensionConversationGet(runtime) : handleExtensionConversation(request, runtime);
     if (path === "/conversation/turns") return handleExtensionTurn(request, runtime);
     return new Response("{}", { status: 404 });
   };
@@ -116,7 +117,7 @@ describe("side panel client against the M2-2 API", () => {
     expect(await poll()).toBe("paired");
     expect(access).not.toBeNull();
 
-    const view = await api("/conversation");
+    const view = await api("/conversation", {});
     expect(view.draft.version).toBeGreaterThan(0);
     const ids = createTurnIds();
     const id = ids.idFor(view.draft.draftId, view.draft.version, "for programming please");
@@ -141,7 +142,7 @@ describe("side panel client against the M2-2 API", () => {
         dropped += 1;
       },
     });
-    await expect(api("/conversation")).rejects.toThrow("TOKEN_INVALID");
+    await expect(api("/conversation", {})).rejects.toThrow("TOKEN_INVALID");
     expect(dropped).toBe(1);
   });
 

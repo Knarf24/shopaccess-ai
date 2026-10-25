@@ -40,7 +40,9 @@ async function shopper(runtime: Runtime) {
 
 const json = (path: string, body: unknown, headers: Record<string, string> = { origin: EXT }) =>
   new Request(`${API}${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
-const read = (headers: Record<string, string>, path = "/conversation") => new Request(`${API}${path}`, { method: "GET", headers });
+/** The panel's read: POST with an exact empty JSON body (the originless GET read is retired). */
+const read = (headers: Record<string, string>, path = "/conversation") =>
+  new Request(`${API}${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: "{}" });
 
 async function pairedBearer(runtime: Runtime, sessionId: string) {
   const started = await (await handleExtensionPairingStart(json("/pairings", { protocolVersion: 1, challenge: CHALLENGE, installationId: INSTALL }), runtime)).json();
@@ -78,7 +80,7 @@ describe("extension API", () => {
     expect(ok.headers.get("set-cookie")).toBeNull();
   });
 
-  it("reads the shared conversation with a paired token, from the extension origin or the reviewed originless read", async () => {
+  it("reads the shared conversation with a paired token from the extension origin; the same token without an Origin is refused", async () => {
     const { runtime } = world();
     const buyer = await shopper(runtime);
     await handleNeedsSubmit(
@@ -94,16 +96,17 @@ describe("extension API", () => {
     expect(view.conversation.interfaceLanguage).toBe("es");
     expect(JSON.stringify(view)).not.toMatch(/unitAmountCents|quote|price/i);
     const originless = await handleExtensionConversation(read({ "sec-fetch-site": "none", authorization: `Bearer ${bearer}` }), runtime);
-    expect(originless.status).toBe(200);
+    expect(originless.status).toBe(403);
+    expect((await originless.json()).code).toBe("ORIGIN_DENIED");
     expect(originless.headers.get("access-control-allow-origin")).toBeNull();
   });
 
-  it("refuses every originless request except the conversation read with Sec-Fetch-Site none and a valid token", async () => {
+  it("refuses every originless request, including the conversation read with Sec-Fetch-Site none and a valid token", async () => {
     const { runtime } = world();
     const buyer = await shopper(runtime);
     const { bearer } = await pairedBearer(runtime, buyer.sessionId);
     const auth = { authorization: `Bearer ${bearer}` };
-    for (const site of [undefined, "cross-site", "same-site", "same-origin", "NONE"]) {
+    for (const site of [undefined, "none", "cross-site", "same-site", "same-origin", "NONE"]) {
       const headers: Record<string, string> = { ...auth };
       if (site !== undefined) headers["sec-fetch-site"] = site;
       const response = await handleExtensionConversation(read(headers), runtime);
@@ -119,9 +122,9 @@ describe("extension API", () => {
       await handleExtensionPairingStatus(json(`/pairings/${pairingId}/status`, { exchangeSecret: "b".repeat(64) }, { "sec-fetch-site": "none" }), runtime, pairingId),
       await handleExtensionPairingExchange(json(`/pairings/${pairingId}/exchange`, { exchangeSecret: "b".repeat(64), verifier: VERIFIER }, { "sec-fetch-site": "none" }), runtime, pairingId),
     ]) expect(response.status).toBe(403);
-    expect(extensionPreflight(new Request(`${API}/conversation`, { method: "OPTIONS" }), runtime.extensionOrigins, ["GET"]).status).toBe(403);
-    expect(extensionPreflight(new Request(`${API}/conversation`, { method: "OPTIONS", headers: { origin: OTHER_EXT } }), runtime.extensionOrigins, ["GET"]).status).toBe(403);
-    const preflight = extensionPreflight(new Request(`${API}/conversation`, { method: "OPTIONS", headers: { origin: EXT } }), runtime.extensionOrigins, ["GET"]);
+    expect(extensionPreflight(new Request(`${API}/conversation`, { method: "OPTIONS" }), runtime.extensionOrigins, ["POST"]).status).toBe(403);
+    expect(extensionPreflight(new Request(`${API}/conversation`, { method: "OPTIONS", headers: { origin: OTHER_EXT } }), runtime.extensionOrigins, ["POST"]).status).toBe(403);
+    const preflight = extensionPreflight(new Request(`${API}/conversation`, { method: "OPTIONS", headers: { origin: EXT } }), runtime.extensionOrigins, ["POST"]);
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-origin")).toBe(EXT);
   });

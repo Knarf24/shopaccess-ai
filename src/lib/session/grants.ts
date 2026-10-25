@@ -88,7 +88,8 @@ export interface PairingAuthority {
     nowMs: number,
   ): Ok<{ status: "approved" | "denied" }> | Refused;
   exchange(input: { readonly pairingId: string; readonly exchangeSecret: unknown; readonly verifier: unknown; readonly extensionOrigin: string }, now: Date): Promise<Ok<{ bearer: string; grantId: string; expiresAt: number }> | Refused>;
-  resolve(bearer: string | null, scope: GrantScope, extensionOrigin: string | null, now: Date): Ok<{ sessionId: string; grantId: string }> | { readonly ok: false; readonly code: "TOKEN_INVALID" | "SCOPE_DENIED" };
+  /** The token must have been minted for exactly this extension origin (always checked; no originless path). */
+  resolve(bearer: string | null, scope: GrantScope, extensionOrigin: string, now: Date): Ok<{ sessionId: string; grantId: string }> | { readonly ok: false; readonly code: "TOKEN_INVALID" | "SCOPE_DENIED" };
   list(sessionId: string, now: Date): readonly GrantView[];
   revoke(sessionId: string, grantId: string, now: Date): Promise<"revoked" | "unknown">;
 }
@@ -263,8 +264,8 @@ export function createPairingAuthority(deps: PairingDeps): PairingAuthority {
       const digest = digestToken(bearer);
       const grant = deps.durable.readGrants().find((g) => same(g.tokenDigest, digest));
       if (!grant || !active(grant, now) || !deps.sessionLive(grant.sessionId)) return { ok: false, code: "TOKEN_INVALID" };
-      // A token is bound to the extension that paired it; an originless read is checked by the caller's policy.
-      if (extensionOrigin !== null && extensionOrigin !== grant.extensionOrigin) return { ok: false, code: "TOKEN_INVALID" };
+      // A token is bound to the extension that paired it, on every request.
+      if (extensionOrigin !== grant.extensionOrigin) return { ok: false, code: "TOKEN_INVALID" };
       if (!grant.scopes.includes(scope)) return { ok: false, code: "SCOPE_DENIED" };
       return { ok: true, value: { sessionId: grant.sessionId, grantId: grant.grantId } };
     },

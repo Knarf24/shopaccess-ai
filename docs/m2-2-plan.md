@@ -76,11 +76,12 @@ The API is separate from the website guard, and all its responses are `no-store`
 | `pairings/{id}/status` | POST | Allowlist | Exchange secret; at most 10 polls, at least 2 s apart |
 | `pairings/{id}/exchange` | POST | Allowlist | Exchange secret + verifier; single use |
 | `conversation` | GET | Allowlist, **or** the §3.4 originless rule | Bearer with `conversation:read` |
+| `conversation` *(since October 25, 2026, `feature/m22-post-read`; replaces the GET row above, kept as history)* | POST, body exactly `{}` | Allowlist only; GET answers 405 `Allow: POST` | Bearer with `conversation:read`, bound to the extension that paired it |
 | `conversation/turns` | POST | Allowlist only | Bearer with `conversation:write`; draft `version` + `clientRequestId`; the website's per-session message limit |
 
 - **Allowlist:** a new setting, `SHOPACCESS_EXTENSION_ORIGINS`, listing exact `chrome-extension://<32 a–p>` origins. It is parsed in `runtime.ts`, which stays the only environment reader. If it is absent, extension routes return 404, and today's application is unchanged.
 - **Cookies:** extension routes ignore cookies and never set them. A request carrying a website session cookie gets no website authority.
-- **CORS:** `Access-Control-Allow-Origin` is sent only for an allowlisted `Origin`. Preflight allows `GET, POST`, `authorization, content-type`.
+- **CORS:** `Access-Control-Allow-Origin` is sent only for an allowlisted `Origin`. Preflight allows `GET, POST`, `authorization, content-type`. *(October 25, 2026: every route's preflight now allows only `POST`; the conversation GET is retired.)*
 - **Admission:** extension routes are not behind the admission cookie. The grant itself carries the admission bound (§3.2).
 
 ### 3.2 Pairing with an admitted session (website side)
@@ -133,6 +134,7 @@ Adopted from E1 (independently source-reviewed at `f1a2fe1`). It applies **only*
   - an originless OPTIONS request.
 - **CORS:** no `Access-Control-Allow-Origin` header on an originless response.
 - **Known limit:** a non-browser client holding a stolen read token can read that conversation. It could do so anyway by forging `Origin`. Tokens are short-lived and revocable.
+- **Update (October 25, 2026, local branch `feature/m22-post-read`, uncommitted): the originless rule above is retired.** The panel (0.4.0) reads with `POST /api/extension/v1/conversation` and an empty JSON body, which always carries its Origin; `GET` answers 405 with `Allow: POST`. Every extension request now needs an allowed Origin, and every token is checked against the extension that paired it. The known limit remains: an Origin is not authentication, so a non-browser client holding a stolen token can still claim an allowed Origin. This finding stays open until the implementation review, the owner's browser check with host access granted, and outside review. The text above is kept as history.
 
 ### 3.5 Shared conversation
 
@@ -160,7 +162,7 @@ E1 stays as the historical prototype.
 
 - **New:**
   - `src/lib/session/grants.ts`: pairing authority and grant decisions on the gate;
-  - `src/server/extension-guard.ts`: allowlist, CORS, originless rule and bearer;
+  - `src/server/extension-guard.ts`: allowlist, CORS, originless rule and bearer (October 25, 2026: the originless rule is removed);
   - `src/app/api/extension/v1/**/route.ts` (5 routes);
   - `src/app/extension/pair/page.tsx`;
   - `extension/*`;
@@ -201,7 +203,7 @@ E1 stays as the historical prototype.
 5. **Revocation:**
    - per-grant revocation, and logout or reclaim revocation, are durable before they are reported;
    - the panel's next request is refused with `TOKEN_INVALID`.
-6. **Originless rule:** the full E1 matrix ported:
+6. **Originless rule:** the full E1 matrix ported *(October 25, 2026: superseded; every originless request, including `Sec-Fetch-Site: none`, is now refused, and `tests/unit/extension-post-read.test.ts` holds the current matrix)*:
    - `sec-fetch-site` absent, `cross-site`, `same-site`, `same-origin` or `NONE` → 403;
    - wrong `Origin` values → 403;
    - originless mutations and other paths → 403;

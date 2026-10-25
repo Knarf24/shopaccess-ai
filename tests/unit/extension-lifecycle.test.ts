@@ -65,7 +65,7 @@ const site = (path: string, fields: Record<string, string>, cookie: string) =>
   new Request(`${SITE}${path}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: SITE, "sec-fetch-site": "same-origin", cookie }, body: new URLSearchParams(fields).toString() });
 const api = (path: string, body: unknown, bearer?: string) =>
   new Request(`${API}${path}`, { method: "POST", headers: { "content-type": "application/json", origin: EXT, ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) }, body: JSON.stringify(body) });
-const read = (runtime: Runtime, bearer: string) => handleExtensionConversation(new Request(`${API}/conversation`, { headers: { origin: EXT, authorization: `Bearer ${bearer}` } }), runtime);
+const read = (runtime: Runtime, bearer: string) => handleExtensionConversation(new Request(`${API}/conversation`, { method: "POST", headers: { origin: EXT, "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: "{}" }), runtime);
 
 async function start(runtime: Runtime, installation: string) {
   const response = await handleExtensionPairingStart(api("/pairings", { protocolVersion: 1, challenge: CHALLENGE, installationId: `ins_${installation.repeat(32)}` }), runtime);

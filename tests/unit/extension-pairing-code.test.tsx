@@ -68,7 +68,7 @@ const exchange = async (runtime: Runtime, pairing: Started, verifier = VERIFIER,
   const response = await handleExtensionPairingExchange(api(`/pairings/${pairing.pairingId}/exchange`, { exchangeSecret, verifier }), runtime, pairing.pairingId);
   return { response, body: await response.json() };
 };
-const read = (runtime: Runtime, bearer: string) => handleExtensionConversation(new Request(`${API}/conversation`, { headers: { origin: EXT, authorization: `Bearer ${bearer}` } }), runtime);
+const read = (runtime: Runtime, bearer: string) => handleExtensionConversation(new Request(`${API}/conversation`, { method: "POST", headers: { origin: EXT, "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: "{}" }), runtime);
 const wrong = (code: string) => (code === "999999" ? "000000" : "999999");
 /** Starts pairings until one has a code different from `other` (a one-in-a-million collision is retried, not skipped). */
 async function startDistinct(runtime: Runtime, other: Started, installation: string, challenge = CHALLENGE) {

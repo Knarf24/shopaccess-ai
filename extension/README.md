@@ -27,7 +27,9 @@ Mock mode only. Use synthetic data only.
 3. Open `http://127.0.0.1:3000`, start a needs conversation, then open the side panel from the toolbar.
 4. The panel's address defaults to `http://127.0.0.1:3000`. Change it under **Connection** if needed: loopback HTTP
    with a port, or an HTTPS origin, no path. Saving asks Chrome for host access to that one origin; requests also work
-   by CORS without it.
+   by CORS without it. Every request, including the conversation read (a POST since 0.4.0), carries the extension's
+   Origin. The server refuses any extension request without an allowed Origin and checks each token against the
+   extension that paired it.
 5. Select **Pair with website**. The panel shows a six-digit **pairing code**, and a website tab opens at
    `/extension/pair`. Type that code on the approval page and select **Allow conversation access**. The panel checks up
    to ten times within the five-minute pairing (first after 5 seconds).
