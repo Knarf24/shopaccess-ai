@@ -1,3 +1,4 @@
+import { laptopProducts } from "@/lib/catalog/schemas";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
@@ -71,7 +72,7 @@ async function PermissionsContentUnguarded({ params, searchParams }: { params: P
   }
 
   const { catalog } = runtime.value;
-  const choices: CatalogChoice[] = catalog.products.flatMap((product) =>
+  const choices: CatalogChoice[] = laptopProducts(catalog).flatMap((product) =>
     product.variants
       .filter((variant) => variant.availability === "IN_STOCK")
       .map((variant) => ({ value: `${product.productId}:${variant.variantId}`, label: `${product.title} — ${variant.label}`, seller: sellerName(catalog.merchant.displayName, language), maxQuantity: variant.maxQuantityPerOrder })),

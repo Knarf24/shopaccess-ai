@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { findMerchantVariant } from "../catalog/merchant-catalog";
-import { MERCHANT_PRODUCT_ID_PATTERN, MERCHANT_VARIANT_ID_PATTERN, type MerchantCatalog } from "../catalog/schemas";
+import { isLaptopVariant, laptopProducts, MERCHANT_PRODUCT_ID_PATTERN, MERCHANT_VARIANT_ID_PATTERN, type MerchantCatalog } from "../catalog/schemas";
 import { INTENDED_USES, type FactorKey, type FactorOutcome, type IntendedUse, type ReadinessAssessment, type ReadinessStatus } from "../readiness/engine";
 import { ShopperMessageSchema } from "../security/limits";
 import { err, ok, type Result } from "../shared/result";
@@ -176,7 +176,7 @@ export interface AdvisorySuitability {
 }
 
 function catalogProducts(catalog: MerchantCatalog): AdvisoryRequest["untrustedData"]["products"] {
-  return catalog.products.flatMap((product) =>
+  return laptopProducts(catalog).flatMap((product) =>
     product.variants.map((variant) => ({
       productId: product.productId,
       variantId: variant.variantId,
@@ -351,7 +351,10 @@ export async function suggestProductsSafely(
             shopperMessage: message.data,
             intendedUse: suitability.intendedUse,
             budgetCents: suitability.budgetCents,
-            products: suitability.products,
+            products: suitability.products.filter((candidate) => {
+              const entry = findMerchantVariant(catalog, candidate.productId, candidate.variantId);
+              return entry !== null && isLaptopVariant(entry.variant);
+            }),
           }
         : { shopperMessage: message.data, products: catalogProducts(catalog) },
     });
@@ -370,7 +373,7 @@ export async function suggestProductsSafely(
   const references: SafeSuggestion["references"][number][] = [];
   for (const reference of parsed.data.references) {
     const entry = findMerchantVariant(catalog, reference.productId, reference.variantId);
-    if (!entry) {
+    if (!entry || !isLaptopVariant(entry.variant)) {
       reportAdvisoryFailure(onFailure, outputDiagnostic("INVENTED_REFERENCE", elapsed));
       return err("INVENTED_REFERENCE");
     }

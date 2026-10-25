@@ -1,3 +1,4 @@
+import { isLaptopVariant, type LaptopMerchantVariant } from "@/lib/catalog/schemas";
 import { describe, expect, it } from "vitest";
 import { DEMO_MERCHANT_CATALOG, findMerchantVariant } from "@/lib/catalog/merchant-catalog";
 import {
@@ -22,6 +23,11 @@ import { createWorld, HOUR, newSession, stateOf } from "./helpers";
 
 const NOW = new Date("2026-10-08T12:00:00.000Z");
 const readyLaptop = findMerchantVariant(DEMO_MERCHANT_CATALOG, "dmp_aspire14ai", "dmv_aspire14ai")!;
+const readyVariant: LaptopMerchantVariant = (() => {
+  const variant = readyLaptop.variant;
+  if (!isLaptopVariant(variant)) throw new Error("Expected a laptop fixture");
+  return variant;
+})();
 const subject = {
   productId: readyLaptop.product.productId,
   variantId: readyLaptop.variant.variantId,
@@ -36,7 +42,7 @@ const stated = (fact: EvidenceItem["fact"], value: number | string, observedAt =
   observedAt: observedAt.toISOString(),
 });
 
-function input(budgetCents: number | null, use: string | null, variant = readyLaptop.variant, observedAt = NOW) {
+function input(budgetCents: number | null, use: string | null, variant: LaptopMerchantVariant = readyVariant, observedAt = NOW) {
   return {
     subject,
     evidence: [
@@ -75,13 +81,14 @@ describe("purchase readiness engine", () => {
     expect(factor(assess(input(70000, "programming")), "affordability").outcome).toBe("FAIL");
     // 4 GB memory is below the minimum for schoolwork. The catalog has no such configuration, so the threshold is checked on a copy.
     const belowMinimum = {
-      ...readyLaptop.variant,
+      ...readyVariant,
       unitAmountCents: 22900,
-      specs: { ...readyLaptop.variant.specs, ramGb: 4, storageGb: 64, storageType: "EMMC" as const },
+      specs: { ...readyVariant.specs, ramGb: 4, storageGb: 64, storageType: "EMMC" as const },
     };
     expect(assess(input(30000, "schoolwork", belowMinimum)).status).toBe("NOT_RECOMMENDED");
     // Meets the minimum but not the recommendation for programming.
     const entryLaptop = DEMO_MERCHANT_CATALOG.products[0].variants[0];
+    if (!isLaptopVariant(entryLaptop)) throw new Error("Expected a laptop fixture");
     const caveats = assess(input(60000, "programming", entryLaptop));
     expect(caveats.status).toBe("READY_WITH_CAVEATS");
     expect(factor(caveats, "memory").outcome).toBe("CAVEAT");
@@ -109,11 +116,11 @@ describe("purchase readiness engine", () => {
   });
 
   it("RDY-02: detects stale and contradictory evidence", () => {
-    const stalePrice = assess(input(90000, "programming", readyLaptop.variant, new Date(NOW.getTime() - 25 * HOUR)));
+    const stalePrice = assess(input(90000, "programming", readyVariant, new Date(NOW.getTime() - 25 * HOUR)));
     expect(stalePrice.status).toBe("INSUFFICIENT_EVIDENCE");
     expect(factor(stalePrice, "affordability")).toMatchObject({ outcome: "UNKNOWN", evidenceQuality: "STALE" });
 
-    const futureDated = assess(input(90000, "programming", readyLaptop.variant, new Date(NOW.getTime() + HOUR)));
+    const futureDated = assess(input(90000, "programming", readyVariant, new Date(NOW.getTime() + HOUR)));
     expect(futureDated.status).toBe("INSUFFICIENT_EVIDENCE");
 
     const contradictory = input(90000, "programming");
@@ -135,7 +142,7 @@ describe("purchase readiness engine", () => {
     const assessment = assess(original);
     expect(isAssessmentCurrent(assessment, original, NOW)).toBe(true);
 
-    const repriced = input(90000, "programming", { ...readyLaptop.variant, unitAmountCents: 95000 });
+    const repriced = input(90000, "programming", { ...readyVariant, unitAmountCents: 95000 });
     expect(isAssessmentCurrent(assessment, repriced, NOW)).toBe(false);
     expect(isAssessmentCurrent(assessment, input(60000, "programming"), NOW)).toBe(false);
     expect(isAssessmentCurrent(assessment, original, new Date(NOW.getTime() + 25 * HOUR))).toBe(false);

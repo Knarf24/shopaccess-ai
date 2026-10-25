@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { findMerchantVariant } from "../catalog/merchant-catalog";
 import {
+  isLaptopVariant,
   MAX_QUANTITY_LIMIT,
   MERCHANT_ID_PATTERN,
   MERCHANT_PRODUCT_ID_PATTERN,
@@ -100,7 +101,8 @@ export function createQuote(input: CreateQuoteInput): Result<Quote, QuoteRejecti
   if (!request.success) return err("REQUEST_INVALID");
 
   const entry = findMerchantVariant(input.catalog, request.data.productId, request.data.variantId);
-  if (!entry) return err("PRODUCT_NOT_IN_MERCHANT_CATALOG");
+  // Adapter representation is groundwork only; no accessory purchase policy exists yet.
+  if (!entry || !isLaptopVariant(entry.variant)) return err("PRODUCT_NOT_IN_MERCHANT_CATALOG");
   if (entry.variant.availability !== "IN_STOCK") return err("VARIANT_UNAVAILABLE");
   if (request.data.quantity > entry.variant.maxQuantityPerOrder) return err("QUANTITY_EXCEEDS_LIMIT");
 
@@ -160,6 +162,7 @@ export function verifyQuote(candidate: unknown, context: VerifyQuoteContext): Re
   const entry = findMerchantVariant(context.catalog, body.productId, body.variantId);
   const unchanged =
     entry !== null &&
+    isLaptopVariant(entry.variant) &&
     context.catalog.merchant.merchantId === body.merchantId &&
     entry.variant.unitAmountCents === body.unitAmountCents &&
     entry.variant.currency === body.currency &&
