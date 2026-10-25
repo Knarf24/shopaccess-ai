@@ -44,7 +44,7 @@ const read = (headers: Record<string, string>, path = "/conversation") => new Re
 
 async function pairedBearer(runtime: Runtime, sessionId: string) {
   const started = await (await handleExtensionPairingStart(json("/pairings", { protocolVersion: 1, challenge: CHALLENGE, installationId: INSTALL }), runtime)).json();
-  const approved = runtime.pairing.approve({ pairingId: started.value.pairingId, sessionId, deny: false, boundMs: null }, runtime.clock().getTime());
+  const approved = runtime.pairing.approve({ pairingId: started.value.pairingId, sessionId, deny: false, boundMs: null, matchCode: started.value.matchCode }, runtime.clock().getTime());
   expect(approved.ok).toBe(true);
   const status = await (await handleExtensionPairingStatus(json(`/pairings/${started.value.pairingId}/status`, { exchangeSecret: started.value.exchangeSecret }), runtime, started.value.pairingId)).json();
   expect(status.value.status).toBe("approved");
@@ -163,7 +163,7 @@ describe("extension API", () => {
     const application: Application = { mode: "mock", runtime: { ok: true, value: runtime } };
     const buyer = await shopper(runtime);
     const started = await (await handleExtensionPairingStart(json("/pairings", { protocolVersion: 1, challenge: CHALLENGE, installationId: INSTALL }), runtime)).json();
-    runtime.pairing.approve({ pairingId: started.value.pairingId, sessionId: buyer.sessionId, deny: false, boundMs: null }, runtime.clock().getTime());
+    runtime.pairing.approve({ pairingId: started.value.pairingId, sessionId: buyer.sessionId, deny: false, boundMs: null, matchCode: started.value.matchCode }, runtime.clock().getTime());
     refuse = true;
     const response = await withMockRuntime(application, (rt) =>
       handleExtensionPairingExchange(json(`/pairings/${started.value.pairingId}/exchange`, { exchangeSecret: started.value.exchangeSecret, verifier: VERIFIER }), rt, started.value.pairingId),

@@ -11,6 +11,7 @@ type FakeElement = {
   textContent: string;
   value: string;
   disabled: boolean;
+  hidden?: boolean;
   isConnected: boolean;
   children: FakeElement[];
   onclick: null | (() => unknown);
@@ -93,7 +94,7 @@ function installChrome(sessionValues: Record<string, unknown>) {
     tabs: { create: async ({ url }: { url: string }) => tabs.push(url) },
     permissions: { request: async () => true },
   });
-  return { session, tabs };
+  return { session, local, tabs };
 }
 
 type Route = (body: unknown) => { status: number; body: unknown };
@@ -195,7 +196,7 @@ describe("side panel behaviour (extension/panel.mjs)", () => {
   it("a Spanish draft opens the Spanish approval page, even though pairing forgets the local view first", async () => {
     const { page, chrome: stub, calls } = await openPanel({
       "/conversation": () => ok(view(TWO, "es")),
-      "/pairings": () => ok({ pairingId: "c".repeat(64), exchangeSecret: "d".repeat(64), expiresAt: Date.now() + 300_000 }),
+      "/pairings": () => ok({ pairingId: "c".repeat(64), exchangeSecret: "d".repeat(64), matchCode: "012345", expiresAt: Date.now() + 300_000 }),
     });
     expect(page.doc.documentElement.lang).toBe("es");
     page.el("pair").onclick!();
@@ -222,5 +223,121 @@ describe("side panel behaviour (extension/panel.mjs)", () => {
     expect(page.el("error").textContent).toBe("Demasiados mensajes en el último minuto. Espere y vuelva a enviar; su mensaje se conserva. (RATE_LIMITED)");
     expect(page.el("history").children).toHaveLength(2);
     expect(page.doc.activeElement).toBe(page.el("send"));
+  });
+});
+
+describe("finding 3: the pairing code in the side panel", () => {
+  const PENDING = { pairing: { pairingId: "c".repeat(64), exchangeSecret: "d".repeat(64), matchCode: "012345", expiresAt: Date.now() + 300_000, verifier: "e".repeat(64), polls: 0 } };
+  const START = () => ok({ pairingId: "c".repeat(64), exchangeSecret: "d".repeat(64), matchCode: "012345", expiresAt: Date.now() + 300_000 });
+
+  it("Pair shows the code in two groups for sight and digit by digit for screen readers, kept only in session storage", async () => {
+    const { page, chrome: stub, calls } = await openPanel({ "/conversation": () => ok(view(TWO)), "/pairings": START });
+    expect(page.el("pair-code-box").hidden).not.toBe(false);
+    page.el("pair").onclick!();
+    await settled(page);
+    page.unload();
+    expect(page.el("pair-code-box").hidden).toBe(false);
+    expect(page.el("pair-code-visual").textContent).toBe("012 345");
+    expect(page.el("pair-code-spoken").textContent).toBe("0 1 2 3 4 5");
+    expect(page.el("pair-code-help").textContent).toContain("only on the ShopAccess approval page that this panel opened");
+    expect(page.el("status").textContent).toContain("enter the pairing code shown below");
+    expect(JSON.stringify(stub.local.values)).not.toContain("012345");
+    expect((stub.session.values.pairing as { matchCode: string }).matchCode).toBe("012345");
+    expect(stub.tabs[0]).not.toContain("012345");
+    for (const call of calls) expect(JSON.stringify(call.body ?? null)).not.toContain("012345");
+  });
+
+  it("Forget local pairing hides and clears the code and removes the pending pairing", async () => {
+    const { page, chrome: stub } = await openPanel({ "/conversation": () => ok(view(TWO)), "/pairings": START });
+    page.el("pair").onclick!();
+    await settled(page);
+    page.el("disconnect").onclick!();
+    await settled(page);
+    page.unload();
+    expect(page.el("pair-code-box").hidden).toBe(true);
+    expect(page.el("pair-code-visual").textContent).toBe("");
+    expect(page.el("pair-code-spoken").textContent).toBe("");
+    expect(stub.session.values.pairing).toBeUndefined();
+  });
+
+  it("reopening the panel during a pending pairing shows that pairing's code again", async () => {
+    const { page } = await openPanel({}, PENDING);
+    page.unload();
+    expect(page.el("pair-code-box").hidden).toBe(false);
+    expect(page.el("pair-code-visual").textContent).toBe("012 345");
+  });
+
+  it("a start response without a valid code opens no approval page and shows no code", async () => {
+    const { page, chrome: stub } = await openPanel({
+      "/conversation": () => ok(view(TWO)),
+      "/pairings": () => ok({ pairingId: "c".repeat(64), exchangeSecret: "d".repeat(64), expiresAt: Date.now() + 300_000 }),
+    });
+    page.el("pair").onclick!();
+    await settled(page);
+    page.unload();
+    expect(stub.tabs).toHaveLength(0);
+    expect(page.el("pair-code-box").hidden).not.toBe(false);
+    expect(stub.session.values.pairing).toBeUndefined();
+    expect(page.el("error").textContent).toContain("BAD_RESPONSE");
+  });
+});
+
+describe("finding 3: every pairing end state hides the code (review fix)", () => {
+  const pending = (expiresAt: number) => ({ pairing: { pairingId: "c".repeat(64), exchangeSecret: "d".repeat(64), matchCode: "012345", expiresAt, verifier: "e".repeat(64), polls: 0 } });
+  const STATUS = `/pairings/${"c".repeat(64)}/status`;
+  const EXCHANGE = `/pairings/${"c".repeat(64)}/exchange`;
+  async function afterFirstPoll(routes: Record<string, Route>, expiresAt = Date.now() + 300_000) {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true });
+    try {
+      const opened = await openPanel(routes, pending(expiresAt));
+      expect(opened.page.el("pair-code-box").hidden).toBe(false);
+      await vi.advanceTimersByTimeAsync(5_100);
+      await settled(opened.page);
+      opened.page.unload();
+      return opened;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it("paired: the code is hidden and the pending pairing removed", async () => {
+    const { page, chrome: stub } = await afterFirstPoll({
+      [STATUS]: () => ok({ status: "approved" }),
+      [EXCHANGE]: () => ok({ bearer: "b".repeat(64), grantId: `grt_${"2".repeat(32)}`, expiresAt: Date.now() + 3_600_000 }),
+      "/conversation": () => ok(view(TWO)),
+    });
+    expect(page.el("pair-code-box").hidden).toBe(true);
+    expect(page.el("pair-code-visual").textContent).toBe("");
+    expect(stub.session.values.pairing).toBeUndefined();
+  });
+
+  it("denied: the code is hidden", async () => {
+    const { page } = await afterFirstPoll({ [STATUS]: () => ok({ status: "denied" }) });
+    expect(page.el("pair-code-box").hidden).toBe(true);
+    expect(page.el("error").textContent).toBe("Pairing was denied on the website.");
+  });
+
+  it("stopped (a refused status check): the code is hidden", async () => {
+    const { page } = await afterFirstPoll({ [STATUS]: () => refused(404, "PAIRING_UNKNOWN") });
+    expect(page.el("pair-code-box").hidden).toBe(true);
+    expect(page.el("error").textContent).toBe("Pairing stopped. Start again.");
+  });
+
+  it("expired: the code is hidden", async () => {
+    const { page } = await afterFirstPoll({ [STATUS]: () => ok({ status: "pending" }) }, Date.now() + 1_000);
+    expect(page.el("pair-code-box").hidden).toBe(true);
+    expect(page.el("status").textContent).toBe("Pairing expired. Start again.");
+  });
+
+  it("a failed approval-tab open abandons the pairing and hides the code", async () => {
+    const { page, chrome: stub } = await openPanel({ "/conversation": () => ok(view(TWO)), "/pairings": () => ok({ pairingId: "c".repeat(64), exchangeSecret: "d".repeat(64), matchCode: "012345", expiresAt: Date.now() + 300_000 }) });
+    (globalThis as unknown as { chrome: { tabs: { create: () => Promise<never> } } }).chrome.tabs.create = async () => {
+      throw new Error("TAB_FAILED");
+    };
+    page.el("pair").onclick!();
+    await settled(page);
+    page.unload();
+    expect(page.el("pair-code-box").hidden).toBe(true);
+    expect(stub.session.values.pairing).toBeUndefined();
   });
 });

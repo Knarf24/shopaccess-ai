@@ -1,6 +1,7 @@
 import {
   DEFAULT_APP_ORIGIN, POLL_DELAYS_MS, approvalUrl, beginPairing, completionStatus, conversationReplaced, createAnnouncer, createApi,
-  createTurnIds, ensureInstallationId, errorCode, normalizeAppOrigin, replyAnnouncement, restoreFocus, runPairingPoll, settleSubmit,
+  createTurnIds, ensureInstallationId, errorCode, matchCodeDisplay, normalizeAppOrigin, replyAnnouncement, restoreFocus, runPairingPoll,
+  settleSubmit,
 } from './client.mjs';
 
 // ShopAccess side panel (M2-2). The bearer lives in chrome.storage.session (cleared when the browser closes); the app
@@ -30,7 +31,9 @@ const WORDS = {
     message: 'Message', send: 'Send', working: 'Working…', saved: 'Saved.', you: 'You: ', assistant: 'Assistant: ',
     failed: 'Request failed. Refresh, or pair again.', notPaired: 'Not paired. Select Pair with website.',
     rateLimited: 'Too many messages in the last minute. Wait, then send again; your message is kept.',
-    approve: 'Approve conversation-only access on the website tab that opened.', paired: 'Paired. Conversation access only.',
+    approve: 'On the website tab that opened, enter the pairing code shown below to allow conversation-only access.', paired: 'Paired. Conversation access only.',
+    codeHeading: 'Pairing code',
+    codeHelp: 'Enter this code only on the ShopAccess approval page that this panel opened. Never share it. It expires with this pairing.',
     expired: 'Pairing expired. Start again.', stopped: 'Pairing stopped. Start again.', denied: 'Pairing was denied on the website.',
     forgot: 'Local credential removed. To end server access, revoke it on the website under Paired access.',
     originSaved: 'Address saved. Pair again for this address.', originInvalid: 'Enter http://127.0.0.1 with a port, or an https address, with no path.',
@@ -47,7 +50,9 @@ const WORDS = {
     message: 'Mensaje', send: 'Enviar', working: 'Procesando…', saved: 'Guardado.', you: 'Usted: ', assistant: 'Asistente: ',
     failed: 'La solicitud falló. Actualice o vuelva a vincular.', notPaired: 'Sin vincular. Seleccione Vincular con el sitio.',
     rateLimited: 'Demasiados mensajes en el último minuto. Espere y vuelva a enviar; su mensaje se conserva.',
-    approve: 'Apruebe el acceso solo a la conversación en la pestaña del sitio que se abrió.', paired: 'Vinculado. Solo acceso a la conversación.',
+    approve: 'En la pestaña del sitio que se abrió, escriba el código de vinculación que se muestra abajo para permitir el acceso solo a la conversación.', paired: 'Vinculado. Solo acceso a la conversación.',
+    codeHeading: 'Código de vinculación',
+    codeHelp: 'Escriba este código solo en la página de aprobación de ShopAccess que abrió este panel. No lo comparta nunca. Caduca con esta vinculación.',
     expired: 'La vinculación caducó. Empiece de nuevo.', stopped: 'La vinculación se detuvo. Empiece de nuevo.', denied: 'La vinculación fue rechazada en el sitio.',
     forgot: 'Credencial local eliminada. Para terminar el acceso en el servidor, revóquelo en el sitio, en Accesos vinculados.',
     originSaved: 'Dirección guardada. Vuelva a vincular para esta dirección.', originInvalid: 'Escriba http://127.0.0.1 con un puerto, o una dirección https, sin ruta.',
@@ -60,6 +65,22 @@ const WORDS = {
 };
 const language = () => (view?.draft?.language === 'es' ? 'es' : 'en');
 const words = () => WORDS[language()];
+
+// Finding 3: the pending pairing's matching code, shown only while that pairing is pending.
+function showCode(pairing) {
+  const shown = matchCodeDisplay(pairing?.matchCode);
+  if (!shown) return hideCode();
+  $('pair-code-heading').textContent = words().codeHeading;
+  $('pair-code-visual').textContent = shown.visual;
+  $('pair-code-spoken').textContent = shown.spoken;
+  $('pair-code-help').textContent = words().codeHelp;
+  $('pair-code-box').hidden = false;
+}
+function hideCode() {
+  $('pair-code-box').hidden = true;
+  $('pair-code-visual').textContent = '';
+  $('pair-code-spoken').textContent = '';
+}
 
 // The server no longer accepts the token (revoked, expired or session ended): forget it and stop showing the conversation.
 async function dropAccess() {
@@ -139,6 +160,7 @@ async function poll() {
   if (!pairing || !active()) return;
   if (pairing.polls >= POLL_DELAYS_MS.length || Date.now() >= pairing.expiresAt) {
     await session.remove('pairing');
+    hideCode();
     $('status').textContent = words().expired;
     return;
   }
@@ -164,6 +186,7 @@ async function poll() {
     if (!active() || outcome === 'cancelled') return;
     if (outcome === 'paired') {
       await session.remove('pairing');
+      hideCode();
       $('status').textContent = words().paired;
       try {
         await refresh();
@@ -174,6 +197,7 @@ async function poll() {
     }
     if (outcome === 'denied') {
       await session.remove('pairing');
+      hideCode();
       $('error').textContent = words().denied;
       return;
     }
@@ -181,6 +205,7 @@ async function poll() {
   } catch {
     if (active()) {
       await session.remove('pairing');
+      hideCode();
       $('error').textContent = words().stopped;
     }
   }
@@ -191,6 +216,7 @@ async function forgetLocal() {
   announcer.clear();
   clearTimeout(pollTimer);
   await session.remove(['access', 'pairing']);
+  hideCode();
   access = null;
   view = null;
   replies = 0;
@@ -222,7 +248,15 @@ $('pair').onclick = () =>
     await forgetLocal();
     const installationId = await ensureInstallationId(local);
     const pairing = await beginPairing({ api: call, session, installationId });
-    await chrome.tabs.create({ url: approvalUrl(origin, pairing.pairingId, pairingLanguage) });
+    showCode(pairing);
+    try {
+      await chrome.tabs.create({ url: approvalUrl(origin, pairing.pairingId, pairingLanguage) });
+    } catch (e) {
+      // No approval tab: abandon this pairing and stop showing its code.
+      await session.remove('pairing');
+      hideCode();
+      throw e;
+    }
     pollTimer = setTimeout(poll, POLL_DELAYS_MS[0]);
     return words().approve;
   });
@@ -256,5 +290,8 @@ window.addEventListener('pagehide', () => clearTimeout(pollTimer));
 
 labels();
 if (access && access.origin === origin) await action(refresh);
-else if ((await session.get('pairing')).pairing) pollTimer = setTimeout(poll, POLL_DELAYS_MS[0]);
+else if ((await session.get('pairing')).pairing) {
+  showCode((await session.get('pairing')).pairing);
+  pollTimer = setTimeout(poll, POLL_DELAYS_MS[0]);
+}
 else $('status').textContent = words().notPaired;

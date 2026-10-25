@@ -39,15 +39,15 @@ const api = (path: string, body: unknown) => new Request(`${API}${path}`, { meth
 
 async function startPairing(runtime: Runtime, installation = "1") {
   const response = await handleExtensionPairingStart(api("/pairings", { protocolVersion: 1, challenge: CHALLENGE, installationId: `ins_${installation.repeat(32)}` }), runtime);
-  return (await response.json()).value as { pairingId: string; exchangeSecret: string };
+  return (await response.json()).value as { pairingId: string; exchangeSecret: string; matchCode: string };
 }
 
-async function status(runtime: Runtime, pairing: { pairingId: string; exchangeSecret: string }) {
+async function status(runtime: Runtime, pairing: { pairingId: string; exchangeSecret: string; matchCode: string }) {
   const response = await handleExtensionPairingStatus(api(`/pairings/${pairing.pairingId}/status`, { exchangeSecret: pairing.exchangeSecret }), runtime, pairing.pairingId);
   return (await response.json()).value?.status as string | undefined;
 }
 
-async function exchange(runtime: Runtime, pairing: { pairingId: string; exchangeSecret: string }) {
+async function exchange(runtime: Runtime, pairing: { pairingId: string; exchangeSecret: string; matchCode: string }) {
   const response = await handleExtensionPairingExchange(api(`/pairings/${pairing.pairingId}/exchange`, { exchangeSecret: pairing.exchangeSecret, verifier: VERIFIER }), runtime, pairing.pairingId);
   return (await response.json()).value as { bearer: string; grantId: string; expiresAt: number };
 }
@@ -59,7 +59,7 @@ describe("pairing approval on the website", () => {
     const runtime = runtimeWith();
     const buyer = await shopper(runtime);
     const pairing = await startPairing(runtime);
-    const decided = await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "es" }, buyer.cookie), runtime);
+    const decided = await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "es" }, buyer.cookie), runtime);
     expect(decided.status).toBe(303);
     expect(decided.headers.get("location")).toBe("/es/extension/pair?result=approved");
     expect(await status(runtime, pairing)).toBe("approved");
@@ -82,9 +82,9 @@ describe("pairing approval on the website", () => {
     const buyer = await shopper(runtime);
     const pairing = await startPairing(runtime);
     const attempts = [
-      site("/extension/pair/decide", { pairingId: pairing.pairingId, decision: "approve", lang: "en" }, buyer.cookie),
-      site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "en" }, buyer.cookie, "https://evil.example.test"),
-      site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "en" }, ""),
+      site("/extension/pair/decide", { pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "en" }, buyer.cookie),
+      site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "en" }, buyer.cookie, "https://evil.example.test"),
+      site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "en" }, ""),
     ];
     for (const attempt of attempts) {
       const response = await handleExtensionPairDecision(attempt, runtime);
@@ -125,7 +125,7 @@ describe("pairing approval on the website", () => {
     const buyer = await shopper(runtime, admissionCookie);
     const pairing = await startPairing(runtime);
     const decided = await handleExtensionPairDecision(
-      site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "en" }, `${buyer.cookie}; ${admissionCookie}`),
+      site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "en" }, `${buyer.cookie}; ${admissionCookie}`),
       runtime,
     );
     expect(decided.headers.get("location")).toBe("/en/extension/pair?result=approved");
@@ -141,7 +141,7 @@ describe("paired access and revocation", () => {
     const grants = [];
     for (const installation of ["1", "2"]) {
       const pairing = await startPairing(runtime, installation);
-      await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "en" }, buyer.cookie), runtime);
+      await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "en" }, buyer.cookie), runtime);
       grants.push(await exchange(runtime, pairing));
     }
     expect(runtime.pairing.list(buyer.sessionId, runtime.clock())).toHaveLength(2);
@@ -159,7 +159,7 @@ describe("paired access and revocation", () => {
     const owner = await shopper(runtime);
     const other = await shopper(runtime);
     const pairing = await startPairing(runtime);
-    await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: owner.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "en" }, owner.cookie), runtime);
+    await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: owner.csrfToken, pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "en" }, owner.cookie), runtime);
     const grant = await exchange(runtime, pairing);
     const foreign = await handleExtensionRevoke(site("/extension/revoke", { csrfToken: other.csrfToken, grantId: grant.grantId, lang: "en" }, other.cookie), runtime);
     expect(foreign.headers.get("location")).not.toContain("revoked=");
