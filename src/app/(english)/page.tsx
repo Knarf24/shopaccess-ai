@@ -10,7 +10,7 @@ import { SessionNotice } from "@/components/SessionNotice";
 import { GuidedLanguageChoice } from "@/components/mock-journey/GuidedLanguageChoice";
 import { DEMO_MERCHANT_CATALOG } from "@/lib/catalog/merchant-catalog";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
-import type { MerchantCatalog } from "@/lib/catalog/schemas";
+import { laptopProducts, type MerchantCatalog } from "@/lib/catalog/schemas";
 import { loadPgCatalog } from "@/server/pg-views";
 import { guardPage, openApplication } from "@/server/runtime-access";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
@@ -49,7 +49,7 @@ function Storefront({ catalog }: { catalog: MerchantCatalog }) {
           Demo laptops
         </h2>
         <div className="grid gap-4 sm:grid-cols-2">
-          {catalog.products.map((product) => (
+          {laptopProducts(catalog).map((product) => (
             <MerchantProductCard key={product.productId} product={product} merchantName={catalog.merchant.displayName} />
           ))}
         </div>

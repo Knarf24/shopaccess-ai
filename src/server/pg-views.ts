@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import type { MerchantCatalog } from "@/lib/catalog/schemas";
+import { laptopProducts, type MerchantCatalog } from "@/lib/catalog/schemas";
 import type { ConfirmationChallenge } from "@/lib/confirmation/confirmation";
 import { UnexpectedRowError, type CheckoutRead, type EffectiveStatus, type OwnerCheckout, type StoredState } from "@/lib/pg/checkout-service";
 import { explainAssessmentSafely, suggestProductsSafely } from "@/lib/providers/ai";
@@ -79,7 +79,7 @@ export async function buildPgShoppingView(services: PgServices, preferences: Sho
   });
 
   const variants: AssessedVariant[] = [];
-  for (const product of catalog.products) {
+  for (const product of laptopProducts(catalog)) {
     for (const variant of product.variants) {
       const result = assessReadiness(
         {

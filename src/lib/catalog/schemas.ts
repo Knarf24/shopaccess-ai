@@ -31,15 +31,30 @@ export const LaptopSpecsSchema = z.strictObject({
   operatingSystem: plainText(60),
 });
 
-export const MerchantVariantSchema = z.strictObject({
+const VariantFields = {
   variantId: z.string().regex(MERCHANT_VARIANT_ID_PATTERN),
   label: plainText(80),
   unitAmountCents: AmountCentsSchema,
   currency: CurrencySchema,
   maxQuantityPerOrder: z.number().int().min(1).max(MAX_QUANTITY_LIMIT),
   availability: AvailabilitySchema,
+};
+
+export const LaptopMerchantVariantSchema = z.strictObject({
+  ...VariantFields,
+  // Missing kind is the existing curated and PostgreSQL representation.
+  kind: z.literal("laptop").optional(),
   specs: LaptopSpecsSchema,
 });
+
+export const AdapterMerchantVariantSchema = z.strictObject({
+  ...VariantFields,
+  kind: z.literal("charger_adapter"),
+  // An identity reference only: neither specifications nor permission to purchase.
+  specs: z.strictObject({ evidenceChargerId: plainText(80).regex(/^[A-Za-z0-9_-]+$/) }),
+});
+
+export const MerchantVariantSchema = z.union([LaptopMerchantVariantSchema, AdapterMerchantVariantSchema]);
 
 export const MerchantProductSchema = z.strictObject({
   productId: z.string().regex(MERCHANT_PRODUCT_ID_PATTERN),
@@ -69,6 +84,8 @@ export const MerchantCatalogSchema = z
     for (const product of catalog.products) {
       if (productIds.has(product.productId)) ctx.addIssue({ code: "custom", message: "Duplicate product ID" });
       productIds.add(product.productId);
+      const kinds = new Set(product.variants.map((variant) => variant.kind ?? "laptop"));
+      if (kinds.size !== 1) ctx.addIssue({ code: "custom", message: "A product cannot mix laptop and adapter variants" });
       for (const variant of product.variants) {
         if (variantIds.has(variant.variantId)) ctx.addIssue({ code: "custom", message: "Duplicate variant ID" });
         variantIds.add(variant.variantId);
@@ -105,3 +122,17 @@ export type MerchantProduct = z.infer<typeof MerchantProductSchema>;
 export type Merchant = z.infer<typeof MerchantSchema>;
 export type MerchantCatalog = z.infer<typeof MerchantCatalogSchema>;
 export type ExternalProduct = z.infer<typeof ExternalProductSchema>;
+
+export type LaptopMerchantVariant = z.infer<typeof LaptopMerchantVariantSchema>;
+
+/** Narrow validated catalog records; unknown kinds never enter a laptop path. */
+export function isLaptopVariant(variant: MerchantVariant): variant is LaptopMerchantVariant {
+  return variant.kind === undefined || variant.kind === "laptop";
+}
+
+/** Laptop-only projection for listing and advisory paths. Keeps original laptop records intact. */
+export function laptopProducts(catalog: MerchantCatalog): (Omit<MerchantProduct, "variants"> & { variants: LaptopMerchantVariant[] })[] {
+  return catalog.products.filter((product) => product.variants.every(isLaptopVariant)).map((product) => ({
+    ...product, variants: product.variants.filter(isLaptopVariant),
+  }));
+}

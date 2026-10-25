@@ -1,3 +1,4 @@
+import { isLaptopVariant } from "../catalog/schemas";
 import { z } from "zod";
 import { MERCHANT_PRODUCT_ID_PATTERN, MERCHANT_VARIANT_ID_PATTERN, type MerchantVariant } from "../catalog/schemas";
 import { canonicalJson } from "../shared/canonical-json";
@@ -318,6 +319,7 @@ export function isAssessmentCurrent(assessment: ReadinessAssessment, currentInpu
 
 /** Builds verified evidence for a demo merchant variant from the authoritative catalog. */
 export function evidenceFromMerchantVariant(variant: MerchantVariant, catalogRevision: number, observedAt: Date): EvidenceItem[] {
+  if (!isLaptopVariant(variant)) return [];
   const common = {
     source: "merchant_catalog" as const,
     sourceRef: `demo catalog revision ${catalogRevision}, ${variant.variantId}`,

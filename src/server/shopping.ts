@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { findMerchantVariant } from "@/lib/catalog/merchant-catalog";
-import type { ExternalProduct, MerchantProduct, MerchantVariant } from "@/lib/catalog/schemas";
+import { isLaptopVariant, laptopProducts, type LaptopMerchantVariant, type ExternalProduct, type MerchantProduct } from "@/lib/catalog/schemas";
 import {
   describeAssessment,
   explainAssessmentSafely,
@@ -69,7 +69,7 @@ export function preferencesQuery(preferences: ShopperPreferences): string {
 
 export interface AssessedVariant {
   readonly product: MerchantProduct;
-  readonly variant: MerchantVariant;
+  readonly variant: LaptopMerchantVariant;
   readonly assessment: ReadinessAssessment;
   readonly explanation: SafeExplanation | null;
   /** Whether a quote can be requested. Depends only on catalog availability, never on the readiness label or on AI output. */
@@ -142,7 +142,7 @@ export async function buildShoppingView(runtime: Runtime, preferences: ShopperPr
   });
 
   const variants: AssessedVariant[] = [];
-  for (const product of runtime.catalog.products) {
+  for (const product of laptopProducts(runtime.catalog)) {
     for (const variant of product.variants) {
       const result = assessReadiness(
         {
@@ -283,7 +283,7 @@ function recommendationsFrom(
   const recommendations: AdvisoryRecommendation[] = [];
   for (const reference of references) {
     const entry = findMerchantVariant(runtime.catalog, reference.productId, reference.variantId);
-    if (!entry) continue;
+    if (!entry || !isLaptopVariant(entry.variant)) continue;
     recommendations.push({
       productId: entry.product.productId,
       variantId: entry.variant.variantId,
@@ -460,7 +460,7 @@ function assessGuidedVariants(runtime: Runtime, preferences: ShopperPreferences)
     observedAt: now.toISOString(),
   });
   const lines: GuidedAssessed[] = [];
-  for (const product of runtime.catalog.products) {
+  for (const product of laptopProducts(runtime.catalog)) {
     for (const variant of product.variants) {
       const result = assessReadiness(
         {

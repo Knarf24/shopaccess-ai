@@ -1,3 +1,4 @@
+import { isLaptopVariant } from "@/lib/catalog/schemas";
 import Image from "next/image";
 import { formatUsd } from "@/lib/catalog/merchant-catalog";
 import type { MerchantProduct } from "@/lib/catalog/schemas";
@@ -9,6 +10,8 @@ const AVAILABILITY_LABELS = {
 } as const;
 
 export function MerchantProductCard({ product, merchantName }: { product: MerchantProduct; merchantName: string }) {
+  if (!product.variants.every(isLaptopVariant)) return null;
+  const variants = product.variants.filter(isLaptopVariant);
   const headingId = `product-${product.productId}`;
   return (
     <article aria-labelledby={headingId} className="flex flex-col gap-3 rounded-lg border border-zinc-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
@@ -19,7 +22,7 @@ export function MerchantProductCard({ product, merchantName }: { product: Mercha
       <p className="text-sm text-zinc-700 dark:text-zinc-300">{product.description}</p>
       <p className="text-xs text-zinc-600 dark:text-zinc-400">Sold by {merchantName}.</p>
       <ul className="flex flex-col gap-3">
-        {product.variants.map((variant) => (
+        {variants.map((variant) => (
           <li key={variant.variantId} className="rounded border border-zinc-200 p-3 text-sm dark:border-zinc-700">
             <p className="font-medium">{variant.label}</p>
             <p>

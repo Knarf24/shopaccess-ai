@@ -1,3 +1,4 @@
+import { isLaptopVariant } from "@/lib/catalog/schemas";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -389,7 +390,7 @@ describe("guided needs flow", () => {
     const observedAt = runtime.clock().toISOString();
     const product = runtime.catalog.products.find((entry) => entry.productId === "dmp_aspirego15");
     const variant = product?.variants.find((entry) => entry.variantId === "dmv_aspirego15");
-    if (!product || !variant) throw new Error("catalog fixture missing");
+    if (!product || !variant || !isLaptopVariant(variant)) throw new Error("catalog fixture missing");
     expect(variant.unitAmountCents).toBe(57999);
     const assessed = assessReadiness(
       {
@@ -870,7 +871,7 @@ describe("guided needs flow", () => {
     const { runtime } = world();
     const product = runtime.catalog.products.find((entry) => entry.productId === "dmp_aspirego15");
     const variant = product?.variants.find((entry) => entry.variantId === "dmv_aspirego15");
-    if (!product || !variant) throw new Error("catalog fixture missing");
+    if (!product || !variant || !isLaptopVariant(variant)) throw new Error("catalog fixture missing");
     const observedAt = runtime.clock().toISOString();
     const assessed = assessReadiness(
       {

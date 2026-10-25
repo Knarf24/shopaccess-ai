@@ -1,3 +1,4 @@
+import { isLaptopVariant } from "@/lib/catalog/schemas";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -82,7 +83,7 @@ describe("demo merchant catalog", () => {
 
     for (const row of expected) {
       const entry = findMerchantVariant(DEMO_MERCHANT_CATALOG, row.productId, row.variantId);
-      if (!entry) throw new Error(row.productId);
+      if (!entry || !isLaptopVariant(entry.variant)) throw new Error(row.productId);
       expect(entry.product.variants).toHaveLength(1);
       expect(entry.variant.unitAmountCents).toBe(row.unitAmountCents);
       expect(entry.variant.specs.ramGb).toBe(row.ramGb);

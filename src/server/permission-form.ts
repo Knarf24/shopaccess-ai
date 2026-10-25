@@ -1,3 +1,4 @@
+import { isLaptopVariant } from "@/lib/catalog/schemas";
 import { findMerchantVariant } from "@/lib/catalog/merchant-catalog";
 import type { MerchantCatalog } from "@/lib/catalog/schemas";
 import type { PermissionFormCode } from "@/lib/i18n/permission-copy";
@@ -35,7 +36,7 @@ export interface PermissionFormInput {
 export function parsePermissionForm(input: PermissionFormInput, catalog: MerchantCatalog): PermissionFormResult {
   const item = ITEM.exec(input.item ?? "");
   const entry = item ? findMerchantVariant(catalog, item[1], item[2]) : undefined;
-  if (!item || !entry) return { ok: false, code: "ITEM_INVALID", field: "item" };
+  if (!item || !entry || !isLaptopVariant(entry.variant)) return { ok: false, code: "ITEM_INVALID", field: "item" };
   const quantityText = input.quantity ?? "";
   const maxQuantity = QUANTITY.test(quantityText) ? Number(quantityText) : NaN;
   if (!Number.isInteger(maxQuantity) || maxQuantity > entry.variant.maxQuantityPerOrder) return { ok: false, code: "QUANTITY_INVALID", field: "quantity" };
