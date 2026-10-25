@@ -123,7 +123,8 @@ function render(next) {
 }
 
 async function refresh() {
-  render(await call('/conversation'));
+  // A POST so that Chrome always sends the extension's Origin (the originless GET read is retired).
+  render(await call('/conversation', {}));
 }
 
 async function action(fn) {

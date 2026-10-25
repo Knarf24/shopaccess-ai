@@ -52,7 +52,7 @@ async function exchange(runtime: Runtime, pairing: { pairingId: string; exchange
   return (await response.json()).value as { bearer: string; grantId: string; expiresAt: number };
 }
 
-const read = (runtime: Runtime, bearer: string) => handleExtensionConversation(new Request(`${API}/conversation`, { headers: { origin: EXT, authorization: `Bearer ${bearer}` } }), runtime);
+const read = (runtime: Runtime, bearer: string) => handleExtensionConversation(new Request(`${API}/conversation`, { method: "POST", headers: { origin: EXT, "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: "{}" }), runtime);
 
 describe("pairing approval on the website", () => {
   it("approve: the decision redirects with the result, and the panel then exchanges and reads", async () => {

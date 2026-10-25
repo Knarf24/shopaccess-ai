@@ -3,16 +3,15 @@
  * cookies give no authority here, and responses are never cached.
  *
  * - No allowed extension origins configured: every extension route is "not found".
- * - A present Origin must be exactly one of the allowed extension origins.
- * - An absent Origin is accepted only for GET of the conversation read with `Sec-Fetch-Site: none`; the caller must then
- *   still authenticate a read-scoped bearer token. Sec-Fetch-Site is an extra restriction, not authentication.
- * - Every other originless request, mutation or preflight is refused.
+ * - Every request must carry an Origin that is exactly one of the allowed extension origins; an absent Origin is refused.
+ *   The earlier originless conversation-read rule (GET with `Sec-Fetch-Site: none`) is retired: the panel now reads with a
+ *   POST, which always carries its Origin, and a token is always checked against the extension that paired it.
+ *   An Origin is not authentication: a non-browser client holding a stolen token can still claim an allowed Origin.
  */
 
-export const EXTENSION_CONVERSATION_PATH = "/api/extension/v1/conversation";
 const MAX_BODY_BYTES = 16_384;
 
-export type ExtensionGuard = { readonly ok: true; readonly origin: string | null } | { readonly ok: false; readonly response: Response };
+export type ExtensionGuard = { readonly ok: true; readonly origin: string } | { readonly ok: false; readonly response: Response };
 
 export function extensionJson(body: unknown, status: number, origin: string | null): Response {
   const headers: Record<string, string> = { "cache-control": "no-store", vary: "Origin" };
@@ -24,25 +23,11 @@ export function refuseExtension(code: string, status: number, origin: string | n
   return extensionJson({ ok: false, code }, status, origin);
 }
 
-/** True only for the reviewed originless read. Exported for tests. */
-export function originlessConversationRead(request: Request): boolean {
-  return (
-    request.headers.get("origin") === null &&
-    request.method === "GET" &&
-    new URL(request.url).pathname === EXTENSION_CONVERSATION_PATH &&
-    request.headers.get("sec-fetch-site") === "none"
-  );
-}
-
 export function guardExtensionRequest(request: Request, allowed: ReadonlySet<string>): ExtensionGuard {
   if (allowed.size === 0) return { ok: false, response: refuseExtension("NOT_FOUND", 404) };
   const origin = request.headers.get("origin");
-  if (origin !== null) {
-    if (!allowed.has(origin)) return { ok: false, response: refuseExtension("ORIGIN_DENIED", 403) };
-    return { ok: true, origin };
-  }
-  if (originlessConversationRead(request)) return { ok: true, origin: null };
-  return { ok: false, response: refuseExtension("ORIGIN_DENIED", 403) };
+  if (origin === null || !allowed.has(origin)) return { ok: false, response: refuseExtension("ORIGIN_DENIED", 403) };
+  return { ok: true, origin };
 }
 
 /** CORS preflight for an allowed extension origin only. */
