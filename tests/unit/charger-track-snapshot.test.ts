@@ -427,3 +427,73 @@ describe("memory mode", () => {
     expect([...chargerTracksOf(store).keys()]).toEqual([sid(3)]);
   });
 });
+
+describe("format 8: explicitly selected fresh test stores only", () => {
+  it("refuses format 7 in format-8 mode without changing any file bytes", async () => {
+    const bytes = file(7, body7([]));
+    const directory = disposableDirectory(bytes);
+    expect((await openFoundationStore(directory, KEY, { format8TestStore: true })).status).toBe("unavailable");
+    expect(fs.readFileSync(join(directory, "store.json"))).toEqual(bytes);
+  });
+  it("refuses format 8 in ordinary mode and keeps format 7 available", async () => {
+    expect((await open(file(8, body7([])))).opened.status).toBe("unavailable");
+    expect((await open(file(7, body7([])))).opened.status).toBe("ready");
+  });
+  it("preserves a confirmed budget and revision across recovery and a durable commit", async () => {
+    const track = entry(1, "confirmed", 12, "Mac14,2", { budget: { proposedCents: 5900, confirmedCents: 5900 } });
+    const directory = disposableDirectory(file(8, body7([track])));
+    const opened = await openFoundationStore(directory, KEY, { format8TestStore: true });
+    expect(opened.status).toBe("ready");
+    if (opened.status !== "ready") throw Error("setup");
+    const recovered = await recoverStateGate(opened.value, NOW);
+    expect(recovered.status).toBe("ready");
+    expect(onDisk(directory).format).toBe(8);
+    expect(onDisk(directory).body.chargerTracks).toEqual([track]);
+  });
+  it.each([
+    { proposedCents: 5999, confirmedCents: null },
+    { proposedCents: 5900, confirmedCents: 6000 },
+    { proposedCents: 0, confirmedCents: null },
+    { proposedCents: 5900, confirmedCents: null, extra: true },
+    null,
+  ])("rejects malformed budget state %j", async budget => {
+    const directory = disposableDirectory(file(8, body7([entry(1, "confirmed", 4, "Mac14,2", { budget })])));
+    expect((await openFoundationStore(directory, KEY, { format8TestStore: true })).status).toBe("unavailable");
+  });
+  it("refuses budget fields in format 7 and on an unconfirmed model", async () => {
+    const budget = { proposedCents: 5900, confirmedCents: null };
+    expect((await open(file(7, body7([entry(1, "confirmed", 4, "Mac14,2", { budget })])))).opened.status).toBe("unavailable");
+    const directory = disposableDirectory(file(8, body7([entry(1, "candidate", 4, "Mac14,2", { budget })])));
+    expect((await openFoundationStore(directory, KEY, { format8TestStore: true })).status).toBe("unavailable");
+  });
+  it("initializes an empty format-8 test store explicitly", async () => {
+    const directory = fs.mkdtempSync(join(tmpdir(), "sa-budget-fresh-"));
+    fs.chmodSync(directory, 0o700); directories.push(directory);
+    const keyFile = join(directory, "identity.key");
+    fs.writeFileSync(keyFile, KEY, { mode: 0o600 });
+    const opened = await openFoundationStore(directory, KEY, { format8TestStore: true, initializeEmpty: { keyFile } });
+    expect(opened.status).toBe("ready");
+    expect(onDisk(directory).format).toBe(8);
+    expect(onDisk(directory).body.permissions).toEqual([]);
+  });
+});
+
+describe("format-8 permission recovery remains separate from charger budget", () => {
+  it("never reactivates consumed, revoked or expired permissions", async () => {
+    const permissions = ["consumed", "revoked", "expired", "reserved"].map((state, i) => ({
+      permissionId: `prm_${(i + 1).toString(16).padStart(32, "0")}`, sessionId: sid(1), merchantId: "dmm_shopaccessdemo",
+      productId: `dmp_product${i}`, variantId: `dmv_variant${i}`, maxQuantity: 1, maxTotalCents: 60000, currency: "USD",
+      createdAt: T0, expiresAt: at(3600000), state,
+      checkoutIntentId: state === "consumed" || state === "reserved" ? `ci_${(i + 1).toString(16).padStart(32, "0")}` : null,
+      changedAt: at(1000),
+    }));
+    const track = entry(1, "confirmed", 12, "Mac14,2", { budget: { proposedCents: 5900, confirmedCents: 5900 } });
+    const directory = disposableDirectory(file(8, body7([track], { permissions })));
+    const opened = await openFoundationStore(directory, KEY, { format8TestStore: true });
+    expect(opened.status).toBe("ready");
+    if (opened.status !== "ready") throw Error("setup");
+    expect((await recoverStateGate(opened.value, NOW)).status).toBe("ready");
+    expect(onDisk(directory).body.permissions.map(p => p.state)).toEqual(["consumed", "revoked", "expired", "active"]);
+    expect(onDisk(directory).body.chargerTracks).toEqual([track]);
+  });
+});

@@ -78,13 +78,13 @@ function postRawControl(fields: URLSearchParams, buyer: Awaited<ReturnType<typeo
   });
 }
 
-async function realDisposableSnapshot() {
+async function realDisposableSnapshot(budget = false) {
   const directory = fs.mkdtempSync(join(tmpdir(), "sa-charger-slice2-"));
   fs.rmSync(directory, { recursive: true, force: true });
   const keyFile = `${directory}.key`;
   fs.writeFileSync(keyFile, "charger-conversation-test-key", { mode: 0o600 });
   disposableStores.push(directory, keyFile);
-  const foundation = await openFoundationStore(directory, new Uint8Array(), { initializeEmpty: { keyFile } });
+  const foundation = await openFoundationStore(directory, new Uint8Array(), { initializeEmpty: { keyFile }, format8TestStore: budget });
   if (foundation.status !== "ready") throw new Error("disposable snapshot unavailable");
   const time = createTestClock();
   let beforeCommit: (() => Promise<void>) | null = null;
@@ -99,7 +99,7 @@ async function realDisposableSnapshot() {
   };
   const wrappedGate = await recoverStateGate(wrapped, time.clock());
   if (wrappedGate.status !== "ready") throw new Error("wrapped disposable snapshot recovery failed");
-  const wrappedRuntime = createRuntime({ sessionKey: TEST_SESSION_KEY, trustedOrigins: parseTrustedOrigins([SITE]) }, { clock: time.clock, gate: wrappedGate.gate });
+  const wrappedRuntime = createRuntime({ sessionKey: TEST_SESSION_KEY, trustedOrigins: parseTrustedOrigins([SITE]) }, { clock: time.clock, gate: wrappedGate.gate, chargerBudgetTestStore: budget });
   return { directory, foundation: wrapped, runtime: wrappedRuntime, time, holdNextCommit(callback: () => Promise<void>) { beforeCommit = callback; } };
 }
 
@@ -682,5 +682,55 @@ describe("charger clarification through the guided conversation", () => {
     expect(conversation.turns.filter((turn) => turn.role === "assistant").at(-1)?.text).toBe("charger_model");
     expect(conversation.turns.at(-1)).toEqual({ role: "assistant", text: "charger_model" });
     expect(interpretation).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("charger budget website controls on a fresh format-8 test store", () => {
+  it("proposes and confirms separately, ignores laptop budget, and refuses a stale replay", async () => {
+    const world = await realDisposableSnapshot(true);
+    const buyer = await shopper(world.runtime);
+    await handleNeedsSubmit(postNeeds("charger for Mac14,2", "en", buyer), world.runtime);
+    let track = chargerTracksOf(world.runtime.store).get(buyer.sessionId)!;
+    await handleChargerControl(postControl({ draftId: track.draftId, revision: String(track.revision), action: "confirm" }, buyer), world.runtime);
+    track = chargerTracksOf(world.runtime.store).get(buyer.sessionId)!;
+    const fields = { draftId: track.draftId, revision: String(track.revision), action: "propose_budget", dollars: "59" };
+    expect((await handleChargerControl(postControl(fields, buyer), world.runtime)).headers.get("location")).toBe("/en/shop/needs");
+    track = chargerTracksOf(world.runtime.store).get(buyer.sessionId)!;
+    expect(track.budget).toEqual({ proposedCents: 5900, confirmedCents: null });
+    expect((await handleChargerControl(postControl(fields, buyer), world.runtime)).headers.get("location")).toContain("STALE_DRAFT");
+    await handleChargerControl(postControl({ draftId: track.draftId, revision: String(track.revision), action: "confirm_budget" }, buyer), world.runtime);
+    track = chargerTracksOf(world.runtime.store).get(buyer.sessionId)!;
+    expect(track.budget).toEqual({ proposedCents: 5900, confirmedCents: 5900 });
+    expect(needsDraftsFor(world.runtime.store).get(buyer.sessionId)!.confirmedBudgetDollars).toBeNull();
+    const saved = JSON.parse(fs.readFileSync(join(world.directory, "store.json"), "utf8"));
+    expect(saved.format).toBe(8);
+    expect(saved.body.chargerTracks[0]).toEqual(track);
+    const recovered = await recoverStateGate(world.foundation, world.time.clock());
+    expect(recovered.status).toBe("ready");
+    expect(JSON.parse(fs.readFileSync(join(world.directory, "store.json"), "utf8")).body.chargerTracks[0]).toEqual(track);
+  });
+  it("refuses budget actions on an ordinary format-7 store", async () => {
+    const world = await realDisposableSnapshot();
+    const buyer = await shopper(world.runtime);
+    const response = await handleChargerControl(postControl({ draftId: "nd_" + "a".repeat(32), revision: "1", action: "propose_budget", dollars: "59" }, buyer), world.runtime);
+    expect(response.headers.get("location")).toContain("CLARIFICATION_INVALID");
+    expect(JSON.parse(fs.readFileSync(join(world.directory, "store.json"), "utf8")).format).toBe(7);
+  });
+});
+
+describe("charger budget save failure", () => {
+  it("does not publish an uncommitted budget proposal", async () => {
+    const world = await realDisposableSnapshot(true);
+    const buyer = await shopper(world.runtime);
+    await handleNeedsSubmit(postNeeds("charger for Mac14,2", "en", buyer), world.runtime);
+    let track = chargerTracksOf(world.runtime.store).get(buyer.sessionId)!;
+    await handleChargerControl(postControl({ draftId: track.draftId, revision: String(track.revision), action: "confirm" }, buyer), world.runtime);
+    track = chargerTracksOf(world.runtime.store).get(buyer.sessionId)!;
+    const before = fs.readFileSync(join(world.directory, "store.json"));
+    world.holdNextCommit(async () => { throw new Error("injected save failure"); });
+    await expect(handleChargerControl(postControl({ draftId: track.draftId, revision: String(track.revision), action: "propose_budget", dollars: "59" }, buyer), world.runtime)).rejects.toThrow();
+    expect(chargerTracksOf(world.runtime.store).get(buyer.sessionId)).toEqual(track);
+    expect(fs.readFileSync(join(world.directory, "store.json"))).toEqual(before);
   });
 });

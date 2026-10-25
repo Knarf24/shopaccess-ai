@@ -8,6 +8,10 @@ import { canonicalJson } from "../shared/canonical-json";
 import type { NeedsDraft, RetainedRecommendation, SessionRecord } from "./store";
 
 /**
+ * Format 8 is available only through the explicit format8TestStore option on a fresh test store. It adds an optional
+ * charger budget to a confirmed track. This mode refuses all earlier formats; ordinary mode refuses format 8.
+ * Neither mode migrates a format-7 store to format 8. See docs/charger-budget-test-store.md.
+ *
  * Format 7 (proposed, F03 conversation slice 1; merge separately gated) appends `chargerTracks`: one charger
  * clarification record per session, bound to that session's current draft (see charger-clarification.ts). It also lets
  * an assistant conversation line hold one of the five charger line keys. Formats 1–6 are still read and upgrade with
@@ -127,7 +131,7 @@ type SnapshotSession = {
   readonly revokedAt: string | null;
 };
 
-type Format = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type Format = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 type SnapshotDraft = NeedsDraft & { readonly sessionId: string };
 
@@ -196,6 +200,7 @@ export type SnapshotChargerTrack = {
   readonly state: "closed" | "task_choice" | "awaiting_model" | "candidate" | "confirmed";
   readonly deviceId: "Mac14,2" | "MacBookPro12,1" | null;
   readonly revision: number;
+  readonly budget?: { readonly proposedCents: number; readonly confirmedCents: number | null };
 };
 
 /** Last issued version after the profile row was removed. No brand and no model. */
@@ -238,6 +243,8 @@ export type OpenResult =
   | { readonly status: "unavailable"; readonly code: string };
 
 export type OpenOptions = {
+  /** Explicit fresh-test-store mode. Refuses every existing format other than 8; never migrates it. */
+  readonly format8TestStore?: boolean;
   readonly directoryFsync?: (fd: number) => Promise<void>;
   readonly temporaryWrite?: (fd: number, bytes: Buffer) => Promise<void>;
   readonly beforePathRecheck?: () => Promise<void>;
@@ -246,6 +253,7 @@ export type OpenOptions = {
 
 type StoreState = {
   faulted: boolean;
+  writeFormat: 7 | 8;
   published: PublishedSnapshot | null;
   directory: string;
   keyBytes: Buffer;
@@ -291,7 +299,7 @@ export async function openFoundationStore(directory: string, keyBytes: Uint8Arra
     }
     let activeKey = key;
     if (options.initializeEmpty) {
-      const created = await writeEmptyIfAbsent(directory, directoryHandle, options.initializeEmpty.keyFile, options.directoryFsync);
+      const created = await writeEmptyIfAbsent(directory, directoryHandle, options.initializeEmpty.keyFile, options.directoryFsync, options.format8TestStore ? 8 : 7);
       if (!created.ok) {
         await closeQuiet(lockHandle);
         await closeQuiet(directoryHandle);
@@ -300,13 +308,14 @@ export async function openFoundationStore(directory: string, keyBytes: Uint8Arra
       activeKey = Buffer.from(created.bytes);
     }
     const loaded = await readVerified(directory, activeKey);
-    if (!loaded.ok) {
+    if (!loaded.ok || (loaded.value.format === 8) !== (options.format8TestStore === true)) {
       await closeQuiet(lockHandle);
       await closeQuiet(directoryHandle);
-      return unavailable(loaded.code);
+      return unavailable(loaded.ok ? "test-format-mismatch" : loaded.code);
     }
     const state: StoreState = {
       faulted: false,
+      writeFormat: options.format8TestStore ? 8 : 7,
       published: loaded.value,
       directory,
       keyBytes: activeKey,
@@ -329,10 +338,10 @@ export async function openFoundationStore(directory: string, keyBytes: Uint8Arra
  * Opens an initialised store with its identity key read from `keyFile` (a 0600 regular file owned by this user, not a
  * symlink). Used only by src/server/runtime-access.ts. Codes only; never a path or key byte.
  */
-export async function openFoundationStoreWithKeyFile(directory: string, keyFile: string): Promise<OpenResult> {
+export async function openFoundationStoreWithKeyFile(directory: string, keyFile: string, options: Pick<OpenOptions, "format8TestStore"> = {}): Promise<OpenResult> {
   const key = await readKeyFile(keyFile);
   if (!key.ok) return unavailable("key-file");
-  return openFoundationStore(directory, key.bytes);
+  return openFoundationStore(directory, key.bytes, options);
 }
 
 function createStore(state: StoreState): FoundationStore {
@@ -368,9 +377,9 @@ function definite(): CommitResult {
 async function commitBody(state: StoreState, body: unknown): Promise<CommitResult> {
   // A faulted store already had an indeterminate commit; it stays indeterminate until reopened.
   if (state.faulted) return { status: "unavailable", outcome: "indeterminate" };
-  const parsed = parseBody(body, FORMAT);
+  const parsed = parseBody(body, state.writeFormat);
   if (!parsed) return definite();
-  const snapshot = seal(parsed, state.keyBytes);
+  const snapshot = seal(parsed, state.keyBytes, state.writeFormat);
   const tempPath = join(state.directory, `store.json.tmp.${randomBytes(8).toString("hex")}`);
   const bytes = Buffer.from(JSON.stringify(snapshot), "utf8");
   // Refuse before writing anything that could not be read back on the next open.
@@ -439,12 +448,13 @@ async function writeEmptyIfAbsent(
   directoryHandle: fs.promises.FileHandle,
   keyFile: string,
   directoryFsync: ((fd: number) => Promise<void>) | undefined,
+  format: 7 | 8,
 ): Promise<{ ok: true; bytes: Buffer } | { ok: false; code: string }> {
   const existing = await lstatOrNull(join(directory, "store.json"));
   if (existing) return { ok: false, code: existing.isSymbolicLink() ? "symlink-store" : "already-present" };
   const key = await readKeyFile(keyFile);
   if (!key.ok) return key;
-  const snapshot = seal(emptyBody(), key.bytes);
+  const snapshot = seal(emptyBody(), key.bytes, format);
   const tempPath = join(directory, `store.json.tmp.${randomBytes(8).toString("hex")}`);
   const bytes = Buffer.from(JSON.stringify(snapshot), "utf8");
   let temp: fs.promises.FileHandle | null = null;
@@ -530,6 +540,7 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
   }
   if (!isRecord(parsed) || !hasExactKeys(parsed, ["format", "identity", "sha256", "body"])) return null;
   if (
+    parsed.format !== 8 &&
     parsed.format !== FORMAT &&
     parsed.format !== FORMAT_6 &&
     parsed.format !== FORMAT_5 &&
@@ -553,7 +564,7 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
               ? 5
               : parsed.format === FORMAT_6
                 ? 6
-                : 7;
+                : parsed.format === 8 ? 8 : 7;
   if (typeof parsed.identity !== "string" || !HEX_64.test(parsed.identity)) return null;
   if (typeof parsed.sha256 !== "string" || !HEX_64.test(parsed.sha256)) return null;
   if (parsed.identity !== identityFor(key)) return null;
@@ -714,7 +725,7 @@ function parseBody(value: unknown, format: Format): PublishedBody | null {
   if (!Array.isArray(value.chargerTracks) || value.chargerTracks.length > value.sessions.length) return null;
   const trackSessions = new Set<string>();
   for (const entry of value.chargerTracks) {
-    const sessionId = chargerTrackIdentity(entry, draftOf);
+    const sessionId = chargerTrackIdentity(entry, draftOf, format);
     if (!sessionId || trackSessions.has(sessionId)) return null;
     trackSessions.add(sessionId);
   }
@@ -726,8 +737,16 @@ function parseBody(value: unknown, format: Format): PublishedBody | null {
  * identifier exactly for `candidate` and `confirmed`, and null otherwise. Revision 0 and a revision past the maximum are
  * rejected, not wrapped.
  */
-function chargerTrackIdentity(value: unknown, draftOf: ReadonlyMap<string, string>): string | null {
-  if (!isRecord(value) || !hasExactKeys(value, ["sessionId", "draftId", "state", "deviceId", "revision"])) return null;
+function chargerTrackIdentity(value: unknown, draftOf: ReadonlyMap<string, string>, format: Format): string | null {
+  if (!isRecord(value)) return null;
+  const keys = ["sessionId", "draftId", "state", "deviceId", "revision"];
+  if (!hasExactKeys(value, format === 8 && "budget" in value ? [...keys, "budget"] : keys)) return null;
+  if ("budget" in value) {
+    if (value.state !== "confirmed" || !isRecord(value.budget) || !hasExactKeys(value.budget, ["proposedCents", "confirmedCents"])) return null;
+    const { proposedCents, confirmedCents } = value.budget;
+    if (!isBoundedInteger(proposedCents, 1000, 9999900) || (proposedCents as number) % 100 !== 0) return null;
+    if (confirmedCents !== null && confirmedCents !== proposedCents) return null;
+  }
   if (typeof value.sessionId !== "string" || typeof value.draftId !== "string") return null;
   if (!draftOf.has(value.sessionId) || draftOf.get(value.sessionId) !== value.draftId) return null;
   if (typeof value.state !== "string") return null;
@@ -990,10 +1009,10 @@ function emptyBody(): PublishedBody {
   };
 }
 
-function seal(body: PublishedBody, key: Buffer): PublishedSnapshot {
+function seal(body: PublishedBody, key: Buffer, format: 7 | 8): PublishedSnapshot {
   const identity = identityFor(key);
   const sha256 = checksumFor(body);
-  return { format: FORMAT, identity, sha256, body };
+  return { format, identity, sha256, body };
 }
 
 function identityFor(key: Buffer): string {

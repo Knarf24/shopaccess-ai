@@ -15,7 +15,7 @@ const directory = flag("--directory");
 const keyFile = flag("--key-file");
 if (!directory || !keyFile || args.length !== 4) process.exit(1);
 
-const opened = await openFoundationStore(directory, new Uint8Array(), { initializeEmpty: { keyFile } });
+const opened = await openFoundationStore(directory, new Uint8Array(), { initializeEmpty: { keyFile }, format8TestStore: process.env.SHOPACCESS_CHARGER_BUDGET_TEST_STORE === "1" });
 if (opened.status !== "ready") process.exit(1);
 const published = opened.value.readPublished();
 process.exit(published.status === "ready" ? 0 : 1);

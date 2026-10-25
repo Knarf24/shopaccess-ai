@@ -171,7 +171,7 @@ export function bodyFromState(state: DurableState): PublishedBody {
       .map((revision) => ({ sessionId: revision.sessionId, version: revision.version })),
     chargerTracks: [...state.chargerTracks]
       .filter(([sessionId, track]) => track.sessionId === sessionId && draftOf.get(sessionId) === track.draftId)
-      .map(([, track]) => ({ sessionId: track.sessionId, draftId: track.draftId, state: track.state, deviceId: track.deviceId, revision: track.revision })),
+      .map(([, track]) => ({ sessionId: track.sessionId, draftId: track.draftId, state: track.state, deviceId: track.deviceId, revision: track.revision, ...(track.budget ? { budget: { ...track.budget } } : {}) })),
   };
 }
 
@@ -267,7 +267,7 @@ export function restoreState(body: PublishedBody, now: Date): RecoveredState {
   const chargerTracks = new Map<string, ChargerTrack>();
   for (const track of body.chargerTracks) {
     if (drafts.get(track.sessionId)?.draftId !== track.draftId) continue;
-    chargerTracks.set(track.sessionId, { sessionId: track.sessionId, draftId: track.draftId, state: track.state, deviceId: track.deviceId, revision: track.revision });
+    chargerTracks.set(track.sessionId, { sessionId: track.sessionId, draftId: track.draftId, state: track.state, deviceId: track.deviceId, revision: track.revision, ...(track.budget ? { budget: { ...track.budget } } : {}) });
   }
   // Markers of restored sessions only. A dead session's marker is dropped with the session. Text is not stored here.
   const profileRevisions = body.profileRevisions
