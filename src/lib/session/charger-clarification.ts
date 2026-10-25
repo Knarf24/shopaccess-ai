@@ -1,3 +1,5 @@
+import { MAX_CHARGER_REVISION } from "./charger-revision";
+import { applyChargerBudget } from "./charger-budget";
 import type { ChargerTextReading } from "../compatibility/charger-intent";
 import { DEVICE_IDS, type DeviceId } from "../compatibility/evidence";
 import type { NeedsNotice } from "../i18n/needs-notice";
@@ -29,6 +31,8 @@ export interface ChargerTrack {
   /** Set exactly for `candidate` and `confirmed`. */
   readonly deviceId: DeviceId | null;
   readonly revision: number;
+  /** Present only after an explicit budget proposal for the confirmed device. */
+  readonly budget?: { readonly proposedCents: number; readonly confirmedCents: number | null };
 }
 
 /** Assistant lines stored in the conversation. None of them names a device. */
@@ -36,7 +40,7 @@ export type ChargerLine = "charger_task_choice" | "charger_model" | "charger_rev
 
 export const CHARGER_LINES: readonly ChargerLine[] = ["charger_task_choice", "charger_model", "charger_review", "charger_shown", "charger_closed"];
 
-export const MAX_CHARGER_REVISION = 999_999_999;
+export { MAX_CHARGER_REVISION } from "./charger-revision";
 
 const LINE_FOR: Readonly<Record<ChargerState, ChargerLine>> = {
   closed: "charger_closed",
@@ -122,6 +126,8 @@ export function routeChargerText(input: {
 }
 
 export type ChargerControl =
+  | { readonly action: "propose_budget"; readonly dollars: string }
+  | { readonly action: "confirm_budget" }
   | { readonly action: "choose_task"; readonly task: "charger" | "laptop" }
   | { readonly action: "choose_model"; readonly device: string }
   | { readonly action: "confirm" }
@@ -163,6 +169,20 @@ export function applyChargerControl(
 ): ChargerControlResult {
   const track = own(existing, input.sessionId, input.draftId);
   if (!track || track.revision !== input.revision) return { kind: "stale" };
+  if (input.control.action === "propose_budget" || input.control.action === "confirm_budget") {
+    if (track.state !== "confirmed" || !track.deviceId) return { kind: "not_allowed" };
+    const action = input.control.action === "propose_budget"
+      ? { action: "propose" as const, dollars: input.control.dollars }
+      : { action: "confirm" as const };
+    const changed = applyChargerBudget({
+      sessionId: track.sessionId, draftId: track.draftId, revision: track.revision, deviceId: track.deviceId,
+      proposedCents: track.budget?.proposedCents ?? null, confirmedCents: track.budget?.confirmedCents ?? null,
+    }, { sessionId: input.sessionId, draftId: input.draftId, revision: input.revision, ...action });
+    if (!changed.ok) return changed.code === "LIMIT" ? { kind: "refused", code: "CHARGER_LIMIT" } : { kind: "not_allowed" };
+    return { kind: "applied", track: { ...track, revision: changed.value.revision, budget: {
+      proposedCents: changed.value.proposedCents!, confirmedCents: changed.value.confirmedCents,
+    } }, line: chargerLineFor(track.state) };
+  }
   const next = controlTarget(track, input.control);
   if (!next) return { kind: "not_allowed" };
   const advanced = advance(track, input.sessionId, input.draftId, next);

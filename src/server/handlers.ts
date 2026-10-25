@@ -268,13 +268,22 @@ function needsBack(language: JourneyLanguage, code?: string, failure?: string | 
 }
 
 function chargerControlFromForm(form: URLSearchParams): ChargerControl | null {
-  const allowed = new Set(["csrfToken", "lang", "draftId", "revision", "action", "task", "device"]);
+  const allowed = new Set(["csrfToken", "lang", "draftId", "revision", "action", "task", "device", "dollars"]);
   const values = new Map<string, string>();
   for (const [key, value] of form) {
     if (!allowed.has(key) || values.has(key)) return null;
     values.set(key, value);
   }
   const action = values.get("action");
+  if (action === "propose_budget") {
+    if (values.has("task") || values.has("device")) return null;
+    const dollars = values.get("dollars");
+    return dollars === undefined ? null : { action, dollars };
+  }
+  if (values.has("dollars")) return null;
+  if (action === "confirm_budget") {
+    return values.has("task") || values.has("device") ? null : { action };
+  }
   if (action === "choose_task") {
     if (values.has("device")) return null;
     const task = values.get("task");
@@ -302,6 +311,7 @@ export async function handleChargerControl(request: Request, runtime: Runtime): 
   const draftId = form.get("draftId") ?? "";
   const rawRevision = form.get("revision") ?? "";
   const control = chargerControlFromForm(form);
+  if (control && (control.action === "propose_budget" || control.action === "confirm_budget") && !runtime.chargerBudgetEnabled) return seeOther(needsBack(requestedLanguage, "CLARIFICATION_INVALID"));
   if (!/^nd_[0-9a-f]{32}$/.test(draftId) || !/^[1-9][0-9]{0,8}$/.test(rawRevision) || !control) {
     return seeOther(needsBack(requestedLanguage, "CLARIFICATION_INVALID"));
   }

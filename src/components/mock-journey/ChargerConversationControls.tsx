@@ -1,3 +1,4 @@
+import { chargerBudgetCopy } from "@/lib/i18n/charger-budget-copy";
 import { DEVICE_IDS, EVIDENCE, type DeviceId } from "@/lib/compatibility/evidence";
 import { chargerCopy } from "@/lib/i18n/charger-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
@@ -8,6 +9,7 @@ interface ChargerTrackView {
   readonly state: "closed" | "task_choice" | "awaiting_model" | "candidate" | "confirmed";
   readonly deviceId: DeviceId | null;
   readonly revision: number;
+  readonly budget?: { readonly proposedCents: number; readonly confirmedCents: number | null };
 }
 
 function ControlFields({
@@ -31,15 +33,18 @@ function ControlFields({
 
 /** Explicit server-rendered website actions. The extension may clarify by text but cannot confirm a device. */
 export function ChargerConversationControls({
+  budgetEnabled = false,
   csrfToken,
   language,
   track,
 }: {
+  readonly budgetEnabled?: boolean;
   readonly csrfToken: string;
   readonly language: JourneyLanguage;
   readonly track: ChargerTrackView;
 }) {
   const copy = chargerCopy(language);
+  const budgetCopy = chargerBudgetCopy(language);
   const formClass = "flex max-w-xl flex-col gap-3 rounded border border-zinc-400 p-4";
   const buttonClass = "rounded border border-zinc-700 px-4 py-2 text-left font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
   return (
@@ -87,6 +92,25 @@ export function ChargerConversationControls({
           <input type="hidden" name="action" value="change" />
           <button className={buttonClass} type="submit">{copy.changeModel}</button>
         </form>
+      ) : null}
+      {budgetEnabled && track.state === "confirmed" ? (
+        <section aria-label={budgetCopy.sectionLabel} className={formClass}>
+          <p>{budgetCopy.disclosure}</p>
+          <form method="post" action="/shop/needs/charger-control" className="flex flex-col gap-3">
+            <ControlFields csrfToken={csrfToken} language={language} track={track} />
+            <input type="hidden" name="action" value="propose_budget" />
+            <label htmlFor="charger-budget">{budgetCopy.amountLabel}</label>
+            <input id="charger-budget" name="dollars" inputMode="numeric" pattern="[1-9][0-9]{1,4}" required defaultValue={track.budget ? String(track.budget.proposedCents / 100) : ""} aria-describedby="charger-budget-hint" className="rounded border border-zinc-500 p-2" />
+            <p id="charger-budget-hint">{budgetCopy.amountHint}</p>
+            <button className={buttonClass} type="submit">{budgetCopy.reviewButton}</button>
+          </form>
+          {track.budget ? <p role="status">{budgetCopy.summaryLabel}: USD {track.budget.proposedCents / 100} — {track.budget.confirmedCents === null ? (budgetCopy.unconfirmed) : (budgetCopy.confirmed)}</p> : null}
+          {track.budget && track.budget.confirmedCents === null ? <form method="post" action="/shop/needs/charger-control">
+            <ControlFields csrfToken={csrfToken} language={language} track={track} />
+            <input type="hidden" name="action" value="confirm_budget" />
+            <button className={buttonClass} type="submit">{budgetCopy.confirmButton}</button>
+          </form> : null}
+        </section>
       ) : null}
       {track.state !== "closed" ? (
         <form method="post" action="/shop/needs/charger-control" className="max-w-xl">

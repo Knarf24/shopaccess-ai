@@ -44,6 +44,7 @@ import { createPgRuntime, type PgRuntime } from "./pg-runtime";
  * advisory configuration selects the external provider.
  */
 export interface Runtime {
+  readonly chargerBudgetEnabled: boolean;
   readonly clock: Clock;
   readonly ids: IdGenerator;
   readonly catalog: MerchantCatalog;
@@ -130,6 +131,7 @@ type RuntimeOverrides = {
   channel3Transport?: Channel3Transport;
   /** Snapshot persistence: the recovered save-first gate. Supplied only by openRuntime (runtime-access.ts) and tests. */
   gate?: StateGate;
+  chargerBudgetTestStore?: boolean;
 };
 
 export interface Channel3SearchRequest {
@@ -246,6 +248,7 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
   };
 
   const runtime: Runtime = {
+    chargerBudgetEnabled: overrides.chargerBudgetTestStore === true && overrides.gate !== undefined,
     clock,
     ids,
     catalog,
@@ -353,6 +356,10 @@ function environment(): Readonly<Record<string, string | undefined>> {
   return process.env;
 }
 
+export function chargerBudgetTestStoreRequested(): boolean {
+  return environment().SHOPACCESS_CHARGER_BUDGET_TEST_STORE === "1";
+}
+
 /** Snapshot persistence settings (M2-1). Values are paths; they are never logged or shown. */
 export type MockStoreSettings =
   | { readonly state: "absent" }
@@ -385,7 +392,7 @@ export function createSnapshotApplication(gate: StateGate): Application {
   const config = parseRuntimeConfig(env);
   return {
     mode: "mock",
-    runtime: config.ok ? { ok: true, value: createRuntime(config.value, { admission: resolveDemoAdmission(env, config.value.sessionKey), gate }) } : config,
+    runtime: config.ok ? { ok: true, value: createRuntime(config.value, { admission: resolveDemoAdmission(env, config.value.sessionKey), gate, chargerBudgetTestStore: env.SHOPACCESS_CHARGER_BUDGET_TEST_STORE === "1" }) } : config,
   };
 }
 

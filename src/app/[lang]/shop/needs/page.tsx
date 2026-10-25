@@ -203,12 +203,12 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             aiLimited={aiLimited}
             afterHistory={
               chargerTrack.state === "task_choice" ? (
-                <ChargerConversationControls csrfToken={session.csrfToken} language={language} track={chargerTrack} />
+                <ChargerConversationControls budgetEnabled={runtime.value.chargerBudgetEnabled} csrfToken={session.csrfToken} language={language} track={chargerTrack} />
               ) : null
             }
           />
           {chargerTrack.state === "task_choice" ? null : (
-            <ChargerConversationControls csrfToken={session.csrfToken} language={language} track={chargerTrack} />
+            <ChargerConversationControls budgetEnabled={runtime.value.chargerBudgetEnabled} csrfToken={session.csrfToken} language={language} track={chargerTrack} />
           )}
           {chargerTrack.state === "confirmed" && chargerTrack.deviceId ? (
             <ChargerInformation

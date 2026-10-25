@@ -1,0 +1,1 @@
+export const MAX_CHARGER_REVISION = 999_999_999;

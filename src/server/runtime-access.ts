@@ -1,7 +1,7 @@
 import { isPersistenceUnavailable } from "@/lib/session/durable";
 import { recoverStateGate, type StateGate } from "@/lib/session/snapshot-state";
 import { openFoundationStoreWithKeyFile, type FoundationStore } from "@/lib/session/snapshot-store";
-import { createSnapshotApplication, getApplication, mockStoreSettings, type Application, type MockStoreSettings } from "./runtime";
+import { chargerBudgetTestStoreRequested, createSnapshotApplication, getApplication, mockStoreSettings, type Application, type MockStoreSettings } from "./runtime";
 
 /**
  * The one way production code reaches the process application (M2-1, docs/m2-1-plan.md §9).
@@ -76,7 +76,7 @@ function processAccessor(): RuntimeAccessor {
   const created = createRuntimeAccess({
     settings: mockStoreSettings,
     memory: getApplication,
-    openStore: openFoundationStoreWithKeyFile,
+    openStore: (directory, keyFile) => openFoundationStoreWithKeyFile(directory, keyFile, { format8TestStore: chargerBudgetTestStoreRequested() }),
     recover: recoverStateGate,
     build: createSnapshotApplication,
     now: () => new Date(),
