@@ -9,6 +9,7 @@ import {
   createApi,
   createTurnIds,
   ensureInstallationId,
+  matchCodeDisplay,
   normalizeAppOrigin,
   POLL_DELAYS_MS,
   replyAnnouncement,
@@ -110,7 +111,7 @@ describe("side panel client against the M2-2 API", () => {
         },
       });
     expect(await poll()).toBe("pending");
-    await handleExtensionPairDecision(form("/extension/pair/decide", { pairingId: pairing.pairingId, decision: "approve", lang: "en" }), runtime);
+    await handleExtensionPairDecision(form("/extension/pair/decide", { pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "en" }), runtime);
     time.advance(5000);
     expect(await poll()).toBe("paired");
     expect(access).not.toBeNull();
@@ -214,5 +215,58 @@ describe("extension package", () => {
     const paths = [...panel.matchAll(/call\(`?'?([^`',)]+)/g)].map((m) => m[1]).sort();
     expect(paths).toEqual(["/conversation", "/conversation/turns", "/pairings/${p.pairingId}/exchange", "/pairings/${p.pairingId}/status"].sort());
     expect(read("client.mjs")).toMatch(/credentials: 'omit'/);
+  });
+});
+
+/** A runtime with one website session, for the finding-3 tests below. */
+async function codeWorld() {
+  const time = createTestClock();
+  const runtime = createRuntime({ sessionKey: TEST_SESSION_KEY, trustedOrigins: parseTrustedOrigins([SITE]), extensionOrigins: new Set([EXT]) }, { clock: time.clock });
+  const created = await handleNeedsSession(new Request(`${SITE}/session/needs`), runtime);
+  const token = created.headers.get("set-cookie")!.split(";")[0].split("=")[1];
+  const resolved = await runtime.sessions.resolve(token);
+  if (!resolved.ok) throw new Error("session");
+  const cookie = `${SESSION_COOKIE_NAME}=${token}`;
+  const form = (path: string, fields: Record<string, string>) =>
+    new Request(`${SITE}${path}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: SITE, "sec-fetch-site": "same-origin", cookie }, body: new URLSearchParams({ ...fields, csrfToken: resolved.value.csrfToken }).toString() });
+  return { time, runtime, form };
+}
+
+describe("finding 3: the matching code on the extension side", () => {
+  it("shows six digits in two groups and reads them one at a time, keeping leading zeros", () => {
+    expect(matchCodeDisplay("012345")).toEqual({ visual: "012 345", spoken: "0 1 2 3 4 5" });
+    expect(matchCodeDisplay("000000")).toEqual({ visual: "000 000", spoken: "0 0 0 0 0 0" });
+    for (const bad of [undefined, null, "", "12345", "1234567", "12a456", 123456]) expect(matchCodeDisplay(bad as never), String(bad)).toBeNull();
+  });
+
+  it("keeps the code from the start response only in session storage, and never sends it to status or exchange", async () => {
+    const { runtime, time, form } = await codeWorld();
+    const local = memoryStorage();
+    const session = memoryStorage();
+    const bodies: string[] = [];
+    const fetchImpl = (async (input: URL | string, init: RequestInit = {}) => {
+      if (init.body) bodies.push(String(init.body));
+      return handlerFetch(runtime, [])(input, init);
+    }) as typeof fetch;
+    const api = createApi({ origin: SITE, bearer: () => null, fetchImpl });
+    const pairing = await beginPairing({ api, session, installationId: await ensureInstallationId(local) });
+    expect(pairing.matchCode).toMatch(/^[0-9]{6}$/);
+    expect((session.data.get("pairing") as { matchCode: string }).matchCode).toBe(pairing.matchCode);
+    expect(JSON.stringify([...local.data.values()])).not.toContain(pairing.matchCode);
+    await handleExtensionPairDecision(form("/extension/pair/decide", { pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "en" }), runtime);
+    time.advance(5_000);
+    await api(`/pairings/${pairing.pairingId}/status`, { exchangeSecret: pairing.exchangeSecret });
+    await api(`/pairings/${pairing.pairingId}/exchange`, { exchangeSecret: pairing.exchangeSecret, verifier: pairing.verifier });
+    expect(bodies).toHaveLength(3);
+    for (const body of bodies) expect(JSON.parse(body)).not.toHaveProperty("matchCode");
+  });
+
+  it("refuses a start response without a valid code and stores nothing", async () => {
+    const session = memoryStorage();
+    for (const matchCode of [undefined, "12345", "abcdef", 12345]) {
+      const api = (async () => ({ pairingId: "c".repeat(64), exchangeSecret: "d".repeat(64), expiresAt: Date.now() + 300_000, ...(matchCode === undefined ? {} : { matchCode }) })) as never;
+      await expect(beginPairing({ api, session, installationId: `ins_${"1".repeat(32)}` }), String(matchCode)).rejects.toThrow("BAD_RESPONSE");
+      expect(session.data.has("pairing")).toBe(false);
+    }
   });
 });

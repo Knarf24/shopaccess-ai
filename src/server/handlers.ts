@@ -1041,7 +1041,9 @@ export async function handleSandboxCancel(request: Request, runtime: Runtime, in
 
 /**
  * POST /extension/pair/decide (M2-2). The website decides a pairing for its own live session, after the usual admission,
- * origin, Fetch Metadata and CSRF checks. An approval is bounded by the admission expiry when admission is on.
+ * origin, Fetch Metadata and CSRF checks. An approval is bounded by the admission expiry when admission is on, and needs
+ * the pairing's matching code (finding 3), typed by the shopper from their own side panel. The code is never put in a
+ * redirect, a log or the response.
  */
 export async function handleExtensionPairDecision(request: Request, runtime: Runtime): Promise<Response> {
   if (runtime.extensionOrigins.size === 0) return refuse("NOT_FOUND", runtime);
@@ -1055,11 +1057,17 @@ export async function handleExtensionPairDecision(request: Request, runtime: Run
   const decision = form.get("decision");
   if (!/^[0-9a-f]{64}$/.test(pairingId) || (decision !== "approve" && decision !== "deny")) return seeOther(`/${language}/extension/pair?result=failed`);
   const nowMs = runtime.clock().getTime();
+  // Spaces and hyphens a shopper may type between the digit groups are ignored; anything else must be six digits.
+  const matchCode = (form.get("matchCode") ?? "").replace(/[\s-]+/g, "");
   const decided = runtime.pairing.approve(
-    { pairingId, sessionId: session.id, deny: decision === "deny", boundMs: admissionExpiryMs(runtime.admission, request.headers.get("cookie"), nowMs) },
+    { pairingId, sessionId: session.id, deny: decision === "deny", boundMs: admissionExpiryMs(runtime.admission, request.headers.get("cookie"), nowMs), matchCode },
     nowMs,
   );
-  const result = decided.ok ? decided.value.status : "failed";
+  // A wrong code returns to the same pairing's form (the pairing ID is not secret); the code itself is never echoed.
+  if (!decided.ok && decided.code === "PAIRING_CODE_MISMATCH") return seeOther(`/${language}/extension/pair?pairing=${pairingId}&result=code_mismatch`);
+  // A correct code with the session already at its limit of approved, not yet connected panels: the pairing stays pending.
+  if (!decided.ok && decided.code === "PAIRING_LIMIT") return seeOther(`/${language}/extension/pair?pairing=${pairingId}&result=pair_limit`);
+  const result = decided.ok ? decided.value.status : decided.code === "PAIRING_CODE_LIMIT" ? "code_limit" : "failed";
   return seeOther(`/${language}/extension/pair?result=${result}`);
 }
 

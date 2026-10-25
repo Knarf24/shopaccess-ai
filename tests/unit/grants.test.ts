@@ -7,6 +7,9 @@ import { bodyFromState, createStateGate, restoreState, type DurableState } from 
 import type { CommitResult, PublishedBody } from "../../src/lib/session/snapshot-store";
 import { InMemorySessionStore, type SessionRecord } from "../../src/lib/session/store";
 
+/** SYNTHETIC matching code injected into the authority for these unit tests (finding 3); a leading zero on purpose. */
+const TEST_CODE = "042424";
+
 // M2-2 slice 1: pairing and durable extension grants (docs/m2-2-plan.md §3.2–3.3).
 const T0 = new Date("2026-10-16T12:00:00.000Z");
 const EXT = `chrome-extension://${"a".repeat(32)}`;
@@ -31,6 +34,7 @@ function memoryWorld(live = new Set([sid(1), sid(2)]), expires = new Map<string,
     sessionLive: (id) => live.has(id),
     sessionExpiresAt: (id) => (live.has(id) ? (expires.get(id) ?? new Date(T0.getTime() + 24 * 3_600_000)) : null),
     random: (bytes) => Buffer.from((++counter).toString(16).padStart(bytes * 2, "0"), "hex"),
+    matchCode: () => TEST_CODE,
   };
   return { durable, authority: createPairingAuthority(deps), live };
 }
@@ -43,7 +47,7 @@ async function pair(world: World, opts: { session?: number; installation?: strin
   const origin = opts.origin ?? EXT;
   const started = world.authority.start({ challenge: challengeFor(n), extensionOrigin: origin, installationId: opts.installation ?? INSTALL_A }, at.getTime());
   if (!started.ok) throw new Error(started.code);
-  const approved = world.authority.approve({ pairingId: started.value.pairingId, sessionId: sid(opts.session ?? 1), deny: false, boundMs: opts.boundMs ?? null }, at.getTime());
+  const approved = world.authority.approve({ pairingId: started.value.pairingId, sessionId: sid(opts.session ?? 1), deny: false, matchCode: TEST_CODE, boundMs: opts.boundMs ?? null }, at.getTime());
   if (!approved.ok) throw new Error(approved.code);
   return world.authority.exchange({ pairingId: started.value.pairingId, exchangeSecret: started.value.exchangeSecret, verifier: verifierFor(n), extensionOrigin: origin }, at);
 }
@@ -80,10 +84,10 @@ describe("pairing", () => {
       return s.value.pairingId;
     };
     live.delete(sid(2));
-    expect(authority.approve({ pairingId: start(1), sessionId: sid(2), deny: false, boundMs: null }, T0.getTime())).toEqual({ ok: false, code: "SESSION_INVALID" });
+    expect(authority.approve({ pairingId: start(1), sessionId: sid(2), deny: false, matchCode: TEST_CODE, boundMs: null }, T0.getTime())).toEqual({ ok: false, code: "SESSION_INVALID" });
     const ids = [start(2), start(3), start(4), start(5)];
-    for (const id of ids.slice(0, 3)) expect(authority.approve({ pairingId: id, sessionId: sid(1), deny: false, boundMs: null }, T0.getTime()).ok).toBe(true);
-    expect(authority.approve({ pairingId: ids[3]!, sessionId: sid(1), deny: false, boundMs: null }, T0.getTime())).toEqual({ ok: false, code: "PAIRING_LIMIT" });
+    for (const id of ids.slice(0, 3)) expect(authority.approve({ pairingId: id, sessionId: sid(1), deny: false, matchCode: TEST_CODE, boundMs: null }, T0.getTime()).ok).toBe(true);
+    expect(authority.approve({ pairingId: ids[3]!, sessionId: sid(1), deny: false, matchCode: TEST_CODE, boundMs: null }, T0.getTime())).toEqual({ ok: false, code: "PAIRING_LIMIT" });
     expect(authority.approve({ pairingId: ids[0]!, sessionId: sid(1), deny: true, boundMs: null }, T0.getTime())).toEqual({ ok: false, code: "PAIRING_ALREADY_DECIDED" });
   });
 
@@ -93,7 +97,7 @@ describe("pairing", () => {
     if (!s.ok) throw new Error();
     const exchange = (verifier: string, at = T0) => world.authority.exchange({ pairingId: s.value.pairingId, exchangeSecret: s.value.exchangeSecret, verifier, extensionOrigin: EXT }, at);
     expect(await exchange(verifierFor(7))).toEqual({ ok: false, code: "PAIRING_NOT_APPROVED" });
-    world.authority.approve({ pairingId: s.value.pairingId, sessionId: sid(1), deny: false, boundMs: null }, T0.getTime());
+    world.authority.approve({ pairingId: s.value.pairingId, sessionId: sid(1), deny: false, matchCode: TEST_CODE, boundMs: null }, T0.getTime());
     expect(await exchange(verifierFor(8))).toEqual({ ok: false, code: "VERIFIER_INVALID" });
     const first = await exchange(verifierFor(7));
     expect(first.ok).toBe(true);
@@ -106,7 +110,7 @@ describe("pairing", () => {
 
     const late = world.authority.start({ challenge: challengeFor(10), extensionOrigin: EXT, installationId: INSTALL_B }, T0.getTime());
     if (!late.ok) throw new Error();
-    world.authority.approve({ pairingId: late.value.pairingId, sessionId: sid(1), deny: false, boundMs: null }, T0.getTime());
+    world.authority.approve({ pairingId: late.value.pairingId, sessionId: sid(1), deny: false, matchCode: TEST_CODE, boundMs: null }, T0.getTime());
     expect(await world.authority.exchange({ pairingId: late.value.pairingId, exchangeSecret: late.value.exchangeSecret, verifier: verifierFor(10), extensionOrigin: EXT }, new Date(T0.getTime() + PAIRING_LIFETIME_MS))).toEqual({ ok: false, code: "PAIRING_EXPIRED" });
   });
 });
@@ -190,6 +194,7 @@ describe("durable grants (snapshot gate)", () => {
       sessionLive: (id) => id === sid(1),
       sessionExpiresAt: () => new Date(T0.getTime() + 24 * 3_600_000),
       random: (bytes) => Buffer.from((++counter).toString(16).padStart(bytes * 2, "0"), "hex"),
+      matchCode: () => TEST_CODE,
     });
     return { authority, published: () => published, live: new Set([sid(1)]) };
   }
@@ -213,7 +218,7 @@ describe("durable grants (snapshot gate)", () => {
     const world = snapshotWorld(() => refuse);
     const started = world.authority.start({ challenge: challengeFor(1), extensionOrigin: EXT, installationId: INSTALL_A }, T0.getTime());
     if (!started.ok) throw new Error();
-    world.authority.approve({ pairingId: started.value.pairingId, sessionId: sid(1), deny: false, boundMs: null }, T0.getTime());
+    world.authority.approve({ pairingId: started.value.pairingId, sessionId: sid(1), deny: false, matchCode: TEST_CODE, boundMs: null }, T0.getTime());
     refuse = true;
     await expect(world.authority.exchange({ pairingId: started.value.pairingId, exchangeSecret: started.value.exchangeSecret, verifier: verifierFor(1), extensionOrigin: EXT }, T0)).rejects.toSatisfy(isPersistenceUnavailable);
     expect(world.published()).toBeNull();

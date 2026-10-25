@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 
 import type { DurableHost } from "./durable";
 import type { GrantScope, PersistedGrant } from "./snapshot-state";
@@ -10,6 +10,10 @@ import type { GrantScope, PersistedGrant } from "./snapshot-state";
  * session, and exchanged once for a bearer token. Pairings are memory-only and last five minutes. Grants are durable:
  * only an HMAC digest of the token is kept. Exchanging a pairing from the same installation replaces that
  * installation's earlier grant in the same durable decision; different installations coexist, three at most.
+ *
+ * M2-2 finding 3: each pairing has a six-digit matching code, returned only in the start response to the panel that began
+ * it. Approval on the website requires typing that code; only a keyed digest bound to the pairing ID is kept (in memory,
+ * never saved). Five wrong codes end the pairing. Deny needs no code. Exchange still needs the secret and the verifier.
  */
 
 export const PAIRING_LIFETIME_MS = 300_000;
@@ -18,6 +22,9 @@ export const MAX_ACTIVE_GRANTS = 3;
 const MAX_APPROVED_PAIRINGS = 3;
 const MAX_POLLS = 10;
 const MIN_POLL_GAP_MS = 2_000;
+export const MAX_CODE_ATTEMPTS = 5;
+const CODE_LABEL = "shopaccess.extension-pairing-code.v1";
+const MATCH_CODE = /^[0-9]{6}$/;
 const STARTS_PER_MINUTE = 30;
 const GRANT_SCOPES: readonly GrantScope[] = ["conversation:read", "conversation:write"];
 const TOKEN_LABEL = "shopaccess.extension-grant.v1";
@@ -37,7 +44,9 @@ export type PairingRefusal =
   | "POLL_TOO_SOON"
   | "VERIFIER_INVALID"
   | "SESSION_INVALID"
-  | "GRANT_LIMIT";
+  | "GRANT_LIMIT"
+  | "PAIRING_CODE_MISMATCH"
+  | "PAIRING_CODE_LIMIT";
 
 export type Refused = { readonly ok: false; readonly code: PairingRefusal };
 type Ok<T> = { readonly ok: true; readonly value: T };
@@ -46,6 +55,9 @@ interface Pairing {
   readonly pairingId: string;
   readonly challenge: string;
   readonly exchangeDigest: string;
+  /** Keyed digest of the matching code, bound to the pairing ID. The code itself is never kept. */
+  readonly codeDigest: string;
+  codeAttempts: number;
   readonly extensionOrigin: string;
   readonly installationId: string;
   readonly expiresAtMs: number;
@@ -65,10 +77,16 @@ export interface GrantView {
 }
 
 export interface PairingAuthority {
-  start(input: { readonly challenge: unknown; readonly extensionOrigin: string; readonly installationId: unknown }, nowMs: number): Ok<{ pairingId: string; exchangeSecret: string; expiresAt: number }> | Refused;
+  start(input: { readonly challenge: unknown; readonly extensionOrigin: string; readonly installationId: unknown }, nowMs: number): Ok<{ pairingId: string; exchangeSecret: string; matchCode: string; expiresAt: number }> | Refused;
   status(input: { readonly pairingId: string; readonly exchangeSecret: unknown; readonly extensionOrigin: string }, nowMs: number): Ok<{ status: "pending" | "approved" | "denied" }> | Refused;
-  /** Called by the website after its own session, admission and CSRF checks. */
-  approve(input: { readonly pairingId: string; readonly sessionId: string; readonly deny: boolean; readonly boundMs: number | null }, nowMs: number): Ok<{ status: "approved" | "denied" }> | Refused;
+  /**
+   * Called by the website after its own session, admission and CSRF checks. Approval requires the pairing's matching code;
+   * deny does not. Synchronous: the check, the attempt count and the decision happen in one step.
+   */
+  approve(
+    input: { readonly pairingId: string; readonly sessionId: string; readonly deny: boolean; readonly boundMs: number | null; readonly matchCode?: unknown },
+    nowMs: number,
+  ): Ok<{ status: "approved" | "denied" }> | Refused;
   exchange(input: { readonly pairingId: string; readonly exchangeSecret: unknown; readonly verifier: unknown; readonly extensionOrigin: string }, now: Date): Promise<Ok<{ bearer: string; grantId: string; expiresAt: number }> | Refused>;
   resolve(bearer: string | null, scope: GrantScope, extensionOrigin: string | null, now: Date): Ok<{ sessionId: string; grantId: string }> | { readonly ok: false; readonly code: "TOKEN_INVALID" | "SCOPE_DENIED" };
   list(sessionId: string, now: Date): readonly GrantView[];
@@ -84,6 +102,21 @@ export interface PairingDeps {
   /** Absolute expiry of a live session, for bounding grants. */
   readonly sessionExpiresAt: (sessionId: string) => Date | null;
   readonly random?: (bytes: number) => Buffer;
+  /** Six decimal digits from a cryptographically secure source (leading zeros kept). Injectable for tests only. */
+  readonly matchCode?: () => string;
+}
+
+/**
+ * Six decimal digits, uniform over 000000–999999 from Node's cryptographically secure `randomInt` (leading zeros kept).
+ * The integer source is a parameter only so tests can check the formatting.
+ */
+export function generateMatchCode(int: (min: number, max: number) => number = randomInt): string {
+  return int(0, 1_000_000).toString().padStart(6, "0");
+}
+
+/** Keyed digest of a pairing's matching code, bound to that pairing's ID (domain-separated; never stored outside memory). */
+export function pairingCodeDigest(key: Buffer, pairingId: string, code: string): string {
+  return createHmac("sha256", key).update(`${CODE_LABEL}\u0000${pairingId}\u0000${code}`).digest("hex");
 }
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -94,6 +127,8 @@ export function createPairingAuthority(deps: PairingDeps): PairingAuthority {
   const random = deps.random ?? randomBytes;
   const secret = () => random(32).toString("hex");
   const digestToken = (token: string) => createHmac("sha256", deps.key).update(`${TOKEN_LABEL}\u0000${token}`).digest("hex");
+  const newCode = deps.matchCode ?? (() => generateMatchCode());
+  const digestCode = (pairingId: string, code: string) => pairingCodeDigest(deps.key, pairingId, code);
   const pairings = new Map<string, Pairing>();
   let windowStartMs = Number.NEGATIVE_INFINITY;
   let starts = 0;
@@ -124,11 +159,15 @@ export function createPairingAuthority(deps: PairingDeps): PairingAuthority {
       for (const [id, pairing] of pairings) if (nowMs >= pairing.expiresAtMs) pairings.delete(id);
       const pairingId = secret();
       const exchangeSecret = secret();
+      const matchCode = newCode();
+      if (!MATCH_CODE.test(matchCode)) return { ok: false, code: "BAD_REQUEST" };
       const expiresAtMs = nowMs + PAIRING_LIFETIME_MS;
       pairings.set(pairingId, {
         pairingId,
         challenge: input.challenge,
         exchangeDigest: sha256(exchangeSecret),
+        codeDigest: digestCode(pairingId, matchCode),
+        codeAttempts: 0,
         extensionOrigin: input.extensionOrigin,
         installationId: input.installationId,
         expiresAtMs,
@@ -138,7 +177,7 @@ export function createPairingAuthority(deps: PairingDeps): PairingAuthority {
         polls: 0,
         lastPollMs: Number.NEGATIVE_INFINITY,
       });
-      return { ok: true, value: { pairingId, exchangeSecret, expiresAt: expiresAtMs } };
+      return { ok: true, value: { pairingId, exchangeSecret, matchCode, expiresAt: expiresAtMs } };
     },
 
     status(input, nowMs) {
@@ -159,6 +198,17 @@ export function createPairingAuthority(deps: PairingDeps): PairingAuthority {
       if (isRefused(pairing)) return pairing;
       if (pairing.status !== "pending") return { ok: false, code: "PAIRING_ALREADY_DECIDED" };
       if (!input.deny) {
+        // The code must be the one issued for this pairing. Every failed attempt counts; the fifth ends the pairing.
+        const presented = typeof input.matchCode === "string" ? input.matchCode : "";
+        const matches = MATCH_CODE.test(presented) && same(digestCode(pairing.pairingId, presented), pairing.codeDigest);
+        if (!matches) {
+          pairing.codeAttempts += 1;
+          if (pairing.codeAttempts >= MAX_CODE_ATTEMPTS) {
+            pairing.status = "denied";
+            return { ok: false, code: "PAIRING_CODE_LIMIT" };
+          }
+          return { ok: false, code: "PAIRING_CODE_MISMATCH" };
+        }
         const approved = [...pairings.values()].filter((p) => p.sessionId === input.sessionId && p.status === "approved" && nowMs < p.expiresAtMs).length;
         if (approved >= MAX_APPROVED_PAIRINGS) return { ok: false, code: "PAIRING_LIMIT" };
       }

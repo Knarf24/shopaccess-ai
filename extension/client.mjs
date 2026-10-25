@@ -70,13 +70,24 @@ export function createApi({ origin, bearer, fetchImpl = fetch, onUnauthorized = 
   };
 }
 
-/** Starts a pairing and keeps what the panel needs to finish it in session storage. */
+/**
+ * Starts a pairing and keeps what the panel needs to finish it in chrome.storage.session (memory only, cleared when the
+ * browser closes). The matching code (finding 3) is kept there only to show it to the shopper; it is never sent back to
+ * the server by the panel and never stored in chrome.storage.local.
+ */
 export async function beginPairing({ api, session, installationId, random = undefined }) {
   const { verifier, challenge } = await verifierAndChallenge(random);
   const started = await api('/pairings', { protocolVersion: 1, challenge, installationId });
-  const pairing = { pairingId: started.pairingId, exchangeSecret: started.exchangeSecret, expiresAt: started.expiresAt, verifier, polls: 0 };
+  if (typeof started.matchCode !== 'string' || !/^[0-9]{6}$/.test(started.matchCode)) throw new Error('BAD_RESPONSE');
+  const pairing = { pairingId: started.pairingId, exchangeSecret: started.exchangeSecret, matchCode: started.matchCode, expiresAt: started.expiresAt, verifier, polls: 0 };
   await session.set({ pairing });
   return pairing;
+}
+
+/** The code as shown ("482 913") and as read by a screen reader, one digit at a time ("4 8 2 9 1 3"). */
+export function matchCodeDisplay(code) {
+  if (typeof code !== 'string' || !/^[0-9]{6}$/.test(code)) return null;
+  return { visual: `${code.slice(0, 3)} ${code.slice(3)}`, spoken: code.split('').join(' ') };
 }
 
 export function approvalUrl(origin, pairingId, language) {

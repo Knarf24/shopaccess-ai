@@ -69,12 +69,12 @@ const read = (runtime: Runtime, bearer: string) => handleExtensionConversation(n
 
 async function start(runtime: Runtime, installation: string) {
   const response = await handleExtensionPairingStart(api("/pairings", { protocolVersion: 1, challenge: CHALLENGE, installationId: `ins_${installation.repeat(32)}` }), runtime);
-  return (await response.json()).value as { pairingId: string; exchangeSecret: string };
+  return (await response.json()).value as { pairingId: string; exchangeSecret: string; matchCode: string };
 }
 
 async function pairVia(runtime: Runtime, buyer: { cookie: string; csrfToken: string }, installation: string) {
   const pairing = await start(runtime, installation);
-  await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "en" }, buyer.cookie), runtime);
+  await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "en" }, buyer.cookie), runtime);
   const response = await handleExtensionPairingExchange(api(`/pairings/${pairing.pairingId}/exchange`, { exchangeSecret: pairing.exchangeSecret, verifier: VERIFIER }), runtime, pairing.pairingId);
   return (await response.json()).value as { bearer: string; grantId: string; expiresAt: number };
 }
@@ -122,7 +122,7 @@ describe("grant end by session and admission", () => {
     const buyer = await shopper(runtime, admitted);
     const pairing = await start(runtime, "1");
     const sessionOnly = buyer.cookie.split("; ")[0];
-    const response = await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, decision: "approve", lang: "en" }, sessionOnly), runtime);
+    const response = await handleExtensionPairDecision(site("/extension/pair/decide", { csrfToken: buyer.csrfToken, pairingId: pairing.pairingId, matchCode: pairing.matchCode, decision: "approve", lang: "en" }, sessionOnly), runtime);
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toMatch(/^\/en\/demo\/admission/);
     const status = await handleExtensionPairingStatus(api(`/pairings/${pairing.pairingId}/status`, { exchangeSecret: pairing.exchangeSecret }), runtime, pairing.pairingId);

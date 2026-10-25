@@ -28,8 +28,15 @@ Mock mode only. Use synthetic data only.
 4. The panel's address defaults to `http://127.0.0.1:3000`. Change it under **Connection** if needed: loopback HTTP
    with a port, or an HTTPS origin, no path. Saving asks Chrome for host access to that one origin; requests also work
    by CORS without it.
-5. Select **Pair with website**. A website tab opens at `/extension/pair`; approve conversation-only access there.
-   The panel checks up to ten times within the five-minute pairing (first after 5 seconds).
+5. Select **Pair with website**. The panel shows a six-digit **pairing code**, and a website tab opens at
+   `/extension/pair`. Type that code on the approval page and select **Allow conversation access**. The panel checks up
+   to ten times within the five-minute pairing (first after 5 seconds).
+   - Enter only the code from your own ShopAccess side panel. If you did not just start pairing in your own panel, or
+     someone else sent you the approval page or a code, select **Deny** (Deny needs no code).
+   - Five incorrect codes cancel the pairing; start again from the panel. The code expires with the pairing.
+   - The code is kept only in `chrome.storage.session` while the pairing is pending, and is never sent back by the panel.
+     This makes it harder for another program to obtain approval with a pairing it started, but it does not prevent every
+     form of phishing: never type a code someone else gives you.
 
 ## What it stores
 
@@ -39,8 +46,9 @@ Mock mode only. Use synthetic data only.
 - **Forget local pairing** removes only the local credential. To end server access, use **Revoke** under
   *Paired access* on the website's needs page. Logging out of demo admission revokes every grant of that session.
 
-Never paste the exchange secret, verifier, bearer, cookies or CSRF values into reports. The pairing ID in the approval
-address is public; approval still needs the website session, admission (when on) and the CSRF check.
+Never paste the exchange secret, verifier, pairing code, bearer, cookies or CSRF values into reports. The pairing ID in
+the approval address is public; approval still needs the website session, admission (when on), the CSRF check and the
+pairing code from the panel that started the pairing.
 
 ## Limits
 

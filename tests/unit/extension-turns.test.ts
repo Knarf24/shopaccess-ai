@@ -61,7 +61,7 @@ const api = (path: string, body: unknown, bearer?: string) =>
 
 async function pairedBearer(runtime: Runtime, sessionId: string) {
   const started = await (await handleExtensionPairingStart(api("/pairings", { protocolVersion: 1, challenge: CHALLENGE, installationId: `ins_${"1".repeat(32)}` }), runtime)).json();
-  runtime.pairing.approve({ pairingId: started.value.pairingId, sessionId, deny: false, boundMs: null }, runtime.clock().getTime());
+  runtime.pairing.approve({ pairingId: started.value.pairingId, sessionId, deny: false, boundMs: null, matchCode: started.value.matchCode }, runtime.clock().getTime());
   const exchanged = await (await handleExtensionPairingExchange(api(`/pairings/${started.value.pairingId}/exchange`, { exchangeSecret: started.value.exchangeSecret, verifier: VERIFIER }), runtime, started.value.pairingId)).json();
   return exchanged.value.bearer as string;
 }
