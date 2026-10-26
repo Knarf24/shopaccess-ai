@@ -1,3 +1,4 @@
+import { isDemoCharger } from "@/lib/catalog/charger-purchase";
 import { isLaptopVariant } from "@/lib/catalog/schemas";
 import { findMerchantVariant } from "@/lib/catalog/merchant-catalog";
 import type { MerchantCatalog } from "@/lib/catalog/schemas";
@@ -33,16 +34,17 @@ export interface PermissionFormInput {
   readonly expiry?: string | null;
 }
 
-export function parsePermissionForm(input: PermissionFormInput, catalog: MerchantCatalog): PermissionFormResult {
+export function parsePermissionForm(input: PermissionFormInput, catalog: MerchantCatalog, adapterBudgetCents?: number): PermissionFormResult {
   const item = ITEM.exec(input.item ?? "");
   const entry = item ? findMerchantVariant(catalog, item[1], item[2]) : undefined;
-  if (!item || !entry || !isLaptopVariant(entry.variant)) return { ok: false, code: "ITEM_INVALID", field: "item" };
+  if (!item || !entry || (!isLaptopVariant(entry.variant) && !(adapterBudgetCents !== undefined && isDemoCharger(catalog, item[1], item[2])))) return { ok: false, code: "ITEM_INVALID", field: "item" };
   const quantityText = input.quantity ?? "";
   const maxQuantity = QUANTITY.test(quantityText) ? Number(quantityText) : NaN;
   if (!Number.isInteger(maxQuantity) || maxQuantity > entry.variant.maxQuantityPerOrder) return { ok: false, code: "QUANTITY_INVALID", field: "quantity" };
   const total = TOTAL.exec((input.total ?? "").trim());
   const maxTotalCents = total ? Number(total[1]) * 100 + (total[2] ? Number(total[2].slice(1)) : 0) : NaN;
   if (!Number.isSafeInteger(maxTotalCents) || maxTotalCents < 1) return { ok: false, code: "TOTAL_INVALID", field: "total" };
+  if (!isLaptopVariant(entry.variant) && (maxTotalCents < 5900 || maxTotalCents > adapterBudgetCents!)) return { ok: false, code: "TOTAL_INVALID", field: "total" };
   const expiry = input.expiry ?? "";
   if (!Object.hasOwn(EXPIRY_CHOICES, expiry)) return { ok: false, code: "EXPIRY_INVALID", field: "expiry" };
   return {

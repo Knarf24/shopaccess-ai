@@ -21,3 +21,7 @@ To stop testing, stop the test runtime and discard its disposable store. Keep al
 ## Validation limits
 
 Automated controls and handler tests are not browser or VoiceOver acceptance. The fresh-store browser check must verify both languages, explicit proposal then confirmation, stale forms after model/budget changes, restart recovery, and that no purchase is offered. This slice does not enable the hosted extension, change Render settings or deploy anything.
+
+## October 25 follow-on candidate
+
+The connected charger-purchase candidate adds purchasing only to the isolated mock format-8 runtime. The earlier slice description above is retained as history. See [Connected charger purchase](charger-purchase-test-store.md) for eligibility, permission and capture rules. This does not authorize existing-store migration or hosted use.

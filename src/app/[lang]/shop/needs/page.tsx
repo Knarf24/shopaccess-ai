@@ -1,3 +1,6 @@
+import { ChargerPurchaseCard } from "@/components/mock-journey/ChargerPurchaseCard";
+import { eligibleChargerTrack } from "@/server/charger-purchase";
+import { CHARGER_PRODUCT_ID, CHARGER_VARIANT_ID } from "@/lib/catalog/charger-purchase";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
@@ -94,6 +97,9 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
     queryNotice: typeof query.notice === "string" ? query.notice : null,
   });
   const chargerTrack = journey.chargerTrack;
+  const purchaseTrack = eligibleChargerTrack(runtime.value, session.id);
+  const adapterInProgress = runtime.value.permissions.list(session.id, runtime.value.clock()).some(p => p.productId === CHARGER_PRODUCT_ID && (p.state === "executing" || p.state === "outcome_unknown"));
+  const adapterPermitted = purchaseTrack !== null && runtime.value.permissions.list(session.id, runtime.value.clock()).some(p => p.live && p.state === "active" && p.productId === CHARGER_PRODUCT_ID && p.variantId === CHARGER_VARIANT_ID && p.maxQuantity >= 1 && p.maxTotalCents >= 5900);
   const chargerOpen = chargerTrack !== null && chargerTrack.state !== "closed";
   const expiredDraft = journey.expiredDraft || errorCode === "DRAFT_EXPIRED";
   const showConfirm = !chargerOpen &&
@@ -210,13 +216,14 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           {chargerTrack.state === "task_choice" ? null : (
             <ChargerConversationControls budgetEnabled={runtime.value.chargerBudgetEnabled} csrfToken={session.csrfToken} language={language} track={chargerTrack} />
           )}
+          {adapterInProgress ? <p role="status">{language === "es" ? "Una compra anterior ya está en curso o su resultado no se conoce. Cambiar el dispositivo o presupuesto no cancela esa compra. Revise su resultado antes de volver a comprar." : "An earlier purchase is already underway or its result is unknown. Changing the device or budget does not cancel that purchase. Check its result before buying again."}</p> : null}
+          {chargerTrack.state === "confirmed" && chargerTrack.deviceId === "Mac14,2" && chargerTrack.budget?.confirmedCents !== null && chargerTrack.budget?.confirmedCents !== undefined && chargerTrack.budget.confirmedCents < 5900 ? <p role="status">{language === "es" ? "No hay un adaptador recomendado dentro de su presupuesto confirmado. El adaptador de demostración cuesta $59.00; puede cambiar su presupuesto o detener esta búsqueda." : "No recommended adapter fits your confirmed budget. The demo adapter costs $59.00; you can change your budget or stop this search."}</p> : null}
+          {purchaseTrack ? <ChargerPurchaseCard language={language} csrfToken={session.csrfToken} permitted={adapterPermitted} /> : null}
           {chargerTrack.state === "confirmed" && chargerTrack.deviceId ? (
-            <ChargerInformation
-              language={language}
-              selection={selectDevice(EVIDENCE, { identifier: chargerTrack.deviceId })}
-              showDeviceSelector={false}
-              showScrollHint
-            />
+            <details open={purchaseTrack === null} className="rounded-lg border border-blue-200 p-4">
+              <summary className="cursor-pointer font-medium">{language === "es" ? "Ver detalles de compatibilidad" : "View compatibility details"}</summary>
+              <ChargerInformation language={language} selection={selectDevice(EVIDENCE, { identifier: chargerTrack.deviceId })} showDeviceSelector={false} showScrollHint />
+            </details>
           ) : null}
         </>
       ) : null}
@@ -347,14 +354,14 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             {permissionCopy(language).managePermissions}
           </Link>
         </p>
-        <section className="needs-handoff" aria-labelledby="needs-handoff-heading">
+        {!chargerOpen ? <section className="needs-handoff" aria-labelledby="needs-handoff-heading">
           <h2 id="needs-handoff-heading">
             <Link href={`/${language}/shop/chargers`} prefetch={false} className="underline">
               {chargerCopy(language).needsLink}
             </Link>
           </h2>
           <ChargerDeviceHandoff language={language} />
-        </section>
+        </section> : null}
         <p>
           <Link href="/" prefetch={false} className="underline">
             {copy.navigationHome}

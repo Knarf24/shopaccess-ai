@@ -1,3 +1,8 @@
+import { CHARGER_CATALOG, chargerPurchaseAllowed } from "@/lib/catalog/charger-purchase";
+import { isLaptopVariant } from "@/lib/catalog/schemas";
+import { findMerchantVariant } from "@/lib/catalog/merchant-catalog";
+import { chargerTrackFor } from "@/lib/session/charger-clarification";
+import { needsDraftsFor } from "@/lib/session/store";
 import { DEMO_MERCHANT_CATALOG } from "@/lib/catalog/merchant-catalog";
 import type { MerchantCatalog } from "@/lib/catalog/schemas";
 import type { CheckoutDeps } from "@/lib/checkout/service";
@@ -172,7 +177,8 @@ export function runtimeSandboxProvider(runtime: Runtime): PayPalSandboxProvider 
 export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides = {}): Runtime {
   const clock = overrides.clock ?? systemClock;
   const ids = overrides.ids ?? randomIdGenerator;
-  const catalog = DEMO_MERCHANT_CATALOG;
+  const adapterEnabled = overrides.chargerBudgetTestStore === true && overrides.gate !== undefined && config.payment?.mode !== "sandbox";
+  const catalog = adapterEnabled ? CHARGER_CATALOG : DEMO_MERCHANT_CATALOG;
   const advisory = config.advisory?.mode === "external" ? config.advisory : { mode: "local" as const };
   const store = new InMemoryCheckoutStore();
   const ledger = new InMemoryOperationLedger(ids);
@@ -224,7 +230,15 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     sessionExpiresAt: (sessionId) => sessionStore.absoluteExpiryOf(sessionId),
   });
   // F07 enforcement for checkout start, confirmation, order creation and capture (M2-3 slice 2).
-  const purchaseGate = createPurchaseGate({ durable, sessionLive: sessionIsLive, clock });
+  const currentCharger = (sessionId: string) => {
+    const draft = needsDraftsFor(store).get(sessionId);
+    return draft && draft.expiresAtMs > clock().getTime() ? chargerTrackFor(store, sessionId, draft.draftId) : null;
+  };
+  const purchaseGate = createPurchaseGate({ durable, sessionLive: sessionIsLive, clock, checkoutAllowed(sessionId, quote) {
+    const entry = findMerchantVariant(catalog, quote.productId, quote.variantId);
+    if (entry && isLaptopVariant(entry.variant)) return true;
+    return adapterEnabled && chargerPurchaseAllowed(catalog, sessionId, currentCharger(sessionId), quote);
+  } });
   const permissions = createPermissionAuthority({
     durable,
     catalog,
@@ -292,7 +306,10 @@ export function createRuntime(config: RuntimeConfig, overrides: RuntimeOverrides
     },
     limiter: createFixedWindowRateLimiter(new InMemoryRateLimitStore(), clock),
     audit,
-    checkout: { store, sessionIsLive, catalog, clock, ids, purchaseGate },
+    checkout: { store, sessionIsLive, catalog, clock, ids, purchaseGate, chargerBinding(sessionId) {
+      const track = currentCharger(sessionId);
+      return adapterEnabled && track ? { chargerDraftId: track.draftId, chargerRevision: track.revision } : undefined;
+    } },
     payment: {
       store,
       ledger,

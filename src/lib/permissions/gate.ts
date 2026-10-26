@@ -37,6 +37,8 @@ export interface QuoteTerms {
   readonly quantity: number;
   readonly totalCents: number;
   readonly currency: string;
+  readonly chargerDraftId?: string;
+  readonly chargerRevision?: number;
 }
 
 /** `display`: read-only, to show a checkout page that agrees with the saved permission (M2-3 review finding 3). */
@@ -70,6 +72,7 @@ export interface GateDeps {
   readonly durable: DurableHost;
   readonly sessionLive: (sessionId: string) => boolean;
   readonly clock: () => Date;
+  readonly checkoutAllowed?: (sessionId: string, quote: QuoteTerms) => boolean;
 }
 
 /** Payment states in which a checkout can no longer reach capture without starting over. Its reservation may move. */
@@ -141,7 +144,7 @@ export function createPurchaseGate(deps: GateDeps): PurchaseGate {
 
   return {
     async reserveForCheckout(sessionId, quote, checkoutIntentId, stateOf) {
-      if (!deps.sessionLive(sessionId)) return refused("PERMISSION_UNAVAILABLE");
+      if (!deps.sessionLive(sessionId) || deps.checkoutAllowed?.(sessionId, quote) === false) return refused("PERMISSION_UNAVAILABLE");
       const now = deps.clock();
       // The state of a checkout that holds the permission is read first (the decision itself is synchronous) and
       // rechecked against the saved permission inside the decision: if the holder changed meanwhile, this start loses.
@@ -150,7 +153,7 @@ export function createPurchaseGate(deps: GateDeps): PurchaseGate {
       const holderState = holder?.checkoutIntentId ? await stateOf(holder.checkoutIntentId) : null;
 
       return deps.durable.decidePermissions<GateResult>((saved) => {
-        if (!deps.sessionLive(sessionId)) return { value: refused("PERMISSION_UNAVAILABLE") };
+        if (!deps.sessionLive(sessionId) || deps.checkoutAllowed?.(sessionId, quote) === false) return { value: refused("PERMISSION_UNAVAILABLE") };
         const permissions = settleExpired(saved, now);
         const live = permissions.filter((p) => sameBinding(p, sessionId, quote) && isLive(p, now));
         if (live.length > 1) return { value: refused("PERMISSION_UNAVAILABLE") };
@@ -175,17 +178,17 @@ export function createPurchaseGate(deps: GateDeps): PurchaseGate {
     },
 
     check(sessionId, quote, checkoutIntentId) {
-      if (!deps.sessionLive(sessionId)) return refused("PERMISSION_UNAVAILABLE");
+      if (!deps.sessionLive(sessionId) || deps.checkoutAllowed?.(sessionId, quote) === false) return refused("PERMISSION_UNAVAILABLE");
       const result = heldBy(deps.durable.readPermissions(), sessionId, quote, checkoutIntentId, deps.clock(), RESERVED);
       return result.ok ? OK : refused(result.code);
     },
 
     async beginCapture(sessionId, quote, checkoutIntentId, declinedBefore) {
-      if (!deps.sessionLive(sessionId)) return refused("PERMISSION_UNAVAILABLE");
+      if (!deps.sessionLive(sessionId) || deps.checkoutAllowed?.(sessionId, quote) === false) return refused("PERMISSION_UNAVAILABLE");
       const now = deps.clock();
       return deps.durable.decidePermissions<GateResult>((saved) => {
         // Rechecked inside the decision, so a revoke or logout saved just before this cannot be overtaken.
-        if (!deps.sessionLive(sessionId)) return { value: refused("PERMISSION_UNAVAILABLE") };
+        if (!deps.sessionLive(sessionId) || deps.checkoutAllowed?.(sessionId, quote) === false) return { value: refused("PERMISSION_UNAVAILABLE") };
         const held = heldBy(saved, sessionId, quote, checkoutIntentId, now, RESERVED);
         if (!held.ok) return { value: refused(held.code) };
         if (declinedBefore) return { value: refused("CONFIRMATION_REQUIRED") };
@@ -194,10 +197,10 @@ export function createPurchaseGate(deps: GateDeps): PurchaseGate {
     },
 
     async beginCaptureResend(sessionId, quote, checkoutIntentId) {
-      if (!deps.sessionLive(sessionId)) return refused("PERMISSION_UNAVAILABLE");
+      if (!deps.sessionLive(sessionId) || deps.checkoutAllowed?.(sessionId, quote) === false) return refused("PERMISSION_UNAVAILABLE");
       const now = deps.clock();
       return deps.durable.decidePermissions<GateResult>((saved) => {
-        if (!deps.sessionLive(sessionId)) return { value: refused("PERMISSION_UNAVAILABLE") };
+        if (!deps.sessionLive(sessionId) || deps.checkoutAllowed?.(sessionId, quote) === false) return { value: refused("PERMISSION_UNAVAILABLE") };
         // `executing` and `outcome_unknown` carry no authority of their own, so expiry is checked here explicitly.
         const held = heldBy(saved, sessionId, quote, checkoutIntentId, now, RESENDABLE, true);
         if (!held.ok) return { value: refused(held.code) };

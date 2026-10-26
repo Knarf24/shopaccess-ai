@@ -26,6 +26,7 @@ export interface CheckoutDeps {
   readonly ids: IdGenerator;
   /** F07 purchase permissions (M2-3). Required: there is no checkout without it. */
   readonly purchaseGate: PurchaseGate;
+  readonly chargerBinding?: (sessionId: string) => { chargerDraftId: string; chargerRevision: number } | undefined;
 }
 
 export type ApplyEventFailure = { code: "INTENT_NOT_FOUND" } | { code: "VERSION_CONFLICT" } | TransitionRejection;
@@ -82,7 +83,7 @@ export async function startCheckoutWithQuote(
 ): Promise<Result<{ intent: CheckoutIntentRecord; quote: Quote }, StartCheckoutFailure>> {
   const now = deps.clock();
   const intentId = deps.ids("checkoutIntent");
-  const quote = createQuote({ sessionId, checkoutIntentId: intentId, request, catalog: deps.catalog, now, ids: deps.ids });
+  const quote = createQuote({ sessionId, checkoutIntentId: intentId, request, catalog: deps.catalog, now, ids: deps.ids, chargerBinding: deps.chargerBinding?.(sessionId) });
   if (!quote.ok) return quote;
 
   // Pure reducer step: nothing is stored yet.
@@ -128,7 +129,7 @@ export async function requestQuote(
   if (!intent) return err("INTENT_NOT_FOUND");
 
   const now = deps.clock();
-  const quote = createQuote({ sessionId, checkoutIntentId: intentId, request, catalog: deps.catalog, now, ids: deps.ids });
+  const quote = createQuote({ sessionId, checkoutIntentId: intentId, request, catalog: deps.catalog, now, ids: deps.ids, chargerBinding: deps.chargerBinding?.(sessionId) });
   if (!quote.ok) return quote;
 
   return deps.store.transaction(async () => {

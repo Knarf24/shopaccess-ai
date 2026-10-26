@@ -28,13 +28,15 @@ const CHARGER_LINES = ["charger_task_choice", "charger_model", "charger_review",
 
 function ConversationHistory({ copy, language, turns }: { readonly copy: JourneyCopy; readonly language: JourneyLanguage; readonly turns: readonly ConversationTurn[] }) {
   if (turns.length === 0) return null;
+  // Presentation only: retain saved history and all shopper messages. Older budget controls appended this notice repeatedly.
+  const shownTurns = turns.filter((turn, index) => !(turn.role === "assistant" && turn.text === "charger_shown" && index > 0 && turns[index - 1].role === "assistant" && turns[index - 1].text === "charger_shown"));
   return (
     <section aria-labelledby="conversation-heading" className="flex flex-col gap-2">
       <h2 id="conversation-heading" className="text-lg font-semibold">
         {copy.conversationHeading}
       </h2>
       <ol className="flex flex-col gap-2">
-        {turns.map((turn, index) => (
+        {shownTurns.map((turn, index) => (
           <li key={`${turn.role}-${index}`} className={`needs-turn needs-turn-${turn.role}`}>
             <span className="needs-speaker">{turn.role === "shopper" ? copy.speakerShopper : copy.speakerAssistant}</span>
             <p className="needs-turn-text">
