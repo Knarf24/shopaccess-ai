@@ -1,3 +1,4 @@
+import { eligibleChargerTrack } from "@/server/charger-purchase";
 import { startCheckoutWithQuote } from "@/lib/checkout/service";
 import { allowlistedJourneyLanguage, explicitJourneyLanguage, guidedShopDestination } from "@/lib/i18n/language";
 import { confirmPurchaseSummary } from "@/lib/confirmation/confirmation";
@@ -337,7 +338,7 @@ export async function handleChargerControl(request: Request, runtime: Runtime): 
     if (applied.kind === "not_allowed") return { kind: "invalid" as const, language: draft.language };
     if (applied.kind === "refused") return { kind: "limit" as const, language: draft.language };
     setChargerTrack(host, applied.track);
-    rememberChargerTurn(host, session.id, draft, "", applied.line);
+    if (control.action !== "propose_budget" && control.action !== "confirm_budget") rememberChargerTurn(host, session.id, draft, "", applied.line);
     return { kind: "applied" as const, language: draft.language };
   });
   if (result.kind === "session_dead") return seeOther(needsBack(requestedLanguage));
@@ -1125,7 +1126,7 @@ export async function handlePermissionCreate(request: Request, runtime: Runtime)
   const { session, form } = guarded;
   const language = needsLanguage(form);
   const entered = { item: form.get("item") ?? "", quantity: form.get("quantity") ?? "", total: form.get("total") ?? "", expiry: form.get("expiry") ?? "" };
-  const parsed = parsePermissionForm(entered, runtime.catalog);
+  const parsed = parsePermissionForm(entered, runtime.catalog, eligibleChargerTrack(runtime, session.id)?.budget?.confirmedCents ?? undefined);
   if (!parsed.ok) return seeOther(permissionsBack(language, { error: parsed.code, ...entered }));
   const now = runtime.clock();
   const made = await runtime.permissions.create(

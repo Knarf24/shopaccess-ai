@@ -1,3 +1,5 @@
+import { eligibleChargerTrack } from "@/server/charger-purchase";
+import { isDemoCharger } from "@/lib/catalog/charger-purchase";
 import { laptopProducts } from "@/lib/catalog/schemas";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
@@ -72,7 +74,9 @@ async function PermissionsContentUnguarded({ params, searchParams }: { params: P
   }
 
   const { catalog } = runtime.value;
-  const choices: CatalogChoice[] = laptopProducts(catalog).flatMap((product) =>
+  const adapterBudget = eligibleChargerTrack(runtime.value, session.id)?.budget?.confirmedCents ?? undefined;
+  const products = [...laptopProducts(catalog), ...catalog.products.filter(p => adapterBudget !== undefined && p.variants.every(v => isDemoCharger(catalog, p.productId, v.variantId)))];
+  const choices: CatalogChoice[] = products.flatMap((product) =>
     product.variants
       .filter((variant) => variant.availability === "IN_STOCK")
       .map((variant) => ({ value: `${product.productId}:${variant.variantId}`, label: `${product.title} — ${variant.label}`, seller: sellerName(catalog.merchant.displayName, language), maxQuantity: variant.maxQuantityPerOrder })),
@@ -106,7 +110,7 @@ async function PermissionsContentUnguarded({ params, searchParams }: { params: P
 
   let review: PermissionReview | null = null;
   if (one(query.review) === "1" && !result) {
-    const parsed = parsePermissionForm(values, catalog);
+    const parsed = parsePermissionForm(values, catalog, adapterBudget);
     if (!parsed.ok) result = { kind: "error", code: parsed.code, field: parsed.field };
     else {
       const entry = findMerchantVariant(catalog, parsed.value.productId, parsed.value.variantId)!;

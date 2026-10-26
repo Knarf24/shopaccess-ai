@@ -160,7 +160,7 @@ describe("guided needs page: device hand-off form", () => {
     expect(en.button).toBe(COPY.en.button);
   });
 
-  it("nothing is chosen for the shopper: not from needs text naming a model, a saved profile, or a device in the URL", async () => {
+  it("an active charger conversation keeps explicit task selection and hides the secondary hand-off regardless of profile or query", async () => {
     const { runtime, sessionId, csrfToken } = await shopper();
     await draftIn(runtime, csrfToken, "en", "I need a charger for my MacBook Air M2 Mac14,2");
     const saved = await runtime.profiles.save(sessionId, { version: 0, brand: { consent: true, text: "Apple" }, model: { consent: true, text: "MacBook Air (M2, 2022)" } });
@@ -168,8 +168,11 @@ describe("guided needs page: device hand-off form", () => {
     const read = vi.spyOn(runtime.profiles, "read");
     const queries: Array<Record<string, string>> = [{ lang: "en" }, { lang: "en", device: "Mac14,2" }, { lang: "en", identifier: "Mac14,2" }];
     for (const query of queries) {
-      const options = handoff(await renderNeeds(query)).options;
-      expect(options.filter((o) => o.selected).map((o) => o.value), JSON.stringify(query)).toEqual([""]);
+      const html = await renderNeeds(query);
+      expect(handoff(html).form, JSON.stringify(query)).toBe("");
+      expect(html).toContain('name="action" value="choose_task"');
+      expect(html).toContain("Continue charger information");
+      expect(html).toContain("Mac14,2");
     }
     expect(read).not.toHaveBeenCalled();
   });

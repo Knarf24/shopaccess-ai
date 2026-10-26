@@ -28,7 +28,7 @@ export const STEP_LABELS: Record<SimulationStep, string> = {
   capture_lost_response: "Simulate capture, but lose the response",
   reconcile: "Check with the simulated provider (reconcile)",
   settle_pending: "Simulate the provider completing the pending capture",
-  external_refund: "Simulate a $100.00 refund made outside this app, then observe it",
+  external_refund: "Simulate a refund made outside this app (limited to the remaining captured amount), then observe it",
   cancel: "Cancel this checkout",
 };
 

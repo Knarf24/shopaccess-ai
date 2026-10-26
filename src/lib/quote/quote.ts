@@ -1,3 +1,4 @@
+import { isDemoCharger } from "../catalog/charger-purchase";
 import { z } from "zod";
 import { findMerchantVariant } from "../catalog/merchant-catalog";
 import {
@@ -55,6 +56,8 @@ const QuoteBodySchema = z.strictObject({
     shipping: z.literal(SANDBOX_ASSUMPTIONS.shipping),
     discount: z.literal(SANDBOX_ASSUMPTIONS.discount),
   }),
+  chargerDraftId: z.string().min(1).max(80).optional(),
+  chargerRevision: z.number().int().positive().optional(),
   createdAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
 });
@@ -93,6 +96,7 @@ export interface CreateQuoteInput {
   readonly catalog: MerchantCatalog;
   readonly now: Date;
   readonly ids: IdGenerator;
+  readonly chargerBinding?: { readonly chargerDraftId: string; readonly chargerRevision: number };
 }
 
 /** Builds an immutable quote entirely from server-side catalog data. */
@@ -102,7 +106,7 @@ export function createQuote(input: CreateQuoteInput): Result<Quote, QuoteRejecti
 
   const entry = findMerchantVariant(input.catalog, request.data.productId, request.data.variantId);
   // Adapter representation is groundwork only; no accessory purchase policy exists yet.
-  if (!entry || !isLaptopVariant(entry.variant)) return err("PRODUCT_NOT_IN_MERCHANT_CATALOG");
+  if (!entry || (!isLaptopVariant(entry.variant) && !(isDemoCharger(input.catalog, request.data.productId, request.data.variantId) && input.chargerBinding))) return err("PRODUCT_NOT_IN_MERCHANT_CATALOG");
   if (entry.variant.availability !== "IN_STOCK") return err("VARIANT_UNAVAILABLE");
   if (request.data.quantity > entry.variant.maxQuantityPerOrder) return err("QUANTITY_EXCEEDS_LIMIT");
 
@@ -110,6 +114,7 @@ export function createQuote(input: CreateQuoteInput): Result<Quote, QuoteRejecti
   if (!Number.isSafeInteger(subtotalCents) || subtotalCents <= 0) return err("AMOUNT_OUT_OF_RANGE");
 
   const body: Omit<Quote, "digest"> = {
+    ...(!isLaptopVariant(entry.variant) ? input.chargerBinding : {}),
     quoteId: input.ids("quote"),
     sessionId: input.sessionId,
     checkoutIntentId: input.checkoutIntentId,
@@ -162,7 +167,7 @@ export function verifyQuote(candidate: unknown, context: VerifyQuoteContext): Re
   const entry = findMerchantVariant(context.catalog, body.productId, body.variantId);
   const unchanged =
     entry !== null &&
-    isLaptopVariant(entry.variant) &&
+    (isLaptopVariant(entry.variant) || (isDemoCharger(context.catalog, body.productId, body.variantId) && body.chargerDraftId !== undefined && body.chargerRevision !== undefined)) &&
     context.catalog.merchant.merchantId === body.merchantId &&
     entry.variant.unitAmountCents === body.unitAmountCents &&
     entry.variant.currency === body.currency &&
