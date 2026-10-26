@@ -25,12 +25,12 @@ Mock mode only. Use synthetic data only.
    Stop any previous server first and confirm port 3000 is free. This command is memory mode: the subshell unsets `SHOPACCESS_MOCK_STORE_DIR` and `SHOPACCESS_MOCK_STORE_KEY_FILE` before the server starts. Do not point either name at an existing store. The format-7 store rule for this wired checkout is in the repository README.
 
 3. Open `http://127.0.0.1:3000`, start a needs conversation, then open the side panel from the toolbar.
-4. The panel's address defaults to `http://127.0.0.1:3000`. Change it under **Connection** if needed: loopback HTTP
+4. The panel defaults to `https://shopaccess-ai.onrender.com`. For local testing, open **Settings → Advanced setup** and save `http://127.0.0.1:3000`: loopback HTTP
    with a port, or an HTTPS origin, no path. Saving asks Chrome for host access to that one origin; requests also work
    by CORS without it. Every request, including the conversation read (a POST since 0.4.0), carries the extension's
    Origin. The server refuses any extension request without an allowed Origin and checks each token against the
    extension that paired it.
-5. Select **Pair with website**. The panel shows a six-digit **pairing code**, and a website tab opens at
+5. Select **Connect to ShopAccess**. The panel shows a six-digit **pairing code**, and a website tab opens at
    `/extension/pair`. Type that code on the approval page and select **Allow conversation access**. The panel checks up
    to ten times within the five-minute pairing (first after 5 seconds).
    - Enter only the code from your own ShopAccess side panel. If you did not just start pairing in your own panel, or
@@ -65,7 +65,7 @@ pairing code from the panel that started the pairing.
 
 The panel opens straight into an existing valid conversation and reads it automatically. Otherwise it shows one **Connect to ShopAccess** action. That action asks for host access to the saved exact address, starts the same pairing protocol and opens the same website approval page. The user must still type the matching code on the website. There is no automatic approval, website cookie access, purchase action or arbitrary page reading. The manifest permissions and server scopes are unchanged.
 
-Address, manual refresh for recovery, local disconnect and setup information are inside **Settings**. The default remains loopback3000; use Settings to set another local preview such as http://127.0.0.1:3130. The hosted extension routes remain outside this local change and are not enabled by this version.
+Address, manual refresh for recovery, local disconnect and setup information are inside **Settings**. Fresh installations default to https://shopaccess-ai.onrender.com. Existing saved addresses are preserved; use Settings → Advanced setup to change an existing local installation. Saving a different address clears the local pairing before a new connection. Hosted routes require a separately configured exact extension-origin allowlist; changing this client default does not enable them.
 
 While connected and visible, the panel reads every15 seconds using POST with an exact empty JSON body. It pauses during an action, preserves typed messages and focus, and stops when closed or disconnected. Late responses cannot restore a disconnected or older view. Refused/expired access clears local history. Pending codes already expired when reopened are not displayed. Revoking server access remains a separate website action; local disconnect is not server revocation.
 

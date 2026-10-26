@@ -1,0 +1,33 @@
+/* Pairing presentation only; the server form, alerts and focus targets remain native. */
+.guided-presentation.pairing-page{--gp-ink:#14213d;--gp-focus:#1748b0;background:radial-gradient(circle at 0 0,#dce8fc 0,transparent 34rem),radial-gradient(circle at 100% 100%,#dce8fc 0,transparent 32rem),#eef4ff;color:#14213d;min-height:100dvh;padding:clamp(1rem,5vw,4rem) 1rem;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}
+.pairing-page *{box-sizing:border-box}
+.pairing-page .pairing-column{width:100%;max-width:42rem;margin:0 auto;min-width:0}
+.pairing-page .pairing-card{background:#fff;border:1px solid #c5d4ef;border-radius:1.4rem;padding:clamp(1.25rem,4vw,3rem);box-shadow:0 1rem 3rem #163b9610;overflow-wrap:anywhere}
+.pairing-page .pairing-brand{display:flex;justify-content:center;align-items:center;gap:.65rem;font-weight:750;font-size:1.15rem;margin-bottom:1.6rem}
+.pairing-page .pairing-brand span{display:grid;place-items:center;width:2.4rem;height:2.4rem;background:#2457d6;color:#fff;border-radius:.75rem;font-size:1.4rem}
+.pairing-page .pairing-heading{font-size:clamp(1.6rem,4vw,2.2rem);text-align:center;margin:0 0 1.5rem;font-weight:750;color:#14213d}
+.pairing-page .pairing-form{display:flex;flex-direction:column;gap:1rem}
+.pairing-page p{margin:0}
+.pairing-page .pairing-intro{color:#405573;text-align:center}
+.pairing-page .pairing-scope{display:flex;align-items:flex-start;gap:.75rem;color:#405573;padding:1rem 0 1.4rem;border-bottom:1px solid #d5e0f1;font-size:.95rem}
+.pairing-page .ui-icon{flex-shrink:0;margin-top:.2rem;color:#2457d6}
+.pairing-page label{font-weight:650;margin-top:.25rem}
+.pairing-page .pairing-code-input{width:100%;min-width:0;min-height:3.4rem;padding:.65rem .9rem;border:1px solid #7188ad;border-radius:.65rem;background:#fff;color:#14213d;font:600 1.4rem/1.4 ui-monospace,monospace;letter-spacing:.15em}
+.pairing-page .pairing-code-input[aria-invalid=true]{border:2px solid #991b1b}
+.pairing-page #pair-code-hint{font-size:.88rem;color:#405573}
+.pairing-page .pairing-actions{display:flex;gap:.75rem;margin:.4rem 0}
+.pairing-page button{font-family:inherit;font-size:1rem;line-height:1.4;font-weight:650;min-height:3rem;border-radius:.65rem;padding:.75rem 1.2rem;cursor:pointer}
+.pairing-page .pairing-primary{flex:1;background:#2457d6;border:1px solid #2457d6;color:#fff;font-weight:650}
+.pairing-page .pairing-primary:hover{background:#1b43ad}
+.pairing-page .pairing-secondary{background:#fff;border:1px solid #2457d6;color:#1748b0;min-width:7rem;font-weight:650}
+.pairing-page .pairing-secondary:hover{background:#edf2fc}
+.pairing-page .pairing-warning{display:flex;align-items:flex-start;gap:.65rem;padding:1rem;background:#fff5f5;border:1px solid #e7b4b4;border-radius:.65rem;color:#851b1b;font-size:.9rem}
+.pairing-page .pairing-warning .ui-icon{color:#991b1b}
+.pairing-page [role=alert]{color:#851b1b}
+.pairing-page #pair-code-mismatch{border-left:3px solid #991b1b;padding:.75rem;background:#fff5f5}
+.pairing-page #pair-result{padding:1rem;border-radius:.65rem;background:#edf2fc;text-align:center}
+.pairing-page .pairing-result-icon{text-align:center;margin-bottom:1rem}
+.pairing-page .pairing-result-icon .ui-icon{width:3rem;height:3rem;color:#405573}
+.pairing-page .pairing-result-icon.is-approved .ui-icon{color:#166534}
+@media(max-width:420px){.pairing-page .pairing-actions{flex-direction:column}.pairing-page .pairing-actions button{width:100%}.guided-presentation.pairing-page{padding:1rem .65rem}.pairing-page .pairing-card{border-radius:1rem}}
+@media(prefers-reduced-motion:reduce){.pairing-page *{scroll-behavior:auto}}

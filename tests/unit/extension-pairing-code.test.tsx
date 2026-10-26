@@ -344,6 +344,11 @@ describe("the approval page (rendered)", () => {
       page.runtime = runtime;
       page.cookie = buyer.cookie;
       const html = await renderPage(lang, { pairing: pairing.pairingId });
+      expect(html).toContain('class="pairing-card"');
+      expect(html).toContain('class="pairing-actions"');
+      const approve = html.match(/<button[^>]*value="approve"[^>]*>/)?.[0] ?? "";
+      expect(approve).toContain('class="pairing-primary"');
+      expect(approve).toContain('name="decision"');
       expect(html).toMatch(/<label for="pair-code">/);
       const input = html.match(/<input id="pair-code"[^>]*>/)?.[0] ?? "";
       for (const attribute of ['name="matchCode"', 'type="text"', 'inputMode="numeric"', 'autoComplete="off"', 'maxLength="7"']) expect(input, attribute).toContain(attribute);

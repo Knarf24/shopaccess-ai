@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // M2-2: the real side-panel script (extension/panel.mjs) on a minimal page and Chrome stand-in, in the style of the E1
 // fake-page tests. Only what panel.mjs touches is modelled. A disabled control cannot take focus, as in a browser.
-const ORIGIN = "http://127.0.0.1:3000";
+const ORIGIN = "https://shopaccess-ai.onrender.com";
 const cleanup: (() => void)[] = [];
 const CONTROLS: Record<string, string> = { pair: "button", "cancel-pair": "button", refresh: "button", disconnect: "button", "save-origin": "button", send: "button", origin: "input", text: "textarea" };
 
@@ -13,6 +13,7 @@ type FakeElement = {
   value: string;
   disabled: boolean;
   hidden?: boolean;
+  open?: boolean;
   isConnected: boolean;
   children: FakeElement[];
   onclick: null | (() => unknown);
@@ -138,9 +139,11 @@ const settled = async (page: ReturnType<typeof installPage>) => {
 };
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function openPanel(routes: Record<string, Route>, sessionValues: Record<string, unknown> = PAIRED) {
+async function openPanel(routes: Record<string, Route>, sessionValues: Record<string, unknown> = PAIRED, savedOrigin?: string, settingsOpen = false) {
   const page = installPage();
+  page.el("settings").open = settingsOpen;
   const chromeStub = installChrome(sessionValues);
+  if (savedOrigin) await chromeStub.local.set({ appOrigin: savedOrigin });
   const calls = installFetch(routes);
   vi.resetModules();
   await import("../../extension/panel.mjs");
@@ -156,6 +159,18 @@ afterEach(() => {
 });
 
 describe("side panel behaviour (extension/panel.mjs)", () => {
+  it("uses the hosted website on a fresh installation without saving an address", async () => {
+    const { page, chrome, calls } = await openPanel({}, {});
+    expect(page.el("origin").value).toBe(ORIGIN);
+    expect(chrome.local.values).not.toHaveProperty("appOrigin");
+    expect(calls).toEqual([]);
+  });
+  it("preserves a saved local preview address instead of silently switching servers", async () => {
+    const saved = "http://127.0.0.1:3130";
+    const { page, chrome } = await openPanel({}, {}, saved);
+    expect(page.el("origin").value).toBe(saved);
+    expect(chrome.local.values).toMatchObject({ appOrigin: saved });
+  });
   it("after a successful Send, focus is in the Message box, the field is empty and the new reply is announced", async () => {
     let current = view(TWO);
     const { page } = await openPanel({
@@ -242,9 +257,11 @@ describe("finding 3: the pairing code in the side panel", () => {
   it("Pair shows the code in two groups for sight and digit by digit for screen readers, kept only in session storage", async () => {
     const { page, chrome: stub, calls } = await openPanel({ "/conversation": () => ok(view(TWO)), "/pairings": START });
     expect(page.el("pair-code-box").hidden).not.toBe(false);
+    page.el("settings").open = true;
     page.el("pair").onclick!();
     await settled(page);
     page.unload();
+    expect(page.el("settings").open).toBe(false);
     expect(page.el("pair-code-box").hidden).toBe(false);
     expect(page.el("pair-code-visual").textContent).toBe("012 345");
     expect(page.el("pair-code-spoken").textContent).toBe("0 1 2 3 4 5");
@@ -270,8 +287,9 @@ describe("finding 3: the pairing code in the side panel", () => {
   });
 
   it("reopening the panel during a pending pairing shows that pairing's code again", async () => {
-    const { page } = await openPanel({}, PENDING);
+    const { page } = await openPanel({}, PENDING, undefined, true);
     page.unload();
+    expect(page.el("settings").open).toBe(false);
     expect(page.el("pair-code-box").hidden).toBe(false);
     expect(page.el("pair-code-visual").textContent).toBe("012 345");
   });
