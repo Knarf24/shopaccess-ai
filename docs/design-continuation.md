@@ -23,3 +23,14 @@ The normal release should bundle the enabled service address. Its hosted extensi
 ## Submission artwork replacement
 
 The owner subsequently approved original labelled illustrations in place of the four photos. The current candidate removes those WebP files and uses self-contained SVG artwork. This supersedes the product-photo clearance item for the active artwork only; it does not grant rights for historical photographs. Hosted connection setup and new-layout VoiceOver remain open. The old unpushed photo-bearing commit is retained locally only, while the replacement branch history omits it.
+
+
+## Pairing presentation continuation — October 26, 2026
+
+The owner approved the blue-card pairing-page concept. The form, mismatch and final result states now share a scoped responsive presentation in English and Spanish. Existing scope/lifetime warnings, matching-code input semantics, CSRF fields, POST decisions, result focus and invalid state remain intact. Only the page heading copy changes. No server decision, payment, token or configuration logic changes.
+
+The owner reported a missing code while the screenshots showed Settings open. Settings is an absolute-positioned overlay over the code area. showCode now closes Settings for both new and restored pending pairings; tests cover both paths. This addresses overlay occlusion; it is not evidence that the owner's hosted pairing completed. A fresh request is needed if the old one expired.
+
+Independent source review found no blocker. Cloud validation and failed-run records are included in the separate update package. The complete suite retains environment failures in mock-store-init.test.ts and snapshot-store.test.ts (macOS identity checks and missing /usr/local/bin/node). Browser geometry and new-layout VoiceOver are not confirmed in the cloud. The package supplies unattended local Chrome checks with an ephemeral memory-only server and synthetic panel responses; these do not establish hosted pairing success.
+
+Hosted extension origin enablement was separately approved; the owner reported Render Live. This source update does not change Render or commit/push/deploy anything. The earlier hosted-default source change remains separate and must be preserved.

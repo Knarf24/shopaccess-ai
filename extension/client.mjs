@@ -1,7 +1,7 @@
 // ShopAccess side panel helpers (M2-2, docs/m2-2-plan.md §3.5 and §3.6). Promoted from the E1 prototype (274866d).
 // Pure functions and small factories only, so they run under the unit tests without a browser.
 
-export const DEFAULT_APP_ORIGIN = 'http://127.0.0.1:3000';
+export const DEFAULT_APP_ORIGIN = 'https://shopaccess-ai.onrender.com';
 export const API_PREFIX = '/api/extension/v1';
 /** Waits between pairing status checks. Ten checks at most (the server's limit), within the five-minute pairing. */
 export const POLL_DELAYS_MS = [5000, 5000, 10000, 10000, 15000, 20000, 30000, 40000, 60000, 90000];

@@ -27,7 +27,7 @@ export interface ExtensionCopy {
 }
 
 const EN: ExtensionCopy = {
-  pairHeading: "Pair the ShopAccess side panel",
+  pairHeading: "Connect your side panel",
   pairExplanation: "Allow the ShopAccess browser extension to read and continue this shopping conversation.",
   pairLimits: "It cannot confirm a purchase, start a checkout or pay. Access ends within one hour, when this session ends, or when you revoke it.",
   approve: "Allow conversation access",
@@ -54,7 +54,7 @@ const EN: ExtensionCopy = {
 };
 
 const ES: ExtensionCopy = {
-  pairHeading: "Vincular el panel lateral de ShopAccess",
+  pairHeading: "Conecte su panel lateral",
   pairExplanation: "Permita que la extensión de ShopAccess lea y continúe esta conversación de compra.",
   pairLimits: "No puede confirmar una compra, iniciar un pago ni pagar. El acceso termina en una hora, cuando termina esta sesión o cuando usted lo revoca.",
   approve: "Permitir acceso a la conversación",

@@ -80,6 +80,8 @@ function showCode(pairing) {
   $('pair-code-visual').textContent = shown.visual;
   $('pair-code-spoken').textContent = shown.spoken;
   $('pair-code-help').textContent = words().codeHelp;
+  // Settings is an overlay: close it so the matching code cannot be covered.
+  $('settings').open = false;
   $('pair-code-box').hidden = false;
   pendingPairing = true;
   updateUi();
