@@ -1754,7 +1754,7 @@ describe("PostgreSQL mode: the markup of the checkout actions, the session notic
     expect(checkboxes.map((input) => ({ name: input.name, value: input.value, required: "required" in input }))).toEqual([{ name: "acknowledged", value: "yes", required: true }]);
     expect(fieldNames(form)).toEqual(["acknowledged", "confirmationId", "csrfToken", "nonce", "quoteDigest", "quoteId"]);
     expect(form.buttons.map((button) => ({ type: button.type, disabled: "disabled" in button }))).toEqual([{ type: "submit", disabled: false }]);
-    expect(html).toContain(">Confirm this purchase summary</button>");
+    expect(html).toContain(">Confirm purchase details</button>");
     // What the shopper is asked to confirm is the summary the database stored with the challenge.
     expect(html).toContain("ShopAccess Demo Store");
     expect(html).toContain("CodeBook 15 — 16 GB, 512 GB");

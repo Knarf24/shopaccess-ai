@@ -16,9 +16,9 @@ describe("checkout copy parity", () => {
 
   it("English checkout page text is today's wording", () => {
     const en = journeyCopy("en").checkoutPage;
-    expect(en.heading).toBe("Demo checkout");
+    expect(en.heading).toBe("Review purchase");
     expect(en.quoteHeading).toBe("Quote");
-    expect(en.missingItem).toBe("Item no longer in the demo catalog");
+    expect(en.missingItem).toBe("Item no longer in the catalog");
     expect(en.cancelReturn).toEqual({
       title: "Cancel checkout",
       heading: "Cancel this checkout",

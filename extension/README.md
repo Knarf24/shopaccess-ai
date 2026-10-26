@@ -60,3 +60,13 @@ pairing code from the panel that started the pairing.
   when the session goes idle, or on revoke. At most three active grants per session.
 - Tests: `tests/unit/extension-client.test.ts` drives `client.mjs` against the real handlers in memory. Installed-panel
   behaviour, keyboard use and screen-reader speech need a real browser check.
+
+## Chat-first panel (0.5.0)
+
+The panel opens straight into an existing valid conversation and reads it automatically. Otherwise it shows one **Connect to ShopAccess** action. That action asks for host access to the saved exact address, starts the same pairing protocol and opens the same website approval page. The user must still type the matching code on the website. There is no automatic approval, website cookie access, purchase action or arbitrary page reading. The manifest permissions and server scopes are unchanged.
+
+Address, manual refresh for recovery, local disconnect and setup information are inside **Settings**. The default remains loopback3000; use Settings to set another local preview such as http://127.0.0.1:3130. The hosted extension routes remain outside this local change and are not enabled by this version.
+
+While connected and visible, the panel reads every15 seconds using POST with an exact empty JSON body. It pauses during an action, preserves typed messages and focus, and stops when closed or disconnected. Late responses cannot restore a disconnected or older view. Refused/expired access clears local history. Pending codes already expired when reopened are not displayed. Revoking server access remains a separate website action; local disconnect is not server revocation.
+
+Standalone DOM/Chrome stand-in tests cover these behaviors. Installation, actual Chrome host access, native side-panel rendering and VoiceOver still require browser observation; no new approval is bypassed by those tests.

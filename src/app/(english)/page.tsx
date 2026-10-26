@@ -1,3 +1,5 @@
+import { productPhoto } from "@/lib/catalog/product-photos";
+import { ProductPhotoCredit } from "@/components/ProductPhotoCredit";
 import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
@@ -14,6 +16,7 @@ import { laptopProducts, type MerchantCatalog } from "@/lib/catalog/schemas";
 import { loadPgCatalog } from "@/server/pg-views";
 import { guardPage, openApplication } from "@/server/runtime-access";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
+import { Icon } from "@/components/Icon";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -32,6 +35,7 @@ function Storefront({ catalog }: { catalog: MerchantCatalog }) {
     <>
       <section aria-labelledby="notice-heading" className="sandbox-notice rounded-lg border-2 border-amber-600 bg-amber-50 p-4 text-amber-950">
         <h2 id="notice-heading" className="font-semibold">
+          <Icon name="info" />
           {journeyCopy("en").catalogNoticeHeading}
         </h2>
         <p className="text-sm">{journeyCopy("en").catalogNotice}</p>
@@ -39,14 +43,14 @@ function Storefront({ catalog }: { catalog: MerchantCatalog }) {
 
       <section aria-labelledby="start-heading" className="direct-entry flex flex-col gap-3">
         <h2 id="start-heading" className="text-2xl font-semibold">
-          Tell us what you need
+          <Icon name="search" className="ui-icon-lead" />Tell us what you need
         </h2>
         <PreferencesForm />
       </section>
 
       <section aria-labelledby="catalog-heading" className="catalog-board flex flex-col gap-4">
         <h2 id="catalog-heading" className="text-2xl font-semibold">
-          Demo laptops
+          <Icon name="laptop" className="ui-icon-lead" />Explore laptops
         </h2>
         <div className="grid gap-4 sm:grid-cols-2">
           {laptopProducts(catalog).map((product) => (
@@ -81,8 +85,8 @@ async function HomeContentUnguarded({ searchParams }: { searchParams: SearchPara
           <section className="home-hero">
             <GuidedLanguageChoice />
             <figure className="demo-illustration">
-              <img src="/catalog/aspire-14-ai.svg" alt="Acer Aspire 14 AI, illustration" width={320} height={200} />
-              <figcaption>Simplified illustration of the Acer Aspire 14 AI from the demo catalog. It is not a product photo.</figcaption>
+              <img src={productPhoto("dmp_aspire14ai")!.path} alt={productPhoto("dmp_aspire14ai")!.alt.en} width={320} height={200} />
+              <figcaption><ProductPhotoCredit productId="dmp_aspire14ai" /></figcaption>
             </figure>
           </section>
           <Storefront catalog={DEMO_MERCHANT_CATALOG} />

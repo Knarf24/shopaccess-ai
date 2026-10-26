@@ -2,46 +2,66 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width" />
-    <title>ShopAccess</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ShopAccess AI</title>
     <link rel="stylesheet" href="styles.css" />
     <script type="module" src="panel.mjs"></script>
   </head>
   <body>
-    <a href="#heading" id="skip">Skip to conversation</a>
+    <a href="#main" id="skip">Skip to conversation</a>
     <main id="main" tabindex="-1">
-      <h1 id="title">ShopAccess</h1>
-      <p id="notice">Reads and continues your shopping conversation. Confirming, checkout and payment stay on the website.</p>
+      <header class="panel-header">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <div><h1 id="title">ShopAccess AI</h1><p id="connection-state">Not connected</p></div>
+      <details id="settings">
+        <summary id="settings-label">Settings</summary>
+        <section aria-labelledby="connection-heading">
+          <h2 id="connection-heading">Connection</h2>
+          <div class="settings-actions">
+            <button type="button" id="refresh" class="secondary">Refresh conversation</button>
+            <button type="button" id="disconnect" class="secondary">Disconnect locally</button>
+          </div>
+          <p id="disconnect-help">To end server access too, revoke it on the website under Paired access.</p>
+          <details class="technical"><summary id="technical-label">Advanced setup</summary>          <form id="origin-form">
+            <label for="origin" id="origin-label">ShopAccess address</label>
+            <input id="origin" type="url" inputmode="url" autocomplete="off" spellcheck="false" required />
+            <button type="submit" id="save-origin" class="secondary">Save address</button>
+          </form>
+<p id="extension-id"></p></details>
+        </section>
+      </details>
+      </header>
+      <p id="notice">Chat about your ShopAccess shopping. Purchases stay on the website.</p>
       <p id="status" role="status" aria-live="polite"></p>
       <p id="error" role="alert"></p>
       <p id="announce" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
+      <section id="welcome" aria-labelledby="welcome-heading">
+        <span class="welcome-icon" aria-hidden="true">✦</span>
+        <h2 id="welcome-heading">Your shopping assistant</h2>
+        <p id="welcome-text">Connect to your ShopAccess conversation to ask questions and keep shopping here.</p>
+      </section>
+      <button type="button" id="pair" class="primary">Connect to ShopAccess</button>
       <section id="pair-code-box" aria-labelledby="pair-code-heading" hidden>
-        <h2 id="pair-code-heading">Pairing code</h2>
+        <h2 id="pair-code-heading" tabindex="-1">Pairing code</h2>
         <p id="pair-code-value"><span id="pair-code-visual" aria-hidden="true"></span><span id="pair-code-spoken" class="visually-hidden"></span></p>
         <p id="pair-code-help"></p>
+        <button type="button" id="cancel-pair" class="secondary">Cancel connection</button>
       </section>
-
-      <section aria-labelledby="connection-heading">
-        <h2 id="connection-heading">Connection</h2>
-        <form id="origin-form">
-          <label for="origin" id="origin-label">ShopAccess address</label>
-          <input id="origin" type="url" inputmode="url" autocomplete="off" spellcheck="false" required />
-          <button type="submit" id="save-origin">Save address</button>
+      <section id="conversation" aria-labelledby="heading" hidden>
+        <div id="chat-scroll">
+        <h2 id="heading" tabindex="-1" class="visually-hidden">Conversation</h2>
+        <p id="summary"></p>
+        <ol id="history"></ol>
+        <p id="pending-message" class="pending-message" hidden></p>
+        </div>
+        <form id="turn-form">
+          <label for="text" id="text-label" class="visually-hidden">Message</label>
+          <textarea id="text" maxlength="2000" rows="1" required aria-describedby="composer-help" placeholder="Ask about your shopping…"></textarea>
+          <button type="submit" id="send" class="primary" disabled>Send</button>
+          <p id="composer-help">Enter to send · Shift+Enter for a new line</p>
         </form>
-        <button type="button" id="pair">Pair with website</button>
-        <button type="button" id="refresh">Refresh conversation</button>
-        <button type="button" id="disconnect">Forget local pairing</button>
-        <p id="extension-id"></p>
       </section>
 
-      <h2 id="heading" tabindex="-1">Conversation</h2>
-      <p id="summary"></p>
-      <ol id="history"></ol>
-      <form id="turn-form">
-        <label for="text" id="text-label">Message</label>
-        <textarea id="text" maxlength="2000" required></textarea>
-        <button type="submit" id="send">Send</button>
-      </form>
     </main>
   </body>
 </html>

@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import "../../../guided-presentation.css";
+import "../../../ui-refresh.css";
 import { ChargerInformation } from "@/components/ChargerInformation";
 import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import { ConfigNotice } from "@/components/ConfigNotice";
@@ -61,7 +62,7 @@ async function ChargersContent(props: { params: PageParams; searchParams: Search
 
 export default function ChargersPage({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   return (
-    <main className="guided-presentation">
+    <main className="guided-presentation ui-refresh">
       <div className="presentation-column">
         <Suspense fallback={<p>Loading…</p>}>
           <ChargersContent params={params} searchParams={searchParams} />

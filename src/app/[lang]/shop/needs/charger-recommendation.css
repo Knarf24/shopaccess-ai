@@ -1,0 +1,73 @@
+/* Scoped to an eligible charger recommendation; other shopping states retain their layout. */
+
+.needs-workspace:has(.charger-rec-layout) .presentation-column { max-width: 80rem; }
+.needs-workspace .needs-layout.charger-rec-shell { display: flex; flex-direction: column; gap: 1.5rem; }
+.charger-rec-layout { color: #102247; min-width: 0; }
+.charger-rec-header { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; align-items: center; padding-block: .5rem 1.5rem; border-bottom: 1px solid #cbd5e1; }
+.charger-rec-brand { font-size: 1.4rem; font-weight: 750; text-decoration: none; color: #1b43ad; }
+.charger-rec-progress { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .75rem; padding: 1.5rem 0; list-style: none; }
+.charger-rec-progress li { display: flex; gap: .6rem; align-items: center; font-size: .95rem; padding: .75rem; border-radius: .7rem; }
+.charger-rec-progress li[aria-current] { background: #eaf4ff; font-weight: 700; }
+.charger-rec-step { display: grid; place-items: center; flex: 0 0 1.75rem; height: 1.75rem; background: #e2e8f0; border-radius: 50%; }
+.charger-rec-progress [data-status="completed"] .charger-rec-step { background: #dbeafe; color: #075985; }
+.charger-rec-intro { margin: .5rem 0 2rem; }
+.charger-rec-intro h1 { font-size: clamp(1.8rem,4vw,2.7rem); line-height: 1.2; font-weight: 750; letter-spacing: -.03em; }
+.needs-workspace .charger-rec-intro p { margin-top: .75rem; font-size: 1.1rem; color: #405573; }
+.charger-rec-grid { display: grid; grid-template-columns: minmax(14rem,.8fr) minmax(0,2fr); gap: 1.5rem; align-items: start; margin-bottom: 1.5rem; }
+.charger-rec-choices { background: #eff6ff; border: 1px solid #b8cee5; padding: 1.5rem; border-radius: 1rem; min-width: 0; }
+.charger-rec-choices h2 { font-size: 1.25rem; font-weight: 700; margin-bottom: 1.25rem; }
+.charger-rec-choices dt { font-size: .9rem; color: #405573; margin-bottom: .4rem; }
+.charger-rec-choices dd { font-weight: 650; margin: 0; overflow-wrap: anywhere; }
+.charger-rec-choices small { display: block; font-weight: 400; margin-top: .35rem; }
+.charger-rec-budget { border-top: 1px solid #b8cee5; margin-top: 1.25rem; padding-top: 1.25rem; }
+.charger-rec-budget-value { font-size: 1.7rem; }
+.charger-rec-link, .charger-rec-edit summary { color: #075985; text-decoration: underline; text-underline-offset: .2em; cursor: pointer; background: transparent; border: 0; padding: .65rem 0; min-height: 44px; display: inline-block; }
+.charger-rec-card { display: grid; grid-template-columns: minmax(9rem,.85fr) minmax(0,1.3fr); gap: 1.5rem; border: 1px solid #b8cee5; padding: 1.75rem; border-radius: 1rem; background: #fff; min-width: 0; }
+.charger-rec-illustration { margin: 0; align-self: start; background: #f5f9ff; border-radius: .75rem; padding: .75rem; }
+.charger-rec-illustration img { max-width: 100%; height: auto; }
+.charger-rec-illustration figcaption { font-size: .8rem; text-align: center; color: #405573; padding-bottom: .5rem; }
+.charger-rec-product { min-width: 0; }
+.charger-rec-product h2 { font-size: clamp(1.35rem,2.5vw,1.8rem); font-weight: 700; line-height: 1.3; }
+.needs-workspace .charger-rec-product p { color: #405573; line-height: 1.6; }
+.needs-workspace .charger-rec-product .text-2xl { color: #102247; }
+.charger-rec-model { font-size: .9rem; margin-top: .5rem; }
+.charger-rec-primary, .charger-rec-secondary { display: inline-flex; align-items: center; justify-content: center; padding: .85rem 1.15rem; min-height: 44px; border: 1px solid #1b43ad; border-radius: .6rem; background: #2457d6; color: #fff; font-weight: 700; text-decoration: none; text-align: center; line-height: 1.4; cursor: pointer; max-width: 100%; }
+.charger-rec-primary:hover { background: #1b43ad; }
+.charger-rec-secondary { background: #fff; border-color: #64748b; margin-top: .75rem; }
+.charger-rec-edit form { padding-top: .5rem; }
+.charger-rec-edit label { display: block; font-weight: 650; margin-bottom: .5rem; }
+.charger-rec-edit input:not([type="hidden"]) { width: 100%; min-height: 44px; border: 1px solid #64748b; border-radius: .4rem; padding: .6rem; background: #fff; color: #102247; }
+.charger-rec-edit p { font-size: .9rem; margin-top: .5rem; }
+.charger-rec-disclosure { border: 1px solid #b8cee5; border-radius: .75rem; margin-top: .75rem; overflow-wrap: anywhere; }
+.charger-rec-disclosure > summary { padding: 1rem 1.25rem; min-height: 44px; font-weight: 650; color: #075985; cursor: pointer; }
+.charger-rec-details-body { padding: 0 1.25rem 1.25rem; min-width: 0; }
+.charger-rec-footer { padding-top: 1.5rem; font-size: .9rem; }
+.needs-workspace .charger-rec-footer p { color: #405573; }
+.needs-workspace .charger-rec-shell > .needs-side { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.needs-workspace .charger-rec-layout :focus-visible { outline: 3px solid #075985; outline-offset: 3px; }
+@media (max-width: 1100px) { .charger-rec-card { grid-template-columns: minmax(0,1fr); } .charger-rec-illustration { max-width: 16rem; justify-self: center; } }
+@media (max-width: 700px) { .charger-rec-grid { grid-template-columns: minmax(0,1fr); } .charger-rec-progress { grid-template-columns: repeat(2,minmax(0,1fr)); gap: .25rem; } .charger-rec-card,.charger-rec-choices { padding: 1.25rem; } .charger-rec-header { font-size: .9rem; } .charger-rec-primary { width: 100%; } }
+
+.charger-rec-progress li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 359px) { .charger-rec-progress { grid-template-columns: minmax(0,1fr); } }
+/* Override the workspace's older generic link color on the orange action. */
+.needs-workspace .charger-rec-layout .charger-rec-primary { color: #fff; }
+
+/* Keep the expanded compatibility table inside the recommendation width. */
+.needs-workspace .charger-rec-shell > .charger-rec-layout {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.charger-rec-disclosure,
+.charger-rec-details-body,
+.charger-rec-details-body > section {
+  min-width: 0;
+  max-width: 100%;
+}
+.needs-workspace .charger-rec-details-body .needs-comparison-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}

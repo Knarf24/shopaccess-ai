@@ -9,8 +9,8 @@ const SANDBOX = /sandbox|entorno de pruebas/i;
 
 describe("demo catalog wording", () => {
   it("describes the site and the catalog heading as a demo catalog, in English and Spanish", () => {
-    expect(journeyCopy("en").catalogNoticeHeading).toBe("Demo catalog");
-    expect(journeyCopy("es").catalogNoticeHeading).toBe("Catálogo de demostración");
+    expect(journeyCopy("en").catalogNoticeHeading).toBe("For evaluation");
+    expect(journeyCopy("es").catalogNoticeHeading).toBe("Para evaluación");
     expect(siteMetadata("en")).toEqual({ title: "ShopAccess AI", description: "An inclusive laptop-shopping assistant demo with a demo catalog." });
     expect(siteMetadata("es")).toEqual({ title: "ShopAccess AI", description: "Una demostración de un asistente inclusivo para comprar portátiles, con un catálogo de demostración." });
     for (const language of ["en", "es"] as const) {
@@ -25,7 +25,7 @@ describe("demo catalog wording", () => {
     expect(localized).toContain("siteMetadata(locale)");
     expect(readFileSync("src/app/(english)/layout.tsx", "utf8")).toContain('siteMetadata("en")');
     expect(readFileSync("src/app/(english)/page.tsx", "utf8")).toContain('journeyCopy("en").catalogNoticeHeading');
-    expect(readFileSync("src/app/(english)/shop/shop-listing.tsx", "utf8")).toContain("Demo store laptops (demo catalog)");
+    expect(readFileSync("src/app/(english)/shop/shop-listing.tsx", "utf8")).toContain("Explore laptops");
     for (const file of ["src/app/[lang]/layout.tsx", "src/app/(english)/layout.tsx", "src/app/(english)/page.tsx", "src/app/(english)/shop/shop-listing.tsx"]) {
       expect(readFileSync(file, "utf8"), file).not.toMatch(/simulated sandbox|sandbox catalog|sandbox shopping/i);
     }

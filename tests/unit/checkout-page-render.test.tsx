@@ -222,6 +222,31 @@ describe("checkout page: refusals describe the current condition (review finding
     }
   });
 
+  const headingTextOf = (html: string) => text(html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/)?.[1] ?? "");
+  it("completed heading: only a verified capture shows it; pending, declined and unknown outcomes never look successful", async () => {
+    for (const step of ["capture", "capture_pending", "capture_declined", "capture_lost_response"] as const) {
+      const { runtime } = world();
+      const buyer = await shopper(runtime);
+      await permit(runtime, buyer);
+      const { intent, quote } = await start(runtime, buyer);
+      await confirm(runtime, buyer, quote.quoteId);
+      for (const before of ["create_order", "buyer_approve", step]) expect(await simulate(runtime, buyer, intent.id, before), before).toBeNull();
+      const state = await stateOf(runtime, intent.id);
+      const html = await render(intent.id);
+      if (step === "capture") {
+        expect(state).toBe("CAPTURED_VERIFIED");
+        expect(headingTextOf(html)).toBe("Purchase complete");
+        expect(html).not.toContain('aria-current="step"');
+        expect(html.match(/data-status="completed"/g)).toHaveLength(4);
+        expect(text(html)).toContain("This was a local preview. No money moved and nothing ships.");
+      } else {
+        expect(state, step).not.toBe("CAPTURED_VERIFIED");
+        expect(text(html), step).not.toMatch(/Purchase complete|Compra completada/);
+        expect(headingTextOf(html), step).toBe("Review purchase");
+      }
+    }
+  });
+
   it("finding 5: a permission code in the URL never produces 'Nothing was charged' once a capture may have been sent", async () => {
     for (const step of ["capture", "capture_pending", "capture_lost_response"] as const) {
       const { runtime } = world();
@@ -500,7 +525,7 @@ describe("checkout page: language of parts (language-marker correction)", () => 
 describe("checkout page: wording follows the saved checkout language (finding 8)", () => {
   const ITEM_TITLE = "Acer Aspire Go 15 — 8 GB LPDDR5, 256 GB PCIe NVMe SSD";
   const ENGLISH = {
-    heading: "Demo checkout",
+    heading: "Review purchase",
     quoteHeading: "Quote",
     quoteLine: `${ITEM_TITLE}, quantity 1, sold by ShopAccess Demo Store (simulated).`,
     total: "Total $579.99 USD. Tax and shipping are $0.00 as an assumption of this demonstration; nothing is shipped.",
@@ -508,7 +533,7 @@ describe("checkout page: wording follows the saved checkout language (finding 8)
     back: "Back to the start",
   };
   const SPANISH = {
-    heading: "Compra de demostración",
+    heading: "Revisar compra",
     quoteHeading: "Cotización",
     quoteLine: `${ITEM_TITLE}, cantidad 1, vendido por ShopAccess Demo Store (simulada).`,
     total: "Total $579.99 USD. Los impuestos y el envío son 0,00 USD como supuesto de esta demostración; no se envía nada.",
@@ -546,7 +571,7 @@ describe("checkout page: wording follows the saved checkout language (finding 8)
     const intent = await confirmedCheckout();
     const html = await render(intent.id, { notice: "CONFIRMED" });
     const visible = text(html);
-    expect(html).toContain('<h1 class="text-3xl font-semibold">Demo checkout</h1>');
+    expect(html).toContain('<h1 class="text-3xl font-semibold">Review purchase</h1>');
     expect(headingText(html, /id="quote-heading"[^>]*>([\s\S]*?)<\/h2>/)).toBe(ENGLISH.quoteHeading);
     for (const line of [ENGLISH.quoteLine, ENGLISH.total, ENGLISH.confirmed, ENGLISH.back]) expect(visible, line).toContain(line);
     expect(html.match(/\slang="/g)).toHaveLength(1);
@@ -583,7 +608,7 @@ describe("checkout page: wording follows the saved checkout language (finding 8)
       }
       expect(isRedirectError(thrown) ? getURLFromRedirectError(thrown) : null).toBeNull();
       expect(String(thrown)).toContain("404");
-      expect(String(thrown)).not.toContain("Compra de demostración");
+      expect(String(thrown)).not.toContain("Revisar compra");
     }
   });
 

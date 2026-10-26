@@ -687,7 +687,7 @@ describe("guided needs flow", () => {
     const challenge = await prepareConfirmation(runtime.checkout, buyer.sessionId, quote.quoteId);
     if (!challenge.ok) throw new Error(challenge.error);
     const summary = renderToStaticMarkup(<ConfirmationSummary challenge={challenge.value} csrfToken={buyer.csrfToken} action={`/checkout/${intent.id}/confirm`} />);
-    expect(summary).toContain("Review and confirm this purchase summary");
+    expect(summary).toContain("Check your purchase");
     expect(summary).not.toContain('lang="es"');
     expect(summary).toContain("$579.99");
     expect(summary).toContain(`name="quoteDigest" value="${quote.digest}"`);
@@ -764,7 +764,7 @@ describe("guided needs flow", () => {
     expect(markup).not.toContain(copy.checkLimitation);
     expect(markup).not.toContain(copy.whyThis);
     expect(markup).not.toContain(copy.excludedHeading);
-    expect(markup).not.toContain("Review this purchase for");
+    expect(markup).not.toContain("Review purchase");
     expect(markup).not.toContain('action="/checkout/start"');
   });
 
@@ -796,24 +796,24 @@ describe("guided needs flow", () => {
       expectHeadingsStayOutOfTabOrder(markup);
       expect(markup).toContain(copy.catalogNotice);
       expect(markup).toContain(copy.checkLimitation);
-      expect(markup).toContain('src="/catalog/aspire-go-15.svg"');
-      expect(markup).toContain('src="/catalog/aspire-14-ai.svg"');
-      expect(markup).toContain('src="/catalog/vivobook-16.svg"');
-      expect(markup).toContain('alt="Acer Aspire Go 15, illustration"');
+      expect(markup).toContain('src="/catalog/illustrations/aspire-go-15.svg"');
+      expect(markup).toContain('src="/catalog/illustrations/aspire-14-ai.svg"');
+      expect(markup).toContain('src="/catalog/illustrations/vivobook-16.svg"');
+      expect(markup).toContain(lang === "es" ? 'alt="Ilustración de portátil para Acer Aspire Go 15 AG15-21PT-R9TL; el aspecto real puede variar"' : 'alt="Laptop illustration for Acer Aspire Go 15 AG15-21PT-R9TL; actual appearance may differ"');
       expect(markup).not.toContain("demo-laptop.png");
       expect(markup).toContain(copy.excludedHeading);
       const entryItem = itemMarkup(markup, entry.variantId);
       expect(entryItem).toContain(copy.whyThis);
       expect(entryItem).toContain("$579.99");
-      expect(entryItem).toContain(
-        lang === "es"
-          ? "Revisar esta compra para"
-          : "Review this purchase for Acer Aspire Go 15, 8 GB LPDDR5, 256 GB PCIe NVMe SSD",
-      );
+      // Short visible label; the accessible name adds the product through its heading (no repeated specification).
+      expect(accessibleNameFromContents(buttonContents(entryItem))).toBe(lang === "es" ? "Revisar compra" : "Review purchase");
+      expect(entryItem).toContain(`aria-labelledby="review-${entry.variantId} catalog-${entry.variantId}"`);
+      expect(entryItem).toContain(`id="catalog-${entry.variantId}"`);
       if (lang === "es") {
+        // The shopper's language leads; the English original stays available, marked, inside the details.
         expect(entryItem).toContain('lang="en"');
         expect(entryItem).toContain(">Acer Aspire Go 15<");
-        expect(entryItem).toContain(">8 GB LPDDR5, 256 GB PCIe NVMe SSD<");
+        expect(entryItem).toContain('<span lang="en">8 GB LPDDR5, 256 GB PCIe NVMe SSD</span>');
         for (const factor of entry.factors) {
           const spanish = spanishFactorReason(factor);
           if (!spanish) throw new Error("missing Spanish eligible reason");
@@ -858,9 +858,10 @@ describe("guided needs flow", () => {
       />,
     );
     expectHeadingsStayOutOfTabOrder(markup);
-    expect(markup).toContain("Review this purchase for Acer Aspire 14 AI, 16 GB LPDDR5X, 512 GB PCIe NVMe SSD");
-    expect(markup).toContain("Review this purchase for ASUS Vivobook 16, 16 GB DDR4, 1 TB PCIe NVMe SSD");
-    expect(markup).toContain("Review this purchase for Acer Aspire Go 15, 8 GB LPDDR5, 256 GB PCIe NVMe SSD");
+    for (const id of ["dmv_aspire14ai", "dmv_vivobook16", "dmv_aspirego15"]) {
+      if (markup.includes(`id="review-${id}"`)) expect(markup).toContain(`aria-labelledby="review-${id} catalog-${id}"`);
+    }
+    expect(markup.match(/>Review purchase</g)?.length).toBe(3);
     expect(markup).toContain("$879.99");
     expect(markup).toContain("$999.00");
     expect(markup).toContain("$579.99");
@@ -1380,19 +1381,12 @@ describe("guided needs flow", () => {
         />,
       );
       const contents = buttonContents(markup);
-      const expected =
-        language === "es"
-          ? "Revisar esta compra para Acer Aspire Go 15, 8 GB LPDDR5, 256 GB PCIe NVMe SSD"
-          : "Review this purchase for Acer Aspire Go 15, 8 GB LPDDR5, 256 GB PCIe NVMe SSD";
-      expect(accessibleNameFromContents(contents)).toBe(expected);
+      expect(accessibleNameFromContents(contents)).toBe(language === "es" ? "Revisar compra" : "Review purchase");
+      expect(markup).toContain(`aria-labelledby="review-${line.variantId} catalog-${line.variantId}"`);
       expect(markup).toContain('action="/checkout/start"');
       expect(markup).toContain('name="csrfToken"');
-      if (language === "es") {
-        expect(contents).toContain('<span lang="en">Acer Aspire Go 15</span>');
-        expect(contents).toContain('<span lang="en">8 GB LPDDR5, 256 GB PCIe NVMe SSD</span>');
-      } else {
-        expect(contents).not.toContain("<span");
-      }
+      // Icon only (hidden); the visible label is plain text with no product or specification repeated.
+      expect(contents).not.toContain("lang=");
     }
   });
 
@@ -1747,7 +1741,7 @@ describe("guided needs flow", () => {
     expect(suggestions).toContain('name="variantId" value="studybook-14-base"');
     expect(suggestions).toContain('name="quantity" value="1"');
     expect(suggestions).toContain("$579.99");
-    expect(buttonContents(suggestions)).toContain("Review this purchase for Acer Aspire Go 15, 8 GB LPDDR5, 256 GB PCIe NVMe SSD");
+    expect(accessibleNameFromContents(buttonContents(suggestions))).toBe("Review purchase");
     expect(suggestions.indexOf(`id="${NEEDS_SUGGESTIONS_HEADING_ID}"`)).toBeLessThan(suggestions.indexOf('action="/checkout/start"'));
     const untouchedSuggestions = renderToStaticMarkup(
       <TranslatedAdvisory

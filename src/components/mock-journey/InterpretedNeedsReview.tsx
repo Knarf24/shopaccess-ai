@@ -1,6 +1,7 @@
 import type { JourneyCopy } from "@/lib/i18n/demo-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
 import { INTENDED_USES, type IntendedUse } from "@/lib/readiness/engine";
+import { Icon } from "../Icon";
 
 export const NEEDS_REVIEW_HEADING_ID = "review-heading";
 
@@ -36,7 +37,7 @@ export function InterpretedNeedsReview({
       </h2>
       <p>{copy.reviewBody}</p>
       <label className="flex flex-col gap-1 text-sm" htmlFor="review-use">
-        {copy.useLabel}
+        <span className="label-line"><Icon name="laptop" />{copy.useLabel}</span>
         <select id="review-use" name="use" defaultValue={draft.prefilledUse ?? ""} required className="rounded border border-zinc-400 p-2">
           <option value="">{copy.questions.intended_use}</option>
           {INTENDED_USES.map((use) => (
@@ -47,7 +48,7 @@ export function InterpretedNeedsReview({
         </select>
       </label>
       <label className="flex flex-col gap-1 text-sm" htmlFor="review-budget">
-        {copy.budgetLabel}
+        <span className="label-line"><Icon name="budget" />{copy.budgetLabel}</span>
         <input
           id="review-budget"
           name="budget"
@@ -66,8 +67,8 @@ export function InterpretedNeedsReview({
       <input type="hidden" name="draftId" value={draft.draftId} />
       <input type="hidden" name="version" value={String(draft.version)} />
       <input type="hidden" name="csrfToken" value={csrfToken} />
-      <button type="submit" className="rounded bg-blue-800 px-4 py-2 font-medium text-white">
-        {copy.confirmReview}
+      <button type="submit" className="shopping-primary-action rounded bg-blue-800 px-4 py-2 font-medium text-white">
+        <Icon name="check" />{copy.confirmReview}
       </button>
     </form>
   );

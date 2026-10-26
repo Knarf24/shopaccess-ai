@@ -367,3 +367,57 @@
     transition: none !important;
   }
 }
+
+/* Main shopping actions; secondary/destructive controls keep their existing styles. */
+.guided-presentation button.shopping-primary-action:not(:disabled) {
+  background: #2457d6; color: #fff; border: 1px solid #1b43ad;
+  border-radius: .6rem; min-height: 44px; font-weight: 700;
+}
+.guided-presentation button.shopping-primary-action:not(:disabled):hover { background: #1b43ad; }
+.guided-presentation button.shopping-primary-action:focus-visible { outline: 3px solid #075985; outline-offset: 3px; }
+
+/* Decorative line icons (see Icon.tsx): sit beside their text label, never replace it. */
+.guided-presentation .ui-icon {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  vertical-align: -0.2em;
+  margin-right: 0.45rem;
+}
+
+.guided-presentation .ui-icon-lead {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: #2457d6;
+  vertical-align: -0.15em;
+}
+
+.guided-presentation button .ui-icon,
+.guided-presentation .shopping-primary-action .ui-icon {
+  color: inherit;
+}
+
+.guided-presentation .label-line {
+  display: inline-flex;
+  align-items: center;
+}
+
+.guided-presentation summary .ui-icon {
+  color: #2457d6;
+}
+
+/* The utility reset makes SVGs block-level; keep icons on the text line. */
+.guided-presentation .ui-icon {
+  display: inline-block;
+}
+
+.guided-presentation button:has(> .ui-icon),
+.guided-presentation summary:has(> .ui-icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.guided-presentation summary:has(> .ui-icon) {
+  justify-content: flex-start;
+}

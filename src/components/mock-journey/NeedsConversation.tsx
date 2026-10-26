@@ -5,6 +5,7 @@ import type { NeedsNotice } from "@/lib/i18n/needs-notice";
 import { INTENDED_USES, type IntendedUse } from "@/lib/readiness/engine";
 import type { ConversationTurn } from "@/types/conversation-turn";
 import { chargerCopy } from "@/lib/i18n/charger-copy";
+import { Icon } from "../Icon";
 
 interface NeedsFormDraft {
   readonly shopperText: string;
@@ -67,6 +68,7 @@ export function NeedsConversation({
   afterHistory = null,
   externalAiNotice,
   aiLimited = false,
+  secondary = false,
 }: {
   readonly copy: JourneyCopy;
   readonly language: JourneyLanguage;
@@ -86,6 +88,8 @@ export function NeedsConversation({
   readonly externalAiNotice?: string;
   /** This request was refused before an external AI call. Typed and structured controls remain available. */
   readonly aiLimited?: boolean;
+  /** A side task next to a primary action (review reply, re-search under results): outlined, not orange. */
+  readonly secondary?: boolean;
 }) {
   const useMissing = mode === "clarify" && (draft?.prefilledUse ?? null) === null;
   const budgetDisputed =
@@ -139,7 +143,7 @@ export function NeedsConversation({
       {mode === "reply" ? null : (
         <>
           <label className="flex flex-col gap-1 text-sm" htmlFor="needs-use">
-            {copy.useLabel}
+            <span className="label-line"><Icon name="laptop" />{copy.useLabel}</span>
             <select
               id="needs-use"
               name="use"
@@ -157,7 +161,7 @@ export function NeedsConversation({
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm" htmlFor="needs-budget">
-            {copy.budgetLabel}
+            <span className="label-line"><Icon name="budget" />{copy.budgetLabel}</span>
             <input
               id="needs-budget"
               name="budget"
@@ -178,8 +182,8 @@ export function NeedsConversation({
       {mode !== "first" && draft ? <input type="hidden" name="draftId" value={draft.draftId} /> : null}
       {mode !== "first" && draft ? <input type="hidden" name="version" value={String(draft.version)} /> : null}
       <input type="hidden" name="csrfToken" value={csrfToken} />
-      <button type="submit" className="rounded bg-blue-800 px-4 py-2 font-medium text-white">
-        {copy.submit}
+      <button type="submit" className={secondary || mode === "reply" ? "shopping-secondary-action rounded px-4 py-2 font-medium" : "shopping-primary-action rounded bg-blue-800 px-4 py-2 font-medium text-white"}>
+        {mode === "reply" ? null : <Icon name="search" />}{chargerClarification ? (language === "es" ? "Enviar respuesta" : "Send reply") : copy.submit}
       </button>
       </form>
     </div>

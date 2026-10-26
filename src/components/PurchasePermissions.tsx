@@ -1,6 +1,7 @@
 import { formatUsd, permissionCopy, type PermissionFormCode, type ShownState } from "@/lib/i18n/permission-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
 import { FocusOnArrival } from "./FocusOnArrival";
+import { Icon } from "./Icon";
 
 /**
  * The purchase-permissions page body (M2-3 slice 3). Pure: everything it shows is passed in. Native form controls only,
@@ -98,8 +99,11 @@ export function PurchasePermissions({
         {skipLabel}
       </a>
       {arrival ? <FocusOnArrival targetId={arrival} /> : null}
+      <p>
+        <a href={`/${language}/shop/needs`}>{language === "es" ? "Volver a la compra guiada" : "Back to guided shopping"}</a>
+      </p>
       <h1 id={PERMISSIONS_HEADING_ID} tabIndex={-1} className="text-3xl font-semibold">
-        {copy.pageTitle}
+        <Icon name="limits" className="ui-icon-lead" />{copy.pageTitle}
       </h1>
       {resultText ? (
         <p id={PERMISSION_RESULT_ID} tabIndex={-1} role={result?.kind === "error" ? "alert" : "status"}>
@@ -140,7 +144,7 @@ export function PurchasePermissions({
             <input type="hidden" name="quantity" value={review.quantity} />
             <input type="hidden" name="total" value={review.total} />
             <input type="hidden" name="expiry" value={review.expiry} />
-            <button type="submit" className="permission-action">{copy.createButton}</button>
+            <button type="submit" className="permission-action shopping-primary-action">{copy.createButton}</button>
           </form>
           <p>
             <a href={`/${language}/shop/permissions?${new URLSearchParams({ item: review.item, quantity: review.quantity, total: review.total, expiry: review.expiry }).toString()}`}>
@@ -204,7 +208,7 @@ export function PurchasePermissions({
           </fieldset>
           {fieldError("expiry") ? <p id="permission-expiry-error">{copy.formErrors[fieldError("expiry")!]}</p> : null}
 
-          <button type="submit" className="permission-action">{copy.reviewButton}</button>
+          <button type="submit" className="permission-action shopping-primary-action">{copy.reviewButton}</button>
         </form>
       </section>
 

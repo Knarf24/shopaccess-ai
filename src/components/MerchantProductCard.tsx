@@ -1,33 +1,36 @@
+import { productPhoto } from "@/lib/catalog/product-photos";
+import { ProductPhotoCredit } from "./ProductPhotoCredit";
 import { isLaptopVariant } from "@/lib/catalog/schemas";
 import Image from "next/image";
 import { formatUsd } from "@/lib/catalog/merchant-catalog";
 import type { MerchantProduct } from "@/lib/catalog/schemas";
 
 const AVAILABILITY_LABELS = {
-  IN_STOCK: "In stock (simulated)",
-  OUT_OF_STOCK: "Out of stock (simulated)",
-  DISCONTINUED: "Discontinued (simulated)",
+  IN_STOCK: "Available",
+  OUT_OF_STOCK: "Unavailable",
+  DISCONTINUED: "Discontinued",
 } as const;
 
-export function MerchantProductCard({ product, merchantName }: { product: MerchantProduct; merchantName: string }) {
+export function MerchantProductCard({ product }: { product: MerchantProduct; merchantName: string }) {
   if (!product.variants.every(isLaptopVariant)) return null;
   const variants = product.variants.filter(isLaptopVariant);
+  const photo = productPhoto(product.productId);
   const headingId = `product-${product.productId}`;
   return (
     <article aria-labelledby={headingId} className="flex flex-col gap-3 rounded-lg border border-zinc-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <Image src={product.imagePath} alt="Illustration" width={320} height={200} unoptimized className="w-full rounded" />
+      <Image src={photo?.path ?? product.imagePath} alt={photo?.alt.en ?? `${product.title}, illustration`} width={320} height={200} unoptimized className="w-full rounded" style={{ height: "200px", objectFit: "contain", background: "white" }} />
+      <ProductPhotoCredit productId={product.productId} />
       <h3 id={headingId} className="text-lg font-semibold">
         {product.title}
       </h3>
       <p className="text-sm text-zinc-700 dark:text-zinc-300">{product.description}</p>
-      <p className="text-xs text-zinc-600 dark:text-zinc-400">Sold by {merchantName}.</p>
       <ul className="flex flex-col gap-3">
         {variants.map((variant) => (
           <li key={variant.variantId} className="rounded border border-zinc-200 p-3 text-sm dark:border-zinc-700">
             <p className="font-medium">{variant.label}</p>
             <p>
-              Fixed demo price <span className="font-semibold">{formatUsd(variant.unitAmountCents)}</span> USD ·{" "}
-              {AVAILABILITY_LABELS[variant.availability]}
+              <span className="font-semibold">{formatUsd(variant.unitAmountCents)}</span> USD
+              {variant.availability !== "IN_STOCK" ? ` · ${AVAILABILITY_LABELS[variant.availability]}` : null}
             </p>
             <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-zinc-700 dark:text-zinc-300">
               <dt>Processor</dt>
