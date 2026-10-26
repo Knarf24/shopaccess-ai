@@ -16,7 +16,7 @@ export function GuidedLanguageChoice() {
           <input type="radio" name="lang" value="es" required /> {GUIDED_LANGUAGE_ES}
         </label>
       </fieldset>
-      <button type="submit" className="w-fit rounded bg-blue-800 px-4 py-2 font-medium text-white">
+      <button type="submit" className="shopping-primary-action w-fit rounded bg-blue-800 px-4 py-2 font-medium text-white">
         {GUIDED_ENTRY_SUBMIT}
       </button>
     </form>

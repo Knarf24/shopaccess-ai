@@ -163,7 +163,8 @@ describe("compact laptop result cards", () => {
       ["budget", "600"],
       ["lang", "en"],
     ]);
-    expect(form).toContain("Review this purchase for Acer Aspire Go 15, 8 GB LPDDR5, 256 GB PCIe NVMe SSD");
+    expect(form).toContain(">Review purchase<");
+    expect(form).toContain('aria-labelledby="review-dmv_aspirego15 catalog-dmv_aspirego15"');
   });
 
   it("says every checked rule passed only when all factors pass, and invents no ranks, counts or charges", () => {

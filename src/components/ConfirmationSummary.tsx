@@ -27,7 +27,7 @@ export function ConfirmationSummary({ challenge, csrfToken, action, language, he
   return (
     <form method="post" action={action} aria-labelledby="confirm-heading" className="flex max-w-xl flex-col gap-4 rounded-lg border border-zinc-400 p-5">
       <h2 id="confirm-heading" tabIndex={headingTabIndex} className="text-xl font-semibold">
-        Review and confirm this purchase summary
+        Check your purchase
       </h2>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
         <dt className="font-medium">Seller</dt>
@@ -64,9 +64,9 @@ export function ConfirmationSummary({ challenge, csrfToken, action, language, he
         type="submit"
         disabled={!action}
         aria-describedby="confirm-explanation"
-        className="rounded bg-blue-800 px-4 py-2 font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:bg-zinc-500"
+        className="shopping-primary-action rounded bg-blue-800 px-4 py-2 font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:bg-zinc-500"
       >
-        Confirm this purchase summary
+        Confirm purchase details
       </button>
     </form>
   );
@@ -113,7 +113,7 @@ function SpanishConfirmation({ challenge, csrfToken, action, headingTabIndex }: 
         type="submit"
         disabled={!action}
         aria-describedby="confirm-explanation"
-        className="rounded bg-blue-800 px-4 py-2 font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:bg-zinc-500"
+        className="shopping-primary-action rounded bg-blue-800 px-4 py-2 font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:bg-zinc-500"
       >
         {copy.submit}
       </button>

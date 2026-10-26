@@ -1,4 +1,4 @@
-import { ChargerPurchaseCard } from "@/components/mock-journey/ChargerPurchaseCard";
+import { ChargerRecommendationLayout } from "@/components/mock-journey/ChargerRecommendationLayout";
 import { eligibleChargerTrack } from "@/server/charger-purchase";
 import { CHARGER_PRODUCT_ID, CHARGER_VARIANT_ID } from "@/lib/catalog/charger-purchase";
 import Link from "next/link";
@@ -23,6 +23,7 @@ import { isPermissionRefusal, permissionCopy } from "@/lib/i18n/permission-copy"
 import { revocationMessage } from "@/lib/i18n/extension-copy";
 import "../../../guided-presentation.css";
 import "./needs-workspace.css";
+import "./charger-recommendation.css";
 import { ExternalListings, type ListingNotice } from "@/components/mock-journey/ExternalListings";
 import { TranslatedAdvisory } from "@/components/mock-journey/TranslatedAdvisory";
 import { TranslatedCatalogList } from "@/components/mock-journey/TranslatedCatalogList";
@@ -44,6 +45,7 @@ import { guardPage, openApplication } from "@/server/runtime-access";
 import { StoreUnavailable } from "@/components/StoreUnavailable";
 import { loadNeedsJourney, visibleNeedsNotice } from "@/server/shopping";
 import { resolvePageSession } from "@/server/views";
+import { Icon } from "@/components/Icon";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 type PageParams = Promise<{ lang: string }>;
@@ -156,17 +158,17 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           : null;
 
   return (
-    <div lang={language} className="needs-layout flex flex-col gap-6">
+    <div lang={language} className={`needs-layout flex flex-col gap-6${purchaseTrack ? " charger-rec-shell" : ""}`}>
       <DocumentLanguageSync language={language} />
       <SkipToCurrentStep copy={copy} targetId={currentTargetId} />
-      <h1
+      {!purchaseTrack ? <h1
         id={currentTarget === "heading" ? NEEDS_PAGE_HEADING_ID : undefined}
         tabIndex={currentTarget === "heading" ? -1 : undefined}
         className="text-3xl font-semibold"
       >
         {copy.pageTitle}
-      </h1>
-      {currentStep ? <GuidedProgress copy={copy} current={currentStep} /> : null}
+      </h1> : null}
+      {!purchaseTrack && currentStep ? <GuidedProgress copy={copy} current={currentStep} /> : null}
       {expiredDraft ? (
         <>
           <p id={NEEDS_EXPIRED_ALERT_ID} role="alert" tabIndex={-1}>
@@ -195,7 +197,15 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           {copy.notices[statusNotice]}
         </p>
       ) : null}
-      {chargerOpen && journey.draft && chargerTrack ? (
+      {purchaseTrack && journey.draft ? (
+        <>
+          {adapterInProgress ? <p role="status">{language === "es" ? "Una compra anterior ya está en curso o su resultado no se conoce. Cambiar el dispositivo o presupuesto no cancela esa compra. Revise su resultado antes de volver a comprar." : "An earlier purchase is already underway or its result is unknown. Changing the device or budget does not cancel that purchase. Check its result before buying again."}</p> : null}
+          <ChargerRecommendationLayout language={language} csrfToken={session.csrfToken} track={purchaseTrack} permitted={adapterPermitted} headingId={NEEDS_PAGE_HEADING_ID}
+            compatibility={<ChargerInformation language={language} selection={selectDevice(EVIDENCE, { identifier: purchaseTrack.deviceId! })} showDeviceSelector={false} showScrollHint embedded />}
+            conversation={<NeedsConversation copy={copy} language={language} csrfToken={session.csrfToken} draft={journey.draft} mode="reply" turns={journey.conversation?.turns} chargerClarification externalAiNotice={externalAiNotice} aiLimited={aiLimited} />}
+          />
+        </>
+      ) : chargerOpen && journey.draft && chargerTrack ? (
         <>
           <NeedsConversation
             copy={copy}
@@ -218,7 +228,6 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           )}
           {adapterInProgress ? <p role="status">{language === "es" ? "Una compra anterior ya está en curso o su resultado no se conoce. Cambiar el dispositivo o presupuesto no cancela esa compra. Revise su resultado antes de volver a comprar." : "An earlier purchase is already underway or its result is unknown. Changing the device or budget does not cancel that purchase. Check its result before buying again."}</p> : null}
           {chargerTrack.state === "confirmed" && chargerTrack.deviceId === "Mac14,2" && chargerTrack.budget?.confirmedCents !== null && chargerTrack.budget?.confirmedCents !== undefined && chargerTrack.budget.confirmedCents < 5900 ? <p role="status">{language === "es" ? "No hay un adaptador recomendado dentro de su presupuesto confirmado. El adaptador de demostración cuesta $59.00; puede cambiar su presupuesto o detener esta búsqueda." : "No recommended adapter fits your confirmed budget. The demo adapter costs $59.00; you can change your budget or stop this search."}</p> : null}
-          {purchaseTrack ? <ChargerPurchaseCard language={language} csrfToken={session.csrfToken} permitted={adapterPermitted} /> : null}
           {chargerTrack.state === "confirmed" && chargerTrack.deviceId ? (
             <details open={purchaseTrack === null} className="rounded-lg border border-blue-200 p-4">
               <summary className="cursor-pointer font-medium">{language === "es" ? "Ver detalles de compatibilidad" : "View compatibility details"}</summary>
@@ -298,6 +307,7 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             noticeRendered={noticeRendered}
             externalAiNotice={externalAiNotice}
             aiLimited={aiLimited}
+            secondary
           />
           <a className="needs-results-jump" href="#guided-advisory-heading">
             {copy.resultsJump(eligibleLines.length)}
@@ -354,14 +364,15 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             {permissionCopy(language).managePermissions}
           </Link>
         </p>
-        {!chargerOpen ? <section className="needs-handoff" aria-labelledby="needs-handoff-heading">
+        {!chargerOpen ? <details className="needs-handoff">
+          <summary><Icon name="plug" />{language === "es" ? "¿Busca un cargador?" : "Looking for a charger?"}</summary>
           <h2 id="needs-handoff-heading">
             <Link href={`/${language}/shop/chargers`} prefetch={false} className="underline">
               {chargerCopy(language).needsLink}
             </Link>
           </h2>
           <ChargerDeviceHandoff language={language} />
-        </section> : null}
+        </details> : null}
         <p>
           <Link href="/" prefetch={false} className="underline">
             {copy.navigationHome}

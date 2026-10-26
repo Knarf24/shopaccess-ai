@@ -99,7 +99,7 @@ describe("demo merchant catalog", () => {
       const card = renderToStaticMarkup(
         <MerchantProductCard product={entry.product} merchantName={DEMO_MERCHANT_CATALOG.merchant.displayName} />,
       );
-      expect(card).toContain(`Fixed demo price <span class="font-semibold">${formatUsd(row.unitAmountCents)}</span> USD`);
+      expect(card).toContain(`<span class="font-semibold">${formatUsd(row.unitAmountCents)}</span> USD`);
       expect(card).toContain(row.model);
       expect(card).toContain(row.part);
     }
@@ -114,9 +114,9 @@ describe("demo merchant catalog", () => {
     const css = readFileSync(join(SRC, "app/guided-presentation.css"), "utf8");
     const pictured = DEMO_MERCHANT_CATALOG.products.find((product) => product.imagePath === "/catalog/aspire-14-ai.svg");
     expect(pictured?.title).toBe("Acer Aspire 14 AI");
-    expect(page).toContain('src="/catalog/aspire-14-ai.svg"');
-    expect(page).toContain('alt="Acer Aspire 14 AI, illustration"');
-    expect(page).toContain("Simplified illustration of the Acer Aspire 14 AI from the demo catalog. It is not a product photo.");
+    expect(page).toContain('src={productPhoto("dmp_aspire14ai")!.path}');
+    expect(page).toContain('alt={productPhoto("dmp_aspire14ai")!.alt.en}');
+    expect(page).toContain('<ProductPhotoCredit productId="dmp_aspire14ai" />');
     expect(existsSync(join(process.cwd(), "public/catalog/aspire-14-ai.svg"))).toBe(true);
     expect(page).not.toContain("demo-laptop.png");
     expect(existsSync(join(process.cwd(), "public/images/demo-laptop.png"))).toBe(false);

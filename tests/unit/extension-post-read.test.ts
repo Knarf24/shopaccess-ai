@@ -241,8 +241,8 @@ describe("the side-panel client reads with POST {}", () => {
   });
   it("the panel's refresh calls the read with a body (POST), never a bare GET", () => {
     const panel = readFileSync("extension/panel.mjs", "utf8");
-    expect(panel).toContain("render(await call('/conversation', {}));");
+    expect(panel).toContain("const next = await call('/conversation', {});");
     expect(panel).not.toMatch(/call\('\/conversation'\)/);
-    expect(JSON.parse(readFileSync("extension/manifest.json", "utf8")).version).toBe("0.4.0");
+    expect(JSON.parse(readFileSync("extension/manifest.json", "utf8")).version).toBe("0.5.0");
   });
 });

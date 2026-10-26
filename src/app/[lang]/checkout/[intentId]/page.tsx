@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense, type ReactNode } from "react";
 import { CheckoutActions } from "@/components/CheckoutActions";
+import { Icon } from "@/components/Icon";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
 import { ConfirmationSummary } from "@/components/ConfirmationSummary";
@@ -209,6 +210,8 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
   const noticeCode = typeof query.notice === "string" ? query.notice : undefined;
   const notice = noticeCode === "CAPTURED" ? null : checkoutMessage(noticeCode, language);
   const sandbox = runtime.value.paymentMode === "sandbox";
+  // A completed heading only after the existing verified capture state. Pending, declined and unknown never reach it.
+  const completed = view.state === "CAPTURED_VERIFIED";
   const skipTarget = checkoutCurrentTargetId({
     alert: Boolean(error || permissionRefusal),
     notice: Boolean(notice),
@@ -223,12 +226,23 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
       <DocumentLanguageSync language={language} />
       <div className="presentation-column presentation-column-narrow">
       <SkipToCurrentStep label={copy.skipToCurrentStep} targetId={skipTarget} />
-      <h1 className="text-3xl font-semibold">{pageCopy.heading}</h1>
+      {completed ? (
+        <>
+          <h1 className="text-3xl font-semibold"><Icon name="check" className="ui-icon-lead" />{language === "es" ? "Compra completada" : "Purchase complete"}</h1>
+          <p className="completed-note">
+            {sandbox
+              ? language === "es" ? "La app comprobó la captura en PayPal Sandbox. El dinero del Sandbox no es real." : "The app checked the PayPal Sandbox capture. Sandbox money is not real."
+              : language === "es" ? "Esta fue una vista previa local. No se movió dinero y no se envía nada." : "This was a local preview. No money moved and nothing ships."}
+          </p>
+        </>
+      ) : (
+        <h1 className="text-3xl font-semibold">{pageCopy.heading}</h1>
+      )}
       {error ? <p id={CHECKOUT_ALERT_ID} tabIndex={-1} role="alert" lang={markLang(error.lang)} className="rounded border-2 border-red-700 p-3">{error.text}</p> : null}
       {permissionRefusal ? <PermissionRefusal language={language} code={permissionRefusal} underReview={underReview} id={CHECKOUT_ALERT_ID} /> : null}
       {notice ? <p id={CHECKOUT_NOTICE_ID} tabIndex={-1} role="status" lang={markLang(notice.lang)} className="rounded border-2 border-green-800 p-3">{notice.text}</p> : null}
-      <GuidedProgress copy={copy} current="purchase" />
-      {view.interfaceLanguage ? <MockReviewGuidance language={view.interfaceLanguage} /> : null}
+      <GuidedProgress copy={copy} current="purchase" complete={completed} />
+      {view.interfaceLanguage && !completed ? <MockReviewGuidance language={view.interfaceLanguage} /> : null}
 
       {view.challenge ? (
         <ConfirmationSummary

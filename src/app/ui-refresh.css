@@ -33,19 +33,23 @@
 .guided-presentation.ui-refresh {
   --gp-ink: #0f172a;
   --gp-teal: #0f172a;
-  --gp-teal-soft: #e0f2fe;
-  --gp-cream: #f5f6f8;
+  --gp-teal-soft: #e6edfb;
+  --gp-cream: #eaf0fa;
   --gp-paper: #ffffff;
-  --gp-line: #e2e8f0;
+  --gp-line: #cfdaf0;
   --gp-muted: #475569;
-  --gp-focus: #0369a1;
-  --ui-brand: #0369a1;
+  --gp-focus: #1b43ad;
+  --ui-brand: #2457d6;
   --ui-input: #64748b;
-  --ui-panel: #fbfbfc;
+  --ui-panel: #f3f7fe;
   --ui-font-heading: "Plus Jakarta Sans", Arial, Helvetica, sans-serif;
   --ui-font-body: "DM Sans", Arial, Helvetica, sans-serif;
   --ui-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  background: var(--gp-cream);
+  background-color: var(--gp-cream);
+  background-image:
+    radial-gradient(52rem 24rem at -8% -6%, #d6e3fa 0%, transparent 62%),
+    radial-gradient(40rem 24rem at 108% 24%, #dbe6fb 0%, transparent 64%),
+    radial-gradient(36rem 20rem at 18% 106%, #dfe9fb 0%, transparent 62%);
   color: var(--gp-ink);
   font-family: var(--ui-font-body);
 }
@@ -118,8 +122,27 @@
 }
 
 .guided-presentation.ui-refresh .sandbox-notice {
-  border-width: 1px;
-  border-left-width: 4px;
+  border: 1px solid #b7c9ee;
+  border-left: 4px solid #2457d6;
+  background: #f3f7fe;
+  color: var(--gp-ink);
+}
+
+.guided-presentation.ui-refresh .sandbox-notice h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Errors and refusals: dark red on a plain surface. */
+.guided-presentation.ui-refresh [role="alert"] {
+  background: #fff;
+  border-color: #991b1b;
+  color: #7f1d1d;
+}
+
+.guided-presentation.ui-refresh [role="alert"] a {
+  color: #1b43ad;
 }
 
 /* Inputs. */
@@ -154,8 +177,8 @@
   padding: 0.625rem 1.5rem;
   border: 0;
   border-radius: 999px;
-  background: var(--gp-ink);
-  color: #f8fafc;
+  background: #2457d6;
+  color: #fff;
   font-weight: 600;
   font-size: 0.9375rem;
   box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.1);
@@ -163,7 +186,7 @@
 
 .guided-presentation.ui-refresh button[type="submit"]:not(:disabled):hover,
 .guided-presentation.ui-refresh .bg-blue-800:hover {
-  background: #1e293b;
+  background: #1b43ad;
 }
 
 .guided-presentation.ui-refresh button[type="submit"]:disabled {
@@ -273,4 +296,141 @@
   .guided-presentation.ui-refresh .journey-steps {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Explicit primary actions win over older form/button presentation rules. */
+.guided-presentation.ui-refresh button.shopping-primary-action[type="submit"]:not(:disabled) {
+  background: #2457d6; color: #fff; border: 1px solid #1b43ad;
+  border-radius: .6rem; min-height: 44px; font-weight: 700;
+}
+.guided-presentation.ui-refresh button.shopping-primary-action[type="submit"]:not(:disabled):hover { background: #1b43ad; }
+
+/* Permission and checkout forms: grouped choices read as touch-sized rows, and labels stay clearly tied to their fields. */
+.guided-presentation.ui-refresh fieldset {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--gp-line);
+  border-radius: 0.75rem;
+  background: var(--gp-paper);
+}
+
+.guided-presentation.ui-refresh fieldset legend {
+  padding: 0 0.25rem;
+  font-weight: 600;
+}
+
+.guided-presentation.ui-refresh fieldset > div {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 44px;
+}
+
+.guided-presentation.ui-refresh form label {
+  font-weight: 600;
+}
+
+.guided-presentation.ui-refresh fieldset > div label {
+  font-weight: 400;
+}
+
+/* Label/value summaries (permission review, purchase summary): labels muted, values prominent, stacked on phones. */
+.guided-presentation.ui-refresh dl:not([class]) {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr);
+  gap: 0.5rem 1.25rem;
+  margin: 0;
+  padding: 1rem;
+  background: var(--gp-paper);
+  border: 1px solid var(--gp-line);
+  border-radius: 0.75rem;
+}
+
+.guided-presentation.ui-refresh dl:not([class]) dt {
+  color: var(--gp-muted);
+}
+
+.guided-presentation.ui-refresh dl:not([class]) dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 479px) {
+  .guided-presentation.ui-refresh dl:not([class]) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .guided-presentation.ui-refresh dl:not([class]) dd {
+    margin-bottom: 0.5rem;
+  }
+}
+
+/* Result of saving or revoking a permission: a visible banner, not a plain paragraph. */
+.guided-presentation.ui-refresh #permission-result {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: var(--gp-teal-soft);
+  border: 1px solid var(--ui-brand);
+  font-weight: 600;
+}
+
+.guided-presentation.ui-refresh #permission-result[role="alert"] {
+  background: #fff;
+  border: 2px solid #b91c1c;
+  color: #7f1d1d;
+}
+
+/* Checkout: summary and payment panels share one column width. Orange stays reserved for the next action, so the local
+   payment preview is marked by its heading and light-blue frame, not by an orange border. */
+.guided-presentation.ui-refresh form[aria-labelledby="confirm-heading"],
+.guided-presentation.ui-refresh section[aria-labelledby="sim-heading"],
+.guided-presentation.ui-refresh section[aria-labelledby="sandbox-heading"] {
+  max-width: none;
+}
+
+.guided-presentation.ui-refresh section.rounded-lg[aria-labelledby="sim-heading"] {
+  border: 2px solid #bae6fd;
+  background: var(--gp-teal-soft);
+}
+
+.guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] fieldset {
+  background: var(--gp-paper);
+}
+
+/* Two columns split long Spanish labels mid-word on phones ("Recomendacione/s"); one column keeps whole words. */
+@media (max-width: 479px) {
+  .guided-presentation.ui-refresh .journey-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Standalone charger information page: its one form action is the primary action, in the shared orange. */
+.guided-presentation.ui-refresh .needs-comparison > form button[type="submit"]:not(:disabled) {
+  background: #2457d6; color: #fff; border: 1px solid #1b43ad;
+  border-radius: .6rem; min-height: 44px; font-weight: 700;
+}
+.guided-presentation.ui-refresh .needs-comparison > form button[type="submit"]:not(:disabled):hover { background: #1b43ad; }
+
+/* Completed purchase: shown only after the verified capture state. */
+.guided-presentation.ui-refresh .completed-note {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid #166534;
+  border-left-width: 4px;
+  border-radius: 0.75rem;
+  background: #fff;
+  color: #14532d;
+  font-weight: 600;
+}
+
+/* Tinted bands give the plain white cards something to sit on. */
+.guided-presentation.ui-refresh .home-hero,
+.guided-presentation.ui-refresh .catalog-board {
+  background: rgb(255 255 255 / 0.55);
+  border: 1px solid var(--gp-line);
+  border-radius: 1.25rem;
+  padding: 1rem;
 }

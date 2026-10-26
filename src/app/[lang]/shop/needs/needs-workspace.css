@@ -44,18 +44,22 @@
 
 .needs-workspace {
   --needs-ink: #0f172a;
-  --needs-brand: #0369a1;
-  --needs-brand-soft: #e0f2fe;
-  --needs-canvas: #f5f6f8;
+  --needs-brand: #2457d6;
+  --needs-brand-soft: #e6edfb;
+  --needs-canvas: #eaf0fa;
   --needs-paper: #ffffff;
   --needs-muted: #475569;
-  --needs-line: #e2e8f0;
+  --needs-line: #cfdaf0;
   --needs-input: #64748b;
-  --needs-panel: #fbfbfc;
+  --needs-panel: #f3f7fe;
   --needs-font-heading: "Plus Jakarta Sans", Arial, Helvetica, sans-serif;
   --needs-font-body: "DM Sans", Arial, Helvetica, sans-serif;
   --needs-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  background: var(--needs-canvas);
+  background-color: var(--needs-canvas);
+  background-image:
+    radial-gradient(52rem 24rem at -8% -6%, #d6e3fa 0%, transparent 62%),
+    radial-gradient(40rem 24rem at 108% 24%, #dbe6fb 0%, transparent 64%),
+    radial-gradient(36rem 20rem at 18% 106%, #dfe9fb 0%, transparent 62%);
   color: var(--needs-ink);
   font-family: var(--needs-font-body);
   min-height: 100vh;
@@ -106,7 +110,9 @@
 }
 
 .needs-workspace [role="alert"] {
-  color: #b91c1c;
+  background: #fff;
+  border-color: #991b1b;
+  color: #7f1d1d;
 }
 
 .needs-workspace a {
@@ -386,15 +392,33 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  background: transparent;
+  border: 1px solid var(--needs-line);
+  border-radius: 0.75rem;
+  padding: 0.625rem 1rem;
+  font-size: 0.9375rem;
+}
+
+.needs-workspace .needs-handoff > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--needs-ink);
+}
+
+.needs-workspace .needs-handoff[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
+.needs-workspace .needs-handoff button {
   background: var(--needs-paper);
-  border-radius: 1rem;
-  border-top: 4px solid var(--needs-brand);
-  padding: 1rem;
+  border: 1.5px solid var(--needs-ink);
+  color: var(--needs-ink);
+  border-radius: 0.75rem;
 }
 
 .needs-workspace .needs-handoff h2 {
-  margin: 0;
-  font-size: 1.125rem;
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
 }
 
 .needs-workspace .needs-comparison {
@@ -641,9 +665,9 @@
 }
 
 .needs-workspace .result-budget-over {
-  background: #fff1f2;
-  color: #9f1239;
-  border-color: #fecdd3;
+  background: #fff;
+  color: #7f1d1d;
+  border-color: #991b1b;
 }
 
 .needs-workspace .result-choice {
@@ -683,9 +707,9 @@
 
 .needs-workspace .result-status[data-status="NOT_RECOMMENDED"],
 .needs-workspace .result-status[data-status="INSUFFICIENT_EVIDENCE"] {
-  background: #fef2f2;
-  color: #991b1b;
-  border-color: #fecaca;
+  background: #fff;
+  color: #7f1d1d;
+  border-color: #991b1b;
 }
 
 .needs-workspace .result-all-pass {
@@ -715,9 +739,9 @@
 }
 
 .needs-workspace .result-tradeoff[data-outcome="FAIL"] {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
+  border-color: #991b1b;
+  background: #fff;
+  color: #7f1d1d;
 }
 
 .needs-workspace .result-details {
@@ -975,7 +999,7 @@
 
 /*
  * Mobile progress indicator (correction to the redesign): four equal columns clip the step labels on narrow screens.
- * Two columns below 640px and one column below 360px; labels wrap. Order, names and aria-current are unchanged.
+ * Two columns below 640px and one column below 480px; labels wrap. Order, names and aria-current are unchanged.
  */
 @media (max-width: 639px) {
   .needs-workspace .journey-steps {
@@ -992,8 +1016,72 @@
   }
 }
 
-@media (max-width: 359px) {
+@media (max-width: 479px) {
   .needs-workspace .journey-steps {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* A text label, not a button: color reinforces the existing recommendation decision. */
+.needs-workspace .recommendation-badge,
+.needs-workspace .result-choice.recommendation-badge,
+.needs-workspace .charger-rec-product .recommendation-badge {
+  display: inline-flex; width: fit-content; align-items: center;
+  color: #166534; background: #dcfce7; border: 1px solid #86b997;
+  border-radius: .4rem; padding: .3rem .65rem; margin-bottom: .65rem;
+  font-family: inherit; font-size: .875rem; font-weight: 700;
+  letter-spacing: normal; text-transform: none; line-height: 1.4;
+}
+
+/* Explicit primary actions win over older form/button presentation rules. */
+.needs-workspace button.shopping-primary-action[type="submit"]:not(:disabled) {
+  background: #2457d6; color: #fff; border: 1px solid #1b43ad;
+  border-radius: .6rem; min-height: 44px; font-weight: 700;
+}
+.needs-workspace button.shopping-primary-action[type="submit"]:not(:disabled):hover { background: #1b43ad; }
+
+.needs-workspace .needs-handoff > summary:focus-visible {
+  outline: 3px solid var(--needs-brand);
+  outline-offset: 3px;
+  border-radius: 0.25rem;
+}
+
+/* Side tasks beside a primary action: same size and focus treatment, outlined instead of orange. */
+.needs-workspace button.shopping-secondary-action[type="submit"]:not(:disabled) {
+  background: var(--needs-paper);
+  border: 1.5px solid var(--needs-ink);
+  color: var(--needs-ink);
+  border-radius: 0.75rem;
+}
+
+.needs-workspace button.shopping-secondary-action:focus-visible {
+  outline: 3px solid var(--needs-brand);
+  outline-offset: 3px;
+}
+
+/* Disclosures are information, not warnings: a blue-tinted panel with navy text. */
+.needs-workspace .results-notes .limitation {
+  background: #f3f7fe;
+  border-left: 4px solid #2457d6;
+  color: var(--needs-ink);
+}
+
+.needs-workspace .needs-handoff > summary {
+  display: flex;
+  align-items: center;
+}
+
+.needs-workspace .result-original {
+  font-size: 0.875rem;
+  color: var(--needs-muted);
+}
+
+.needs-workspace .result-details .result-status {
+  display: inline-flex;
+  margin: 0;
+}
+
+.needs-workspace .comparison-checks { padding: .7rem 1rem; border: 1px solid var(--needs-line); border-radius: .75rem; background: var(--needs-paper); }
+.needs-workspace .comparison-checks > summary { cursor: pointer; color: var(--needs-brand); font-weight: 600; min-height: 24px; }
+.needs-workspace .comparison-checks[open] > summary { margin-bottom: .75rem; }
+.needs-workspace .comparison-checks > summary:focus-visible { outline: 3px solid var(--needs-brand); outline-offset: 3px; }

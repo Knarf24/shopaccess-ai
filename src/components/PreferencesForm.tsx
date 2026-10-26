@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 const USES = [
   ["schoolwork", "Schoolwork"],
   ["programming", "Programming"],
@@ -10,7 +11,7 @@ export function PreferencesForm({ use, budget }: { use?: string; budget?: string
     <form method="get" action="/session/start" className="flex flex-col gap-4 rounded-lg border border-zinc-400 p-4 sm:flex-row sm:items-end">
       <div className="flex flex-col gap-1">
         <label htmlFor="pref-use" className="font-medium">
-          What will you mainly use the laptop for?
+          <span className="label-line"><Icon name="laptop" />What will you mainly use the laptop for?</span>
         </label>
         <select id="pref-use" name="use" defaultValue={use ?? "schoolwork"} required className="rounded border border-zinc-500 bg-white px-2 py-2 text-black">
           {USES.map(([value, label]) => (
@@ -22,7 +23,7 @@ export function PreferencesForm({ use, budget }: { use?: string; budget?: string
       </div>
       <div className="flex flex-col gap-1">
         <label htmlFor="pref-budget" className="font-medium">
-          Your budget in whole US dollars
+          <span className="label-line"><Icon name="budget" />Your budget (USD)</span>
         </label>
         <input
           id="pref-budget"
@@ -36,11 +37,11 @@ export function PreferencesForm({ use, budget }: { use?: string; budget?: string
           className="rounded border border-zinc-500 bg-white px-2 py-2 text-black"
         />
         <span id="pref-budget-help" className="text-sm">
-          Numbers only, for example 800. Only used to compare with prices.
+          Enter a whole dollar amount, for example 800.
         </span>
       </div>
-      <button type="submit" className="rounded bg-blue-800 px-4 py-2 font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
-        Show laptops and assessments
+      <button type="submit" className="shopping-primary-action rounded bg-blue-800 px-4 py-2 font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+        <Icon name="search" />Find my laptop
       </button>
     </form>
   );

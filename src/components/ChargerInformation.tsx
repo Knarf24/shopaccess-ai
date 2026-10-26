@@ -23,14 +23,18 @@ export function ChargerInformation({
   selection,
   showDeviceSelector = true,
   showScrollHint = false,
+  embedded = false,
 }: {
   readonly language: JourneyLanguage;
   readonly selection: DeviceSelection;
   readonly showDeviceSelector?: boolean;
   /** Needs workspace only. The charger page leaves this off so its table markup stays as it was. */
   readonly showScrollHint?: boolean;
+  /** Use a section heading inside the recommendation page; standalone heading stays unchanged. */
+  readonly embedded?: boolean;
 }) {
   const copy = chargerCopy(language);
+  const Heading = embedded ? "h2" : "h1";
   const english = (value: string): ReactNode => (language === "en" ? value : <span lang="en">{value}</span>);
   const device = selection.kind === "identified" ? EVIDENCE.devices[selection.device] : null;
   const results = device ? CHARGER_IDS.flatMap((charger) => CABLE_IDS.map((cable) => evaluateCombination(EVIDENCE, device.id, charger, cable))) : [];
@@ -95,9 +99,9 @@ export function ChargerInformation({
       <a className="skip-link" href={`#${skipTarget}`}>
         {copy.skip}
       </a>
-      <h1 id={CHARGER_HEADING_ID} tabIndex={-1} className="text-3xl font-semibold">
+      <Heading id={CHARGER_HEADING_ID} tabIndex={-1} className="text-3xl font-semibold">
         {copy.pageTitle}
-      </h1>
+      </Heading>
       <p>{copy.intro}</p>
       <p>{copy.infoOnly}</p>
       <p className="text-sm">{copy.affiliation}</p>

@@ -2,6 +2,9 @@ import type { JourneyCopy } from "@/lib/i18n/demo-copy";
 import { STATE_DESCRIPTIONS, STEP_LABELS, type SimulationStep } from "@/server/simulation";
 import type { CheckoutView } from "@/server/views";
 
+/** The ordinary next step in the local simulation; failure, lost-response and cancel paths stay outlined. */
+const FORWARD_STEPS: ReadonlySet<SimulationStep> = new Set<SimulationStep>(["create_order", "buyer_approve", "capture"]);
+
 /** Sandbox checkout actions. Approval and capture are separate, and success is only a verified capture. */
 export function SandboxCheckoutActions({
   view,
@@ -59,15 +62,14 @@ export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: Checkou
   return (
     <section aria-labelledby="sim-heading" lang={lang} className="flex flex-col gap-4 rounded-lg border-2 border-amber-600 p-4">
       <h2 id="sim-heading" tabIndex={-1} className="text-xl font-semibold">
-        Simulated payment (no real payment)
+        Local payment preview
       </h2>
       <p className="text-sm">
-        Everything in this section runs against a local mock. PayPal is never contacted, no payment method is involved and no money
-        moves.
+        For evaluation: no money will be charged and no products will ship. This local preview does not contact PayPal.
       </p>
       <div role="status" className="rounded bg-zinc-100 p-3 text-black">
         <p>
-          <span className="font-medium">Simulated state: </span>
+          <span className="font-medium">Payment status: </span>
           <code>{view.state}</code>
         </p>
         <p className="text-sm">{STATE_DESCRIPTIONS[view.state]}</p>
@@ -77,14 +79,14 @@ export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: Checkou
         <form method="post" action={`/checkout/${view.intentId}/simulate`} className="flex flex-col gap-2">
           <input type="hidden" name="csrfToken" value={csrfToken} />
           <fieldset className="flex flex-col gap-2">
-            <legend className="font-medium">Simulation controls</legend>
+            <legend className="font-medium">Payment preview controls</legend>
             {view.steps.map((step: SimulationStep) => (
               <button
                 key={step}
                 type="submit"
                 name="step"
                 value={step}
-                className="rounded border border-zinc-600 px-3 py-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                className={`rounded border border-zinc-600 px-3 py-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2${FORWARD_STEPS.has(step) ? " shopping-primary-action" : ""}`}
               >
                 {STEP_LABELS[step]}
               </button>

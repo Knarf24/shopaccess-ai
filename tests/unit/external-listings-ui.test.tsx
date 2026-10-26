@@ -272,7 +272,8 @@ describe("external listing and suggestion labels", () => {
         suggestedVariantIds={modelJourney.draft?.recommendation?.recommendations.map((item) => item.variantId) ?? []}
       />,
     );
-    expect(catalog.match(/Suggested/g)?.length).toBe(2);
+    expect(catalog.match(/Recommended/g)?.length).toBe(2);
+    expect(catalog.match(/result-choice recommendation-badge/g)).toHaveLength(2);
     expect(catalog).not.toContain(english.otherChoiceLabel);
 
     const none = {
@@ -301,6 +302,7 @@ describe("external listing and suggestion labels", () => {
       />,
     );
     expect(other).toContain(english.otherChoiceLabel);
+    expect(other).not.toContain("recommendation-badge");
     expect(other).not.toContain(`>${english.suggestedLabel}<`);
     expect(other).not.toContain(english.otherChoiceLabel + english.excludedHeading);
   });

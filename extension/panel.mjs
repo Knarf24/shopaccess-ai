@@ -20,44 +20,50 @@ let pollTimer = null;
 let pairGeneration = 0;
 let announced = false;
 let replies = 0;
+let pendingPairing = false;
+let refreshTimer = null;
+let closed = false;
+let viewGeneration = 0;
 // Where focus goes once controls are enabled again (a disabled control cannot take focus during the request).
 let focusAfter = null;
 
 const WORDS = {
   en: {
-    notice: 'Reads and continues your shopping conversation. Confirming, checkout and payment stay on the website.',
+    notice: 'Chat about your ShopAccess shopping. Purchases stay on the website.',
     skip: 'Skip to conversation', connection: 'Connection', originLabel: 'ShopAccess address', saveOrigin: 'Save address',
-    pair: 'Pair with website', refresh: 'Refresh conversation', disconnect: 'Forget local pairing', heading: 'Conversation',
+    pair: 'Connect to ShopAccess', refresh: 'Refresh conversation', disconnect: 'Disconnect locally', heading: 'Conversation',
     message: 'Message', send: 'Send', working: 'Working…', saved: 'Saved.', you: 'You: ', assistant: 'Assistant: ',
-    failed: 'Request failed. Refresh, or pair again.', notPaired: 'Not paired. Select Pair with website.',
+    failed: 'Could not load the conversation. Try Refresh conversation in Settings.', notPaired: 'Connect to your ShopAccess conversation to get started.',
     rateLimited: 'Too many messages in the last minute. Wait, then send again; your message is kept.',
     approve: 'On the website tab that opened, enter the pairing code shown below to allow conversation-only access.', paired: 'Paired. Conversation access only.',
+    settings: 'Settings', technical: 'Advanced setup', connected: 'Connected', disconnected: 'Not connected', waiting: 'Waiting for website approval', cancelPair: 'Cancel connection', welcomeHeading: 'Your shopping assistant', welcome: 'Connect to your ShopAccess conversation to ask questions and keep shopping here.', placeholder: 'Ask about your shopping…', composerHelp: 'Enter to send · Shift+Enter for a new line', sending: 'Sending…', disconnectHelp: 'To end server access too, revoke it on the website under Paired access.',
     codeHeading: 'Pairing code',
     codeHelp: 'Enter this code only on the ShopAccess approval page that this panel opened. Never share it. It expires with this pairing.',
     expired: 'Pairing expired. Start again.', stopped: 'Pairing stopped. Start again.', denied: 'Pairing was denied on the website.',
     forgot: 'Local credential removed. To end server access, revoke it on the website under Paired access.',
     originSaved: 'Address saved. Pair again for this address.', originInvalid: 'Enter http://127.0.0.1 with a port, or an https address, with no path.',
     noDraft: 'No current shopping conversation. Start one on the website.', stale: 'The conversation changed. It has been refreshed; your message is kept.',
-    pairedLoadFailed: 'Paired, but the conversation could not be loaded. Select Refresh conversation; do not pair again.',
+    pairedLoadFailed: 'Connected, but the conversation could not be loaded. Try Refresh conversation in Settings; do not connect again.',
     confirmed: (use, budget) => `Confirmed on the website: ${use}, budget $${budget}.`, notConfirmed: 'Not confirmed yet. Confirm on the website.',
     allowlist: (id) => 'Extension origin for the server allowlist: chrome-extension://' + id,
     uses: { programming: 'programming', schoolwork: 'schoolwork', general_productivity: 'general productivity' },
   },
   es: {
-    notice: 'Lee y continúa su conversación de compra. Confirmar, pagar y finalizar la compra se hacen en el sitio web.',
+    notice: 'Converse sobre sus compras en ShopAccess. Las compras se confirman y pagan en el sitio web.',
     skip: 'Ir a la conversación', connection: 'Conexión', originLabel: 'Dirección de ShopAccess', saveOrigin: 'Guardar dirección',
-    pair: 'Vincular con el sitio', refresh: 'Actualizar conversación', disconnect: 'Olvidar vínculo local', heading: 'Conversación',
+    pair: 'Conectar con ShopAccess', refresh: 'Actualizar conversación', disconnect: 'Desconectar localmente', heading: 'Conversación',
     message: 'Mensaje', send: 'Enviar', working: 'Procesando…', saved: 'Guardado.', you: 'Usted: ', assistant: 'Asistente: ',
-    failed: 'La solicitud falló. Actualice o vuelva a vincular.', notPaired: 'Sin vincular. Seleccione Vincular con el sitio.',
+    failed: 'No se pudo cargar la conversación. Pruebe Actualizar conversación en Ajustes.', notPaired: 'Conecte su conversación de ShopAccess para empezar.',
     rateLimited: 'Demasiados mensajes en el último minuto. Espere y vuelva a enviar; su mensaje se conserva.',
     approve: 'En la pestaña del sitio que se abrió, escriba el código de vinculación que se muestra abajo para permitir el acceso solo a la conversación.', paired: 'Vinculado. Solo acceso a la conversación.',
+    settings: 'Ajustes', technical: 'Configuración avanzada', connected: 'Conectado', disconnected: 'Sin conexión', waiting: 'Esperando aprobación en el sitio', cancelPair: 'Cancelar conexión', welcomeHeading: 'Su asistente de compras', welcome: 'Conecte su conversación de ShopAccess para hacer preguntas y seguir comprando aquí.', placeholder: 'Pregunte sobre sus compras…', composerHelp: 'Intro para enviar · Mayús+Intro para una nueva línea', sending: 'Enviando…', disconnectHelp: 'Para terminar también el acceso al servidor, revóquelo en el sitio, en Accesos vinculados.',
     codeHeading: 'Código de vinculación',
     codeHelp: 'Escriba este código solo en la página de aprobación de ShopAccess que abrió este panel. No lo comparta nunca. Caduca con esta vinculación.',
     expired: 'La vinculación caducó. Empiece de nuevo.', stopped: 'La vinculación se detuvo. Empiece de nuevo.', denied: 'La vinculación fue rechazada en el sitio.',
     forgot: 'Credencial local eliminada. Para terminar el acceso en el servidor, revóquelo en el sitio, en Accesos vinculados.',
     originSaved: 'Dirección guardada. Vuelva a vincular para esta dirección.', originInvalid: 'Escriba http://127.0.0.1 con un puerto, o una dirección https, sin ruta.',
     noDraft: 'No hay una conversación de compra actual. Empiece una en el sitio.', stale: 'La conversación cambió. Se actualizó; su mensaje se conserva.',
-    pairedLoadFailed: 'Vinculado, pero no se pudo cargar la conversación. Seleccione Actualizar conversación; no vuelva a vincular.',
+    pairedLoadFailed: 'Conectado, pero no se pudo cargar la conversación. Pruebe Actualizar conversación en Ajustes; no vuelva a conectar.',
     confirmed: (use, budget) => `Confirmado en el sitio: ${use}, presupuesto $${budget}.`, notConfirmed: 'Aún sin confirmar. Confirme en el sitio.',
     allowlist: (id) => 'Origen de la extensión para la lista del servidor: chrome-extension://' + id,
     uses: { programming: 'programación', schoolwork: 'tareas escolares', general_productivity: 'productividad general' },
@@ -75,34 +81,81 @@ function showCode(pairing) {
   $('pair-code-spoken').textContent = shown.spoken;
   $('pair-code-help').textContent = words().codeHelp;
   $('pair-code-box').hidden = false;
+  pendingPairing = true;
+  updateUi();
 }
 function hideCode() {
+  const hadFocus = $('pair-code-box').contains(document.activeElement);
+  pendingPairing = false;
   $('pair-code-box').hidden = true;
   $('pair-code-visual').textContent = '';
   $('pair-code-spoken').textContent = '';
+  updateUi();
+  if (hadFocus) (access ? $('heading') : $('pair')).focus();
 }
 
 // The server no longer accepts the token (revoked, expired or session ended): forget it and stop showing the conversation.
 async function dropAccess() {
+  clearTimeout(refreshTimer);
   access = null;
   await session.remove('access');
+  const hadFocus = $('conversation').contains(document.activeElement);
   announcer.clear();
   view = null;
   replies = 0;
   $('history').replaceChildren();
   $('summary').textContent = '';
+  updateUi();
+  if (hadFocus) $('pair').focus();
 }
 // Built per call so a saved address change applies to the next request.
-const call = (path, body) => createApi({ origin, bearer: () => access?.bearer ?? null, onUnauthorized: dropAccess })(path, body);
+const call = (path, body) => {
+  const requestedOrigin = origin;
+  const requestedAccess = access;
+  return createApi({ origin: requestedOrigin, bearer: () => requestedAccess?.bearer ?? null,
+    onUnauthorized: async () => { if (access === requestedAccess && origin === requestedOrigin) await dropAccess(); },
+  })(path, body);
+};
+
+function updateUi() {
+  const w = words();
+  $('welcome').hidden = Boolean(access) || pendingPairing;
+  $('conversation').hidden = !access;
+  $('pair').hidden = Boolean(access) || pendingPairing;
+  $('connection-state').textContent = access ? w.connected : pendingPairing ? w.waiting : w.disconnected;
+  $('skip').href = access ? '#heading' : '#main';
+}
+
+// Background reads are side-effect-free POSTs. They never send text or move focus.
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  if (access && !closed) refreshTimer = setTimeout(backgroundRefresh, 15000);
+}
+async function backgroundRefresh() {
+  if (!access || closed) return;
+  if (lock.pending || document.hidden) return scheduleRefresh();
+  try { await refresh(); }
+  catch { if (!access) $('error').textContent = words().notPaired; }
+  finally { scheduleRefresh(); }
+}
 
 function labels() {
   const w = words();
   document.documentElement.lang = language();
-  for (const [id, key] of [['notice', 'notice'], ['skip', 'skip'], ['connection-heading', 'connection'], ['origin-label', 'originLabel'], ['save-origin', 'saveOrigin'], ['pair', 'pair'], ['refresh', 'refresh'], ['disconnect', 'disconnect'], ['heading', 'heading'], ['text-label', 'message'], ['send', 'send']]) $(id).textContent = w[key];
+  for (const [id, key] of [['notice', 'notice'], ['skip', 'skip'], ['connection-heading', 'connection'], ['origin-label', 'originLabel'], ['save-origin', 'saveOrigin'], ['pair', 'pair'], ['refresh', 'refresh'], ['disconnect', 'disconnect'], ['heading', 'heading'], ['text-label', 'message'], ['send', 'send'], ['settings-label', 'settings'], ['technical-label', 'technical'], ['cancel-pair', 'cancelPair'], ['welcome-heading', 'welcomeHeading'], ['welcome-text', 'welcome'], ['disconnect-help', 'disconnectHelp']]) $(id).textContent = w[key];
   $('extension-id').textContent = w.allowlist(chrome.runtime.id);
+  $('text').placeholder = w.placeholder;
+  $('composer-help').textContent = w.composerHelp;
+  updateUi();
 }
 
 function render(next) {
+  const scroller = $('chat-scroll');
+  const following = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+  const firstLoad = !view;
+  const previousTurns = view?.conversation?.turns ?? [];
+  const nextTurns = next?.conversation?.turns ?? [];
+  const changed = JSON.stringify(previousTurns) !== JSON.stringify(nextTurns);
   if (conversationReplaced(view, next)) announcer.clear();
   const said = replyAnnouncement(view, next, replies + 1);
   view = next;
@@ -110,12 +163,15 @@ function render(next) {
   const w = words();
   const draft = view?.draft ?? null;
   $('summary').textContent = !draft ? w.noDraft : draft.confirmedUse && draft.confirmedBudgetDollars ? w.confirmed(w.uses[draft.confirmedUse] ?? draft.confirmedUse, draft.confirmedBudgetDollars) : w.notConfirmed;
-  $('history').replaceChildren(...(view?.conversation?.turns ?? []).map((turn) => {
+  if (changed) $('history').replaceChildren(...nextTurns.map((turn) => {
     const li = document.createElement('li');
+    li.className = turn.role === 'shopper' ? 'shopper' : 'assistant';
     li.textContent = (turn.role === 'shopper' ? w.you : w.assistant) + turn.text;
     return li;
   }));
+  if (changed && (firstLoad || following)) scroller.scrollTop = scroller.scrollHeight;
   $('send').disabled = !draft;
+  scheduleRefresh();
   if (said && announcer.say(said)) {
     replies += 1;
     announced = true;
@@ -124,12 +180,19 @@ function render(next) {
 
 async function refresh() {
   // A POST so that Chrome always sends the extension's Origin (the originless GET read is retired).
-  render(await call('/conversation', {}));
+  const credential = access;
+  const address = origin;
+  const generation = pairGeneration;
+  const viewVersion = viewGeneration;
+  const next = await call('/conversation', {});
+  if (access === credential && origin === address && pairGeneration === generation && viewGeneration === viewVersion) render(next);
 }
 
 async function action(fn) {
   const before = document.activeElement;
   await settleSubmit(lock, async () => {
+    clearTimeout(refreshTimer);
+    viewGeneration += 1;
     focusAfter = null;
     announced = false;
     $('error').textContent = '';
@@ -150,6 +213,7 @@ async function action(fn) {
       // After a refusal that ended access, Send stays disabled: recovery starts at Pair with website.
       if (focusAfter?.isConnected && !focusAfter.disabled) focusAfter.focus();
       else restoreFocus(before, document, () => (access ? $('text') : $('pair')));
+      scheduleRefresh();
     }
   });
 }
@@ -216,6 +280,7 @@ async function forgetLocal() {
   pairGeneration += 1;
   announcer.clear();
   clearTimeout(pollTimer);
+  clearTimeout(refreshTimer);
   await session.remove(['access', 'pairing']);
   hideCode();
   access = null;
@@ -223,6 +288,7 @@ async function forgetLocal() {
   replies = 0;
   $('history').replaceChildren();
   $('summary').textContent = '';
+  updateUi();
 }
 
 $('origin').value = origin;
@@ -242,14 +308,18 @@ $('origin-form').onsubmit = (event) => {
     if ($('error').textContent.includes('ORIGIN_INVALID')) $('error').textContent = words().originInvalid;
   });
 };
-$('pair').onclick = () =>
-  action(async () => {
+$('pair').onclick = () => {
+  // Ask on the direct user gesture, for the saved exact origin only. CORS remains the existing fallback if denied.
+  const hostAccess = chrome.permissions.request({ origins: [origin + '/*'] }).catch(() => false);
+  return action(async () => {
+    await hostAccess;
     // The approval page opens in the current draft's language; read it before forgetting the local view.
     const pairingLanguage = language();
     await forgetLocal();
     const installationId = await ensureInstallationId(local);
     const pairing = await beginPairing({ api: call, session, installationId });
     showCode(pairing);
+    focusAfter = $('pair-code-heading');
     try {
       await chrome.tabs.create({ url: approvalUrl(origin, pairing.pairingId, pairingLanguage) });
     } catch (e) {
@@ -261,38 +331,74 @@ $('pair').onclick = () =>
     pollTimer = setTimeout(poll, POLL_DELAYS_MS[0]);
     return words().approve;
   });
+};
 $('refresh').onclick = () => action(refresh);
 $('disconnect').onclick = () =>
   action(async () => {
     await forgetLocal();
     return words().forgot;
   });
+$('cancel-pair').onclick = () => action(async () => {
+  await forgetLocal();
+  focusAfter = $('pair');
+  return words().stopped;
+});
 $('turn-form').onsubmit = (event) => {
   event.preventDefault();
+  if (lock.pending || !$('text').value.trim()) return;
   void action(async () => {
     if (!view?.draft) await refresh();
     const draft = view?.draft;
     if (!draft) return words().noDraft;
     const text = $('text').value.trim();
+    $('pending-message').textContent = words().you + text + '\n' + words().sending;
+    $('pending-message').hidden = false;
+    $('chat-scroll').scrollTop = $('chat-scroll').scrollHeight;
     try {
       const next = await call('/conversation/turns', { draftId: draft.draftId, version: draft.version, shopperText: text, clientRequestId: turnIds.idFor(draft.draftId, draft.version, text) });
       turnIds.settled();
       render({ draft: next.draft, conversation: next.conversation });
       $('text').value = '';
+      if ($('text').style) $('text').style.height = '';
+      $('chat-scroll').scrollTop = $('chat-scroll').scrollHeight;
       focusAfter = $('text');
     } catch (e) {
       // A stale draft is refreshed so the next send uses the current version; the unsent text stays in the field.
       if (errorCode(e) === 'STALE_DRAFT') await refresh().catch(() => {});
       throw e;
+    } finally {
+      $('pending-message').hidden = true;
+      $('pending-message').textContent = '';
     }
   });
 };
-window.addEventListener('pagehide', () => clearTimeout(pollTimer));
+$('text').onkeydown = (event) => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+    event.preventDefault();
+    if (!lock.pending && !$('send').disabled && $('text').value.trim()) $('turn-form').requestSubmit();
+  }
+};
+$('text').oninput = () => {
+  $('text').style.height = 'auto';
+  $('text').style.height = Math.min($('text').scrollHeight, 128) + 'px';
+};
+$('settings').onkeydown = (event) => {
+  if (event.key === 'Escape' && $('settings').open) { $('settings').open = false; $('settings-label').focus(); }
+};
+window.addEventListener('pagehide', () => { closed = true; clearTimeout(pollTimer); clearTimeout(refreshTimer); });
 
 labels();
+if (access && (access.origin !== origin || Date.now() >= access.expiresAt)) await dropAccess();
 if (access && access.origin === origin) await action(refresh);
 else if ((await session.get('pairing')).pairing) {
-  showCode((await session.get('pairing')).pairing);
-  pollTimer = setTimeout(poll, POLL_DELAYS_MS[0]);
+  const pending = (await session.get('pairing')).pairing;
+  if (Date.now() >= pending.expiresAt || pending.polls >= POLL_DELAYS_MS.length) {
+    await session.remove('pairing');
+    hideCode();
+    $('status').textContent = words().expired;
+  } else {
+    showCode(pending);
+    pollTimer = setTimeout(poll, POLL_DELAYS_MS[0]);
+  }
 }
 else $('status').textContent = words().notPaired;

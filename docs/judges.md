@@ -58,3 +58,7 @@ Spanish: choose **Español** and **Show this language** on the admission page be
 ## Run it yourself
 
 See [README.md](../README.md), "Run the demo locally". The default local run needs no accounts, keys or network access to any provider. The project is released under the [MIT License](../LICENSE).
+
+## Local frontend continuation note
+
+The current uncommitted local candidate uses real product imagery with source credits, a stronger blue visual style and dark-red warnings. Public reuse clearance for the imagery remains unresolved; this note does not change the hosted version described above. The local extension0.5.0 is chat-first and can reconnect to an existing valid grant; pairing still requires website approval and its six-digit matching code. It reads and continues only the paired ShopAccess conversation. It does not inspect arbitrary websites or confirm/check out/pay. No hosted extension origin or provider setting is enabled by this source update.

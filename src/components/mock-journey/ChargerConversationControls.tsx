@@ -3,7 +3,7 @@ import { DEVICE_IDS, EVIDENCE, type DeviceId } from "@/lib/compatibility/evidenc
 import { chargerCopy } from "@/lib/i18n/charger-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
 
-interface ChargerTrackView {
+export interface ChargerTrackView {
   readonly sessionId: string;
   readonly draftId: string;
   readonly state: "closed" | "task_choice" | "awaiting_model" | "candidate" | "confirmed";
@@ -12,7 +12,7 @@ interface ChargerTrackView {
   readonly budget?: { readonly proposedCents: number; readonly confirmedCents: number | null };
 }
 
-function ControlFields({
+export function ControlFields({
   csrfToken,
   language,
   track,
