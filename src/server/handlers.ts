@@ -44,6 +44,8 @@ import { authorizeMutation } from "@/lib/session/request-guard";
 import type { Session } from "@/lib/session/service";
 import {
   checkoutSelectionCurrent,
+  conversationStateOf,
+  replaceConversationState,
   invalidatePurchaseSelections,
   mergeFollowUpCandidate,
   noteCheckoutSelection,
@@ -369,6 +371,40 @@ export async function handleNeedsSession(request: Request, runtime: Runtime): Pr
   return seeOther(guidedShopDestination(new URL(request.url).searchParams.get("lang")), headers);
 }
 
+/** Explicit interface-language choice, with no change to shopping or purchase authority. */
+export async function handleNeedsLanguage(request: Request, runtime: Runtime): Promise<Response> {
+  const refused = admissionRefusal(request, runtime);
+  if (refused) return refused;
+  const guarded = await guardMutation(request, runtime, PROPOSED_RATE_LIMIT_POLICIES.confirmation);
+  if (!guarded.ok) return guarded.response;
+  const { session, form } = guarded;
+  const language = explicitJourneyLanguage(form.get("lang"));
+  const fromLanguage = explicitJourneyLanguage(form.get("fromLang"));
+  if (!language || !fromLanguage || [...form.keys()].some(key => !["lang", "fromLang", "draftId", "version", "csrfToken"].includes(key)) || ["lang", "fromLang", "draftId", "version", "csrfToken"].some(key => form.getAll(key).length !== 1)) return refuse("BAD_REQUEST", runtime);
+  const draftId = form.get("draftId");
+  const version = form.get("version") ?? "";
+  if (!/^nd_[0-9a-f]{32}$/.test(draftId ?? "") || !/^[1-9][0-9]{0,8}$/.test(version)) return refuse("BAD_REQUEST", runtime);
+  const result = await runtime.durable.change(host => {
+    if (!runtime.checkout.sessionIsLive(session.id)) return "DRAFT_EXPIRED";
+    const draft = needsDraftsFor(host).get(session.id);
+    if (!draft) return "DRAFT_NOT_FOUND";
+    if (runtime.clock().getTime() >= draft.expiresAtMs) return "DRAFT_EXPIRED";
+    if (draft.draftId !== draftId || draft.version !== Number(version) || draft.language !== fromLanguage || draft.interpretationPending || draft.recommendationClaim === "pending") return "STALE_DRAFT";
+    if (draft.language === language) return null;
+    // A language-only change retains version-keyed listings and recommendation provenance.
+    needsDraftsFor(host).set(session.id, { ...draft, language });
+    const state = conversationStateOf(host);
+    const conversation = state.conversations.get(session.id);
+    if (conversation?.draftId === draft.draftId) {
+      const conversations = new Map(state.conversations);
+      conversations.set(session.id, { ...conversation, interfaceLanguage: language });
+      replaceConversationState(host, { ...state, conversations });
+    }
+    return null;
+  });
+  return seeOther(needsBack(language, result ?? undefined));
+}
+
 function rememberNeedsTurn(store: object, sessionId: string, draft: NeedsDraft, shopperText: string): void {
   recordConversationTurn(store, sessionId, {
     draftId: draft.draftId,
@@ -478,7 +514,7 @@ export async function continueNeedsFollowUp(
     interpretNeedsSafely(runtime.ai, claimedText, (diagnostic) => {
       const line = formatAdvisoryFailureDiagnostic(diagnostic);
       if (line) console.warn(line);
-    }),
+    }, { intendedUse: claimed.draft.prefilledUse, budgetDollars: claimed.draft.prefilledBudgetDollars }),
   );
   if (!input.live()) return { kind: "refused", code: "DRAFT_EXPIRED" };
   const model = interpreted.ok ? interpreted.value : interpreted.error === "OUTPUT_INVALID" ? "malformed" : "unavailable";

@@ -1,3 +1,4 @@
+import { HandsFreeControls } from "@/components/mock-journey/HandsFreeControls";
 import { eligibleChargerTrack } from "@/server/charger-purchase";
 import { isDemoCharger } from "@/lib/catalog/charger-purchase";
 import { laptopProducts } from "@/lib/catalog/schemas";
@@ -134,6 +135,11 @@ async function PermissionsContentUnguarded({ params, searchParams }: { params: P
   return (
     <>
       <DocumentLanguageSync language={language} />
+      <HandsFreeControls language={language} stage="permissions" replyKey={`permissions:${JSON.stringify(values)}:${result?.kind ?? ""}:${errorCode}:${review ? "review" : "edit"}:${one(query.voiceTurn)}`} reply={result?.kind === "created"
+        ? language === "es" ? "Permiso guardado. Diga volver a mi selección." : "Permission saved. Say return to my selection."
+        : result?.kind === "error" ? copy.formErrors[result.code]
+        : review ? language === "es" ? `Revise el permiso para ${review.product}, cantidad máxima ${review.maxQuantity}, hasta ${(review.maxTotalCents/100).toFixed(2)} dólares. Use Guardar permiso de compra solo si acepta estos límites y el vencimiento mostrado.` : `Review the permission for ${review.product}, maximum quantity ${review.maxQuantity}, up to ${(review.maxTotalCents/100).toFixed(2)} dollars. Use Save purchase permission only if you accept these limits and the expiry shown.`
+        : language === "es" ? "Compruebe los límites del formulario." : "Check the purchase limits shown in the form."} />
       <PurchasePermissions
         language={language}
         csrfToken={session.csrfToken}

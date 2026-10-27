@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cloneElement, Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderWithAppRouter as renderToStaticMarkup } from "./router-render";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getURLFromRedirectError } from "next/dist/client/components/redirect";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
@@ -84,6 +84,14 @@ beforeEach(() => {
 });
 
 describe("guided needs page: charger information link", () => {
+  it("offers explicit Spanish entry for an existing English draft without changing it on GET", async () => {
+    const current = await shopper();
+    await draftIn(current.runtime, current.csrfToken, "en");
+    const html = await render({ started: "1" }, "es");
+    expect(html).toContain("Continuar en español");
+    expect(html).toContain('action="/shop/needs/language"');
+    expect([...needsDraftsFor(current.runtime.store).values()][0].language).toBe("en");
+  });
   it("English and Spanish without a saved draft: one link in the URL language", async () => {
     await shopper();
     expect(chargerLinks(await render({ lang: "en" }))).toEqual([{ href: "/en/shop/chargers", label: LABEL.en }]);

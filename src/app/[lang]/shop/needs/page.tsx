@@ -1,3 +1,5 @@
+import { macBookPro2019Guide } from "@/lib/compatibility/macbook-pro-2019-guide";
+import { voiceOptionsSummary, chargerVoiceGuidance, type VoiceChargerContext } from "@/lib/voice/journey";
 import { ChargerRecommendationLayout } from "@/components/mock-journey/ChargerRecommendationLayout";
 import { eligibleChargerTrack } from "@/server/charger-purchase";
 import { CHARGER_PRODUCT_ID, CHARGER_VARIANT_ID } from "@/lib/catalog/charger-purchase";
@@ -9,14 +11,16 @@ import { Suspense } from "react";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { GuidedProgress, type GuidedStep } from "@/components/mock-journey/GuidedProgress";
 import { InterpretedNeedsReview } from "@/components/mock-journey/InterpretedNeedsReview";
-import { NeedsConversation } from "@/components/mock-journey/NeedsConversation";
+import { NeedsConversation, assistantText } from "@/components/mock-journey/NeedsConversation";
+import { HandsFreeControls } from "@/components/mock-journey/HandsFreeControls";
+import { NeedsLanguageChoice } from "@/components/mock-journey/NeedsLanguageChoice";
 import { PairedAccess } from "@/components/PairedAccess";
 import { PermissionRefusal } from "@/components/PermissionRefusal";
 import { ChargerDeviceHandoff } from "@/components/ChargerDeviceHandoff";
 import { ChargerConversationControls } from "@/components/mock-journey/ChargerConversationControls";
 import { ChargerInformation } from "@/components/ChargerInformation";
 import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
-import { chargerCopy } from "@/lib/i18n/charger-copy";
+import { chargerCopy, chargerModelHelp } from "@/lib/i18n/charger-copy";
 import { EVIDENCE } from "@/lib/compatibility/evidence";
 import { selectDevice } from "@/lib/compatibility/rules";
 import { isPermissionRefusal, permissionCopy } from "@/lib/i18n/permission-copy";
@@ -82,6 +86,11 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
 
   const journey = await loadNeedsJourney(runtime.value, session);
   const canonical = journey.draft ? savedLanguageRedirect(pathLanguage, journey.draft.language, "/shop/needs", query) : null;
+  if (canonical && journey.draft && query.started === "1") return <section lang={pathLanguage} className="journey-panel flex flex-col gap-4">
+    <DocumentLanguageSync language={pathLanguage} />
+    <NeedsLanguageChoice heading language={pathLanguage} target={pathLanguage} csrfToken={session.csrfToken} draft={journey.draft} busy={journey.draft.interpretationPending || journey.draft.recommendationClaim === "pending"} />
+    <Link href={canonical} prefetch={false}>{pathLanguage === "es" ? "Volver sin cambiar el idioma" : "Go back without changing language"}</Link>
+  </section>;
   if (canonical) redirect(canonical);
   const language = journey.draft?.language ?? pathLanguage;
   const copy = journeyCopy(language);
@@ -157,10 +166,35 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           ? "results"
           : null;
 
+  const lastAssistant = [...(journey.conversation?.turns ?? [])].reverse().find(turn => turn.role === "assistant");
+  const lastShopper = [...(journey.conversation?.turns ?? [])].reverse().find(turn=>turn.role === "shopper");
+  const modelGuide = chargerOpen ? macBookPro2019Guide(lastShopper?.text ?? "",language) : null;
+  const voiceCharger: VoiceChargerContext | undefined = chargerOpen && chargerTrack ? {
+    state: chargerTrack.state, deviceId: chargerTrack.deviceId,
+    modelHelp: chargerModelHelp(lastShopper?.text ?? "",language) ?? undefined,
+    deviceName: chargerTrack.deviceId ? EVIDENCE.devices[chargerTrack.deviceId].name : null,
+    budgetEnabled: runtime.value.chargerBudgetEnabled,
+    proposedCents: chargerTrack.budget?.proposedCents ?? null, confirmedCents: chargerTrack.budget?.confirmedCents ?? null,
+    purchasable: purchaseTrack !== null && !adapterInProgress, permitted: adapterPermitted,
+  } : undefined;
+  const voiceOptions = purchaseTrack && !adapterInProgress ? [{productId:CHARGER_PRODUCT_ID,variantId:CHARGER_VARIANT_ID,title:"Apple 70W USB-C Power Adapter",priceCents:5900,description:language === "es" ? "Cable vendido por separado." : "Cable sold separately.",recommended:true}] : chargerOpen ? [] : eligibleLines.filter(line => line.quotable).map(line => ({ productId: line.productId, variantId: line.variantId, title: line.title, priceCents: line.unitAmountCents, description: line.label, recommended: suggestedVariantIds.includes(line.variantId) }));
+  const spokenReply = alert ?? (permissionRefusal ? language === "es" ? "Esta compra necesita un permiso válido. Diga abrir permisos." : "This purchase needs a valid permission. Say open permissions." : voiceCharger ? chargerVoiceGuidance(voiceCharger,language) : showConfirm
+    ? language === "es"
+      ? `Entendí: ${copy.uses[journey.draft!.prefilledUse!]}, con un presupuesto de ${journey.draft!.prefilledBudgetDollars} dólares. Revise sus opciones. Diga confirmo mis opciones o use el botón de la página.`
+      : `I understood: ${copy.uses[journey.draft!.prefilledUse!]}, with a budget of ${journey.draft!.prefilledBudgetDollars} dollars. Check your choices. Say confirm my choices or use the button on the page.`
+    : suggestionsRendered && !chargerOpen
+      ? (permissionRefusal
+        ? language === "es" ? "Esta compra necesita un permiso válido. Diga abrir permisos." : "This purchase needs a valid permission. Say open permissions."
+        : voiceOptionsSummary(voiceOptions, language))
+      : lastAssistant ? assistantText(lastAssistant.text, copy, language) : copy.prompt);
+  const voiceReplyKey = [journey.draft?.draftId ?? "new", journey.draft?.version ?? 0, confirmedUse, confirmedBudgetDollars, language, notice, permissionRefusal ?? "", chargerTrack?.revision ?? 0, chargerTrack?.state ?? "", typeof query.voiceTurn === "string" ? query.voiceTurn.slice(0, 64) : ""].join(":");
+
   return (
     <div lang={language} className={`needs-layout flex flex-col gap-6${purchaseTrack ? " charger-rec-shell" : ""}`}>
       <DocumentLanguageSync language={language} />
       <SkipToCurrentStep copy={copy} targetId={currentTargetId} />
+      {!expiredDraft ? <HandsFreeControls language={language} reply={spokenReply} notice={Boolean(alert || permissionRefusal)} replyKey={voiceReplyKey} stage={voiceCharger ? purchaseTrack && !adapterInProgress ? "options" : "charger" : suggestionsRendered ? "options" : "needs"} charger={voiceCharger} options={voiceOptions} /> : null}
+      {journey.draft ? <NeedsLanguageChoice language={language} target={language === "en" ? "es" : "en"} csrfToken={session.csrfToken} draft={journey.draft} busy={journey.draft.interpretationPending || journey.draft.recommendationClaim === "pending"} /> : null}
       {!purchaseTrack ? <h1
         id={currentTarget === "heading" ? NEEDS_PAGE_HEADING_ID : undefined}
         tabIndex={currentTarget === "heading" ? -1 : undefined}
@@ -217,11 +251,19 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             chargerClarification
             externalAiNotice={externalAiNotice}
             aiLimited={aiLimited}
-            afterHistory={
-              chargerTrack.state === "task_choice" ? (
+            afterHistory={<>
+              {modelGuide ? <section aria-labelledby="model-guide-heading" className="rounded border border-blue-200 bg-white p-5">
+        <h2 id="model-guide-heading" className="text-xl font-semibold">{language === "es" ? "Cargador para su MacBook Pro de 2019" : "Charger for your 2019 MacBook Pro"}</h2>
+        <p>{modelGuide.summary}</p>
+        <p>{language === "es" ? "Precio de referencia del adaptador: $79.00 USD. No incluye cable, impuestos ni envío. El precio y la disponibilidad pueden cambiar." : "Adapter reference price: $79.00 USD. Cable, tax and shipping are not included. Price and availability may change."}</p>
+        <p><a href={modelGuide.productUrl} className="underline">{language === "es" ? "Ver adaptador de 96W en Apple" : "View 96W adapter at Apple"}</a></p>
+        <p><a href={modelGuide.supportUrl} className="underline">{language === "es" ? "Fuente: guía de cargadores de Apple" : "Source: Apple charger guidance"}</a></p>
+        <p>{language === "es" ? "Este enlace abre el sitio de Apple. ShopAccess no realiza ni verifica una compra allí." : "This link opens Apple's website. ShopAccess does not place or verify a purchase there."}</p>
+      </section> : null}
+              {chargerTrack.state === "task_choice" ? (
                 <ChargerConversationControls budgetEnabled={runtime.value.chargerBudgetEnabled} csrfToken={session.csrfToken} language={language} track={chargerTrack} />
-              ) : null
-            }
+              ) : null}
+            </>}
           />
           {chargerTrack.state === "task_choice" ? null : (
             <ChargerConversationControls budgetEnabled={runtime.value.chargerBudgetEnabled} csrfToken={session.csrfToken} language={language} track={chargerTrack} />

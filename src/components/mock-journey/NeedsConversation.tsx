@@ -4,8 +4,9 @@ import type { JourneyLanguage } from "@/lib/i18n/language";
 import type { NeedsNotice } from "@/lib/i18n/needs-notice";
 import { INTENDED_USES, type IntendedUse } from "@/lib/readiness/engine";
 import type { ConversationTurn } from "@/types/conversation-turn";
-import { chargerCopy } from "@/lib/i18n/charger-copy";
+import { chargerCopy, chargerModelHelp } from "@/lib/i18n/charger-copy";
 import { Icon } from "../Icon";
+import { VoiceControls } from "./VoiceControls";
 
 interface NeedsFormDraft {
   readonly shopperText: string;
@@ -27,6 +28,14 @@ function isNeedsNotice(value: string): value is NeedsNotice {
 
 const CHARGER_LINES = ["charger_task_choice", "charger_model", "charger_review", "charger_shown", "charger_closed"] as const;
 
+export function assistantText(text: string, copy: JourneyCopy, language: JourneyLanguage, previousShopperText = ""): string {
+  if(text === "charger_model") { const help=chargerModelHelp(previousShopperText,language); if(help)return help; }
+  return isNeedsNotice(text) ? copy.notices[text]
+    : (CHARGER_LINES as readonly string[]).includes(text)
+      ? chargerCopy(language).conversationLines[text as (typeof CHARGER_LINES)[number]]
+      : text;
+}
+
 function ConversationHistory({ copy, language, turns }: { readonly copy: JourneyCopy; readonly language: JourneyLanguage; readonly turns: readonly ConversationTurn[] }) {
   if (turns.length === 0) return null;
   // Presentation only: retain saved history and all shopper messages. Older budget controls appended this notice repeatedly.
@@ -41,11 +50,7 @@ function ConversationHistory({ copy, language, turns }: { readonly copy: Journey
           <li key={`${turn.role}-${index}`} className={`needs-turn needs-turn-${turn.role}`}>
             <span className="needs-speaker">{turn.role === "shopper" ? copy.speakerShopper : copy.speakerAssistant}</span>
             <p className="needs-turn-text">
-              {turn.role === "assistant" && isNeedsNotice(turn.text)
-                ? copy.notices[turn.text]
-                : turn.role === "assistant" && (CHARGER_LINES as readonly string[]).includes(turn.text)
-                  ? chargerCopy(language).conversationLines[turn.text as (typeof CHARGER_LINES)[number]]
-                  : turn.text}
+              {turn.role === "assistant" ? assistantText(turn.text, copy, language, shownTurns[index-1]?.role === "shopper" ? shownTurns[index-1].text : "") : turn.text}
             </p>
           </li>
         ))}
@@ -103,10 +108,14 @@ export function NeedsConversation({
   ]);
 
   const showHistory = turns.length > 0;
+  const prompt = language === "es" ? "Cuénteme qué necesita y cuánto quiere gastar. Le ayudaré a encontrar una opción adecuada." : "Tell me what you need and how much you want to spend. I’ll help you find a suitable option.";
+  const lastReply = [...turns].reverse().find(turn => turn.role === "assistant");
+  const previousShopper=[...turns].reverse().find(turn=>turn.role==="shopper");
+  const spokenReply = lastReply ? assistantText(lastReply.text, copy, language, previousShopper?.text ?? "") : mode === "first" ? prompt : "";
 
   return (
     <div className="needs-conversation">
-      {mode === "first" ? <p>{copy.prompt}</p> : null}
+      {mode === "first" ? <p>{prompt}</p> : null}
       {mode !== "first" && (chargerClarification || draft?.shopperText) ? <p>{chargerClarification ? chargerCopy(language).needsExplanation : copy.clarificationExplanation}</p> : null}
       {showHistory ? <ConversationHistory copy={copy} language={language} turns={turns} /> : null}
       {afterHistory}
@@ -121,6 +130,7 @@ export function NeedsConversation({
             name="shopperText"
             maxLength={2000}
             rows={4}
+            placeholder={language === "es" ? "Por ejemplo: necesito un portátil para estudiar por menos de $600." : "For example: I need a laptop for school under $600."}
             defaultValue={draft?.shopperText ?? ""}
             aria-describedby={externalAiNotice ? "needs-ai-notice" : undefined}
             className="rounded border border-zinc-400 p-2"
@@ -140,8 +150,10 @@ export function NeedsConversation({
           </label>
         </>
       )}
+      <VoiceControls language={language} fieldId={mode === "first" ? "shopper-text" : "shopper-reply"} reply={spokenReply} />
       {mode === "reply" ? null : (
-        <>
+        <details className="needs-optional-fields" open={(mode === "clarify" && (useMissing || budgetDisputed)) || aiLimited || validationAlertId !== undefined}>
+          <summary className="cursor-pointer font-medium">{language === "es" ? "Prefiero usar el formulario" : "I prefer using the form"}</summary>
           <label className="flex flex-col gap-1 text-sm" htmlFor="needs-use">
             <span className="label-line"><Icon name="laptop" />{copy.useLabel}</span>
             <select
@@ -176,14 +188,14 @@ export function NeedsConversation({
           <p id="budget-hint" className="text-sm">
             {copy.budgetHint}
           </p>
-        </>
+        </details>
       )}
       <input type="hidden" name="lang" value={language} />
       {mode !== "first" && draft ? <input type="hidden" name="draftId" value={draft.draftId} /> : null}
       {mode !== "first" && draft ? <input type="hidden" name="version" value={String(draft.version)} /> : null}
       <input type="hidden" name="csrfToken" value={csrfToken} />
       <button type="submit" className={secondary || mode === "reply" ? "shopping-secondary-action rounded px-4 py-2 font-medium" : "shopping-primary-action rounded bg-blue-800 px-4 py-2 font-medium text-white"}>
-        {mode === "reply" ? null : <Icon name="search" />}{chargerClarification ? (language === "es" ? "Enviar respuesta" : "Send reply") : copy.submit}
+        <Icon name="send" />{mode === "first" && !chargerClarification ? (language === "es" ? "Enviar mensaje" : "Send message") : (language === "es" ? "Enviar respuesta" : "Send reply")}
       </button>
       </form>
     </div>

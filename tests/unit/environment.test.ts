@@ -532,6 +532,8 @@ describe("SEC-01: no sensitive credentials in client output or logs", () => {
     const listingSearchForm = join(ROOT, "src", "components", "mock-journey", "ListingSearchForm.tsx");
     // M2-3 (owner decision, October 17): moves focus after a full-page form result. See focusOnArrivalViolations.
     const focusOnArrival = join(ROOT, "src", "components", "FocusOnArrival.tsx");
+    const voiceControls = join(ROOT, "src", "components", "mock-journey", "VoiceControls.tsx");
+    const handsFreeControls = join(ROOT, "src", "components", "mock-journey", "HandsFreeControls.tsx");
     for (const file of [...filesUnder(join(ROOT, "src", "components"), /\.tsx$/), ...filesUnder(join(ROOT, "src", "app"), /\.tsx$/)]) {
       const text = readFileSync(file, "utf8");
       expect(text, file).not.toMatch(/process\.env/);
@@ -539,6 +541,28 @@ describe("SEC-01: no sensitive credentials in client output or logs", () => {
       if (file === listingSearchForm) {
         expect(text).toContain('"use client"');
         expect(text).not.toMatch(/\bfetch\s*\(|@\/lib\/(?:session|db|payment|security|providers)|@\/server\//);
+      } else if (file === voiceControls) {
+        // Voice needs browser APIs. This exact module gets no server, storage or request capability.
+        expect(text).toContain('"use client"');
+        expect(text).not.toMatch(/\bfetch\s*\(|process\.env|@\/server\/|localStorage|sessionStorage|document\.cookie/);
+        expect([...text.matchAll(/from\s+["']([^"']+)["']/g)].map(match => match[1]).sort()).toEqual([
+          "@/lib/i18n/language", "@/lib/voice/dictation", "react",
+        ]);
+        const dictation = readFileSync(join(ROOT, "src", "lib", "voice", "dictation.ts"), "utf8");
+        expect(dictation).not.toMatch(/\bimport\b|\bfetch\s*\(|process\.env|localStorage|sessionStorage|document\.cookie/);
+      } else if (file === handsFreeControls) {
+        // One bounded first-party form transport. Approval actions require page submission; no persistent storage.
+        expect(text).toContain('"use client"');
+        expect(text).not.toMatch(/process\.env|@\/server\/|localStorage|sessionStorage|document\.cookie|\.requestSubmit\s*\(/);
+        expect([...text.matchAll(/from\s+["']([^"']+)["']/g)].map(match => match[1]).sort()).toEqual([
+          "@/lib/i18n/language", "@/lib/voice/dictation", "@/lib/voice/draft", "@/lib/voice/hands-free", "@/lib/voice/journey", "@/lib/voice/speech-sequence", "next/navigation", "react",
+        ]);
+        expect(text.match(/\bfetch\s*\(/g)).toHaveLength(1);
+        expect(text).toContain('fetch(action, { method: "POST"');
+        expect(text).toContain('if (!isJourneyPost(action) || pending.current) { session.fail(); return; }');
+        expect(createHash("sha256").update(readFileSync(join(ROOT, "src", "lib", "voice", "journey.ts"))).digest("hex")).toBe("36a7abea53fd24405580dd2887e3e0a78202babc81489f653a660b9e4d529ceb");
+        const helper = readFileSync(join(ROOT, "src", "lib", "voice", "hands-free.ts"), "utf8");
+        expect(helper).not.toMatch(/\bfetch\s*\(|process\.env|localStorage|sessionStorage|document\.cookie/);
       } else if (file === focusOnArrival) {
         expect(focusOnArrivalViolations(text)).toEqual([]);
         expect(pinViolation(readFileSync(file), FOCUS_ON_ARRIVAL_SHA256)).toBeNull();
@@ -552,10 +576,10 @@ describe("SEC-01: no sensitive credentials in client output or logs", () => {
     expect(readFileSync(readers[0], "utf8").match(/process\.env/g)).toHaveLength(2);
   });
 
-  it("SEC-01: exactly two client modules in all of src, and FocusOnArrival only where the plan put it", () => {
+  it("SEC-01: exactly four client modules in all of src, and FocusOnArrival only where the plan put it", () => {
     // The permissions page only (docs/m2-3-plan.md §9): FocusOnArrival through PurchasePermissions, used by that page alone.
     expect(sec01Report(collectSec01Sources(join(ROOT, "src")), ROOT)).toEqual({
-      clientModules: [join(ROOT, "src", "components", "FocusOnArrival.tsx"), join(ROOT, "src", "components", "mock-journey", "ListingSearchForm.tsx")].sort(),
+      clientModules: [join(ROOT, "src", "components", "FocusOnArrival.tsx"), join(ROOT, "src", "components", "mock-journey", "ListingSearchForm.tsx"), join(ROOT, "src", "components", "mock-journey", "VoiceControls.tsx"), join(ROOT, "src", "components", "mock-journey", "HandsFreeControls.tsx")].sort(),
       focusOnArrivalImporters: [join(ROOT, "src", "components", "PurchasePermissions.tsx")],
       purchasePermissionsImporters: [join(ROOT, "src", "app", "[lang]", "shop", "permissions", "page.tsx")],
       computedSpecifiers: [],

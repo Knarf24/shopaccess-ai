@@ -1,5 +1,6 @@
+import { VoiceJourneyProvider } from "@/components/mock-journey/HandsFreeControls";
 import { Fragment, type ReactElement, type ReactNode } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderWithAppRouter } from "./router-render";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getURLFromRedirectError } from "next/dist/client/components/redirect";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
@@ -102,7 +103,7 @@ async function render(intentId: string, query: Record<string, string> = {}, path
     const outer = CheckoutPage({ params: Promise.resolve({ lang: pathLang, intentId }), searchParams: Promise.resolve(query) }) as ReactElement<{ children: ReactElement }>;
     const content = outer.props.children;
     const tree = await (content.type as (props: unknown) => Promise<ReactNode>)(content.props);
-    return renderToStaticMarkup(<Fragment>{tree}</Fragment>);
+    return renderWithAppRouter(<VoiceJourneyProvider><Fragment>{tree}</Fragment></VoiceJourneyProvider>);
   } catch (error) {
     const url = isRedirectError(error) ? getURLFromRedirectError(error) : null;
     const next = url?.startsWith("/es/") ? "es" : url?.startsWith("/en/") ? "en" : null;

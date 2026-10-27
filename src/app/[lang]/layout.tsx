@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { documentLocale } from "@/lib/i18n/locale-segment";
 import { siteMetadata } from "@/lib/i18n/site-metadata";
 import "../globals.css";
+import { VoiceJourneyProvider } from "@/components/mock-journey/HandsFreeControls";
 
 const SYSTEM_FONTS = {
   "--font-geist-sans": "Arial, Helvetica, sans-serif",
@@ -36,7 +37,7 @@ export default async function LocalizedRootLayout({
   if (!locale) notFound();
   return (
     <html lang={locale} style={SYSTEM_FONTS} className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col"><VoiceJourneyProvider>{children}</VoiceJourneyProvider></body>
     </html>
   );
 }

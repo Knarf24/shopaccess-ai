@@ -29,6 +29,13 @@ const control = (existing: ChargerTrack | null, revision: number, value: Paramet
   applyChargerControl(existing, { sessionId, draftId, revision, control: value });
 
 describe("charger clarification: text routing", () => {
+ it("keeps model descriptions in an open charger task without identifying an unlisted model",()=>{
+  for(const state of ["awaiting_model","task_choice"] as const){
+   const result=route(track(state,3),"My laptop is a MacBook Pro, 16-inch, 2019.");
+   expect(result).toMatchObject({kind:"charger",track:{state:"awaiting_model",deviceId:null},line:"charger_model"});
+  }
+  expect(route(track("awaiting_model",3),"I want to buy a laptop for programming")).toMatchObject({track:{state:"task_choice"}});
+ });
   it("leaves laptop requests, plain text and a bare identifier on the laptop path when nothing is open", () => {
     for (const existing of [null, track("closed", 5)]) {
       expect(route(existing, "laptop for school under $500")).toEqual({ kind: "laptop" });

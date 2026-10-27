@@ -4,6 +4,7 @@
  * discount, delivery or security imagery.
  */
 const PATHS = {
+  send: "m3 3 19 9-19 9 4-9-4-9ZM7 12h15",
   laptop: "M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5V15H4V6.5ZM2.5 18h19",
   plug: "M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0V8ZM12 17v4",
   search: "M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13ZM15.5 15.5 20 20",

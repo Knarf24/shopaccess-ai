@@ -335,7 +335,11 @@ function cueDistance(left: string, right: string, phrases: readonly string[]): n
 
 /** A clean budget is a 2–5 digit whole-dollar amount with a budget cue closer than any size or quantity cue. */
 export function readBudgetFromText(text: string): BudgetReading {
-  const pattern = /(^|[^\d.])(\$)?\s*([1-9][0-9]{1,4})(?![\d.])/g;
+  // A comma before prose/end is punctuation, not part of a numeric amount.
+  text = text.replace(/(?<=\d),(?=\s+[a-záéíóúñ]|$)/gi, " ");
+  // Normalize only complete US-style thousands groups; never split malformed/decimal amounts.
+  text = text.replace(/(?<![\d.,])([1-9][0-9]{0,2}(?:,[0-9]{3})+)(?![\d.,])/g, value => value.replaceAll(",", ""));
+  const pattern = /(^|[^\d.,])(\$)?\s*([1-9][0-9]{1,4})(?![\d.,])/g;
   const candidates = new Set<string>();
   let ambiguous = false;
   for (const match of text.matchAll(pattern)) {
