@@ -560,7 +560,7 @@ describe("SEC-01: no sensitive credentials in client output or logs", () => {
         expect(text.match(/\bfetch\s*\(/g)).toHaveLength(1);
         expect(text).toContain('fetch(action, { method: "POST"');
         expect(text).toContain('if (!isJourneyPost(action) || pending.current) { session.fail(); return; }');
-        expect(createHash("sha256").update(readFileSync(join(ROOT, "src", "lib", "voice", "journey.ts"))).digest("hex")).toBe("36a7abea53fd24405580dd2887e3e0a78202babc81489f653a660b9e4d529ceb");
+        expect(createHash("sha256").update(readFileSync(join(ROOT, "src", "lib", "voice", "journey.ts"))).digest("hex")).toBe("b24df42ef23e71cdcaf5cee5795644adb7f3daf5c8038decbc2246004b836fac");
         const helper = readFileSync(join(ROOT, "src", "lib", "voice", "hands-free.ts"), "utf8");
         expect(helper).not.toMatch(/\bfetch\s*\(|process\.env|localStorage|sessionStorage|document\.cookie/);
       } else if (file === focusOnArrival) {

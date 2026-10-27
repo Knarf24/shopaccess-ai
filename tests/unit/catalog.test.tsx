@@ -299,7 +299,7 @@ describe("URL-01: unsafe external URLs are rejected and never fetched by the ser
       text.match(/\bfetch\s*\(/g)?.length === 1 &&
       text.includes('fetch(action, { method: "POST"') &&
       text.includes('if (!isJourneyPost(action) || pending.current) { session.fail(); return; }') &&
-      createHash("sha256").update(readFileSync(join(SRC, "lib", "voice", "journey.ts"))).digest("hex") === "36a7abea53fd24405580dd2887e3e0a78202babc81489f653a660b9e4d529ceb" &&
+      createHash("sha256").update(readFileSync(join(SRC, "lib", "voice", "journey.ts"))).digest("hex") === "b24df42ef23e71cdcaf5cee5795644adb7f3daf5c8038decbc2246004b836fac" &&
       text.includes('credentials: "same-origin", mode: "same-origin"');
     // First-party adapter exception. The filename is the Channel3 adapter, not a way around the scan.
     const channel3FetchOnlyInTransport = (text: string): boolean => {

@@ -435,7 +435,7 @@ describe("checkout page in sandbox mode: a refusal offers the protected Cancel a
 });
 
 // Language of parts (owner-approved correction, October 18): the checkout is marked with its resolved interface language,
-// and the English-only parts of a Spanish checkout are marked English. Resolved from the rendered markup's lang attributes.
+// and untranslated product names are marked English. Resolved from the rendered markup's lang attributes.
 const VOID_ELEMENTS = new Set(["input", "meta", "br", "img", "hr", "link", "source", "area", "base", "col", "embed", "track", "wbr"]);
 
 /** The language in effect at the first opening tag that matches `tag`, through its ancestors' lang (document default "en"). */
@@ -467,7 +467,7 @@ describe("checkout page: language of parts (language-marker correction)", () => 
     return { runtime, buyer, intent, quote };
   }
 
-  it("a Spanish checkout is marked Spanish: refusal, skip link, steps and catalog notice; English-only parts are marked English", async () => {
+  it("a Spanish checkout is marked Spanish: refusal, skip link, steps and catalog notice; product names remain marked English", async () => {
     const { intent } = await refusedCheckout("es");
     const html = await render(intent.id, { notice: "CONFIRMED" });
     expect(html).toMatch(/^<main class="guided-presentation ui-refresh" lang="es">/);
@@ -480,9 +480,11 @@ describe("checkout page: language of parts (language-marker correction)", () => 
     expect(langAt(html, /id="quote-heading"/)).toBe("es");
     expect(langAt(html, /id="checkout-notice"/)).toBe("es");
     expect(langAt(html, /<a\b[^>]*href="\/"/)).toBe("es");
-    // English whatever the language: the simulated payment panel and its controls.
-    expect(langAt(html, /aria-labelledby="sim-heading"/)).toBe("en");
-    expect(langAt(html, /<button\b/)).toBe("en");
+    // The payment preview and controls follow the saved Spanish interface language.
+    expect(langAt(html, /aria-labelledby="sim-heading"/)).toBe("es");
+    expect(html).toContain("Vista previa de pago local");
+    expect(html).not.toContain("Local payment preview");
+    expect(langAt(html, /<button\b/)).toBe("es");
   });
 
   it("a Spanish confirmation summary and a Spanish manual-review message are marked Spanish", async () => {
@@ -522,7 +524,7 @@ describe("checkout page: language of parts (language-marker correction)", () => 
 });
 
 // Finding 8, checkout part (owner-approved October 18): the heading, quote lines, notices, errors and start link follow
-// the language saved on the checkout, never the URL. English wording is unchanged. The simulated panel stays English.
+// the language saved on the checkout, never the URL. English wording is unchanged. The simulated panel follows the saved language.
 describe("checkout page: wording follows the saved checkout language (finding 8)", () => {
   const ITEM_TITLE = "Acer Aspire Go 15 — 8 GB LPDDR5, 256 GB PCIe NVMe SSD";
   const ENGLISH = {
@@ -552,7 +554,7 @@ describe("checkout page: wording follows the saved checkout language (finding 8)
   }
   const headingText = (html: string, pattern: RegExp) => text(html.match(pattern)?.[1] ?? "");
 
-  it("a Spanish checkout: heading, quote, notice and start link in Spanish; the English product name and simulated panel marked English", async () => {
+  it("a Spanish checkout: heading, quote, notice and start link in Spanish; the product name marked English and payment panel in Spanish", async () => {
     const intent = await confirmedCheckout("es");
     const html = await render(intent.id, { notice: "CONFIRMED" });
     const visible = text(html);
@@ -565,7 +567,9 @@ describe("checkout page: wording follows the saved checkout language (finding 8)
     expect(langAt(html, /id="checkout-notice"/)).toBe("es");
     expect(langAt(html, /<a\b[^>]*href="\/"/)).toBe("es");
     expect(html).toContain(`<span lang="en">${ITEM_TITLE}</span>, cantidad`);
-    expect(langAt(html, /aria-labelledby="sim-heading"/)).toBe("en");
+    expect(langAt(html, /aria-labelledby="sim-heading"/)).toBe("es");
+    expect(html).toContain("Vista previa de pago local");
+    expect(html).not.toContain("Local payment preview");
   });
 
   it("an English checkout keeps today's wording and markup: only <main> carries lang", async () => {

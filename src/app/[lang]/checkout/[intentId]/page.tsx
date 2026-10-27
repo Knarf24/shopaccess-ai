@@ -193,7 +193,6 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
   const language = view.interfaceLanguage ?? "en";
   const canonical = savedLanguageRedirect(pathLanguage, language, `/checkout/${intentId}`, query);
   if (canonical) redirect(canonical);
-  const fixedEnglish = language === "en" ? undefined : "en";
   const copy = journeyCopy(language);
   const pageCopy = copy.checkoutPage;
   const markLang = (lang: "en" | "es") => (lang === language ? undefined : lang);
@@ -275,7 +274,7 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
       {sandbox ? (
         <SandboxCheckoutActions view={view} csrfToken={session.csrfToken} copy={copy.sandboxCheckout} />
       ) : (
-        <SimulatedPaymentPanel view={view} csrfToken={session.csrfToken} lang={fixedEnglish} />
+        <SimulatedPaymentPanel view={view} csrfToken={session.csrfToken} lang={language === "es" ? "es" : undefined} />
       )}
       <p>
         <Link href="/" prefetch={false} className="underline">
