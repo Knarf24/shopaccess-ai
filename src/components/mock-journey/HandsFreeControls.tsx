@@ -125,7 +125,7 @@ function HandsFreeSession({language,reply,replyKey,stage="needs",options=NO_OPTI
       },
       onMessage: text => {
         const page=pageRef.current;
-        const command=text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[.!?]+$/, "").trim();
+        const command=text.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").replace(/[.!?]+$/, "").trim();
         const navigate=(path:string)=>{
           if(pending.current || page.stage==="loading") return;
           session.waitForReply();const target=new URL(path,window.location.origin);
