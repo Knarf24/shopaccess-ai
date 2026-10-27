@@ -333,15 +333,69 @@ function cueDistance(left: string, right: string, phrases: readonly string[]): n
   return best;
 }
 
+/** Parse Spanish whole-number words only; no AI output can authorize a budget. */
+const SPANISH_SMALL: Readonly<Record<string, number>> = {
+ cero:0, un:1, uno:1, una:1, dos:2, tres:3, cuatro:4, cinco:5, seis:6, siete:7, ocho:8, nueve:9,
+ diez:10, once:11, doce:12, trece:13, catorce:14, quince:15, dieciseis:16, diecisiete:17, dieciocho:18, diecinueve:19,
+ veinte:20, veintiuno:21, veintiun:21, veintidos:22, veintitres:23, veinticuatro:24, veinticinco:25, veintiseis:26, veintisiete:27, veintiocho:28, veintinueve:29,
+ treinta:30, cuarenta:40, cincuenta:50, sesenta:60, setenta:70, ochenta:80, noventa:90,
+};
+const SPANISH_HUNDREDS: Readonly<Record<string, number>> = {cien:100,ciento:100,doscientos:200,trescientos:300,cuatrocientos:400,quinientos:500,seiscientos:600,setecientos:700,ochocientos:800,novecientos:900};
+function spanishUnderHundred(words: readonly string[]): number | null {
+ if(words.length===1)return SPANISH_SMALL[words[0]] ?? null;
+ if(words.length===3 && words[1]==="y") {
+  const tens=SPANISH_SMALL[words[0]],unit=SPANISH_SMALL[words[2]];
+  if(tens>=30 && tens%10===0 && unit>=1 && unit<=9)return tens+unit;
+ }
+ return null;
+}
+function spanishUnderThousand(words: readonly string[]): number | null {
+ if(!words.length)return 0;
+ const hundred=SPANISH_HUNDREDS[words[0]];
+ if(hundred===undefined)return spanishUnderHundred(words);
+ if(words[0]==="cien")return words.length===1 ? 100 : null;
+ if(words.length===1)return words[0]==="ciento" ? null : hundred;
+ const rest=spanishUnderHundred(words.slice(1));
+ return rest!==null && rest>0 ? hundred+rest : null;
+}
+function spanishNumber(words: readonly string[]): number | null {
+ const at=words.indexOf("mil");
+ if(at===-1)return spanishUnderThousand(words);
+ if(words.lastIndexOf("mil")!==at)return null;
+ const thousands=at===0 ? 1 : spanishUnderHundred(words.slice(0,at));
+ const rest=spanishUnderThousand(words.slice(at+1));
+ return thousands!==null && thousands>0 && rest!==null ? thousands*1000+rest : null;
+}
+function normalizeSpanishBudgetWords(text: string): { text: string; ambiguous: boolean } {
+ const normalized=text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+ const tokens=[...Object.keys(SPANISH_SMALL),...Object.keys(SPANISH_HUNDREDS),"mil","millon","millones","coma","punto","menos"];
+ const word=`(?:${tokens.join("|")})`;
+ const pattern=new RegExp(`\\b${word}(?:\\s+(?:y\\s+)?${word})*\\b`,"g");
+ let ambiguous=false;
+ const converted=normalized.replace(pattern,(phrase:string,at:number)=>{
+  const left=normalized.slice(Math.max(0,at-48),at),right=normalized.slice(at+phrase.length,at+phrase.length+48);
+  const budgetDistance=cueDistance(left,right,BUDGET_CUES),specDistance=cueDistance(left,right,SPEC_CUES);
+  if(budgetDistance===null || (specDistance!==null && specDistance<budgetDistance))return phrase;
+  const value=spanishNumber(phrase.split(/\s+/));
+  if(value!==null && value<10)return phrase;
+  // Never salvage a partial number from malformed, fractional or mixed digit/word input.
+  if(value===null || value>99999 || /[\d.,-]\s*$/.test(left) || /^\s*(?:\d|[.,]\s*(?:\d|\w))/.test(right)) {ambiguous=true;return phrase;}
+  return String(value);
+ });
+ return {text:converted,ambiguous};
+}
+
 /** A clean budget is a 2–5 digit whole-dollar amount with a budget cue closer than any size or quantity cue. */
 export function readBudgetFromText(text: string): BudgetReading {
+  const spanish = normalizeSpanishBudgetWords(text);
+  text = spanish.text;
   // A comma before prose/end is punctuation, not part of a numeric amount.
   text = text.replace(/(?<=\d),(?=\s+[a-záéíóúñ]|$)/gi, " ");
   // Normalize only complete US-style thousands groups; never split malformed/decimal amounts.
   text = text.replace(/(?<![\d.,])([1-9][0-9]{0,2}(?:,[0-9]{3})+)(?![\d.,])/g, value => value.replaceAll(",", ""));
   const pattern = /(^|[^\d.,])(\$)?\s*([1-9][0-9]{1,4})(?![\d.,])/g;
   const candidates = new Set<string>();
-  let ambiguous = false;
+  let ambiguous = spanish.ambiguous;
   for (const match of text.matchAll(pattern)) {
     const value = match[3];
     if (!value || match.index === undefined) continue;

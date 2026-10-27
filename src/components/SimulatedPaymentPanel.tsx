@@ -1,5 +1,5 @@
 import type { JourneyCopy } from "@/lib/i18n/demo-copy";
-import { STATE_DESCRIPTIONS, STEP_LABELS, type SimulationStep } from "@/server/simulation";
+import { paymentPreviewCopy, type SimulationStep } from "@/server/simulation";
 import type { CheckoutView } from "@/server/views";
 
 /** The ordinary next step in the local simulation; failure, lost-response and cancel paths stay outlined. */
@@ -57,29 +57,29 @@ export function SandboxCheckoutActions({
 }
 
 /** Shows the SIMULATED payment lifecycle: local state, what the mock provider reported, and the controls that drive the mock. */
-export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: CheckoutView; csrfToken: string; lang?: "en" }) {
-  // The panel is English only; `lang` marks it so on a page in another language.
+export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: CheckoutView; csrfToken: string; lang?: "en" | "es" }) {
+  const copy = paymentPreviewCopy(lang);
   return (
     <section aria-labelledby="sim-heading" lang={lang} className="flex flex-col gap-4 rounded-lg border-2 border-amber-600 p-4">
       <h2 id="sim-heading" tabIndex={-1} className="text-xl font-semibold">
-        Local payment preview
+        {copy.heading}
       </h2>
       <p className="text-sm">
-        For evaluation: no money will be charged and no products will ship. This local preview does not contact PayPal.
+        {copy.disclosure}
       </p>
       <div role="status" className="rounded bg-zinc-100 p-3 text-black">
         <p>
-          <span className="font-medium">Payment status: </span>
+          <span className="font-medium">{copy.status}</span>
           <code>{view.state}</code>
         </p>
-        <p className="text-sm">{STATE_DESCRIPTIONS[view.state]}</p>
+        <p className="text-sm">{copy.states[view.state]}</p>
       </div>
 
       {view.steps.length > 0 ? (
         <form method="post" action={`/checkout/${view.intentId}/simulate`} className="flex flex-col gap-2">
           <input type="hidden" name="csrfToken" value={csrfToken} />
           <fieldset className="flex flex-col gap-2">
-            <legend className="font-medium">Payment preview controls</legend>
+            <legend className="font-medium">{copy.controls}</legend>
             {view.steps.map((step: SimulationStep) => (
               <button
                 key={step}
@@ -88,23 +88,23 @@ export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: Checkou
                 value={step}
                 className={`rounded border border-zinc-600 px-3 py-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2${FORWARD_STEPS.has(step) ? " shopping-primary-action" : ""}`}
               >
-                {STEP_LABELS[step]}
+                {copy.steps[step]}
               </button>
             ))}
           </fieldset>
         </form>
       ) : (
-        <p className="text-sm">No further simulation steps are available from this state.</p>
+        <p className="text-sm">{copy.noSteps}</p>
       )}
 
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
-          <caption className="text-left font-medium">State history (each change and the event that caused it)</caption>
+          <caption className="text-left font-medium">{copy.history}</caption>
           <thead>
             <tr>
-              <th scope="col" className="pr-3">Event</th>
-              <th scope="col" className="pr-3">Caused by</th>
-              <th scope="col">Change</th>
+              <th scope="col" className="pr-3">{copy.event}</th>
+              <th scope="col" className="pr-3">{copy.actor}</th>
+              <th scope="col">{copy.change}</th>
             </tr>
           </thead>
           <tbody>
@@ -124,12 +124,12 @@ export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: Checkou
       {view.observations.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <caption className="text-left font-medium">What the simulated provider reported (kept separate from local state)</caption>
+            <caption className="text-left font-medium">{copy.observations}</caption>
             <thead>
               <tr>
-                <th scope="col" className="pr-3">Source</th>
-                <th scope="col" className="pr-3">About</th>
-                <th scope="col">Reported status</th>
+                <th scope="col" className="pr-3">{copy.source}</th>
+                <th scope="col" className="pr-3">{copy.subject}</th>
+                <th scope="col">{copy.reportedStatus}</th>
               </tr>
             </thead>
             <tbody>
@@ -149,7 +149,7 @@ export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: Checkou
         <ul className="text-sm">
           {view.operations.map((operation) => (
             <li key={operation.id}>
-              Operation {operation.type} #{operation.sequence}: {operation.state}, attempts {operation.attemptCount}, request ID{" "}
+              {copy.operation} {operation.type} #{operation.sequence}: {operation.state}, {copy.attempts} {operation.attemptCount}, {copy.requestId}{" "}
               <code>{operation.providerRequestId}</code>
             </li>
           ))}

@@ -5,9 +5,9 @@ export interface VoiceJourneyOption {
 }
 const EN = ["one","two","three","four","five","six","seven","eight","nine"];
 const ES = ["uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve"];
-const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[.!?]+$/, "").trim();
+const normalize = (s: string) => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").replace(/[.!?]+$/, "").trim();
 export function selectVoiceOption(text: string, options: readonly VoiceJourneyOption[]): VoiceJourneyOption | null {
- const m = normalize(text).match(/^(?:choose|select|i choose|i want|elijo|selecciono|quiero)\s+(?:the\s+|la\s+|el\s+)?(.+)$/);
+ const m = normalize(text).match(/^(?:choose|select|i choose|i want|(?:yo )?(?:elijo|selecciono|quiero)|elegir|seleccionar)\s+(?:the\s+|la\s+|el\s+)?(.+)$/);
  if (!m) return null;
  const n = m[1].match(/^(?:option|opcion)\s+([1-9]|one|two|three|four|five|six|seven|eight|nine|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)$/);
  if (n) return options[/^[1-9]$/.test(n[1]) ? Number(n[1])-1 : Math.max(EN.indexOf(n[1]),ES.indexOf(n[1]))] ?? null;
@@ -34,7 +34,7 @@ export function isJourneyPost(path: string): boolean {
 export function isPermissionsRequest(text: string): boolean {
  const command=normalize(text);
  return /^(?:open|manage|open manage)(?: (?:the|purchase|page|pages|pictures))* permissions?$/.test(command)
-  || /^(?:set purchase limits|set limits|purchase limits|open purchase limits|configurar limites|limites de compra|abrir permisos)$/.test(command);
+  || /^(?:set purchase limits|set limits|purchase limits|open purchase limits|configurar limites|limites de compra|abrir permisos|(?:abrir|administrar|gestionar)(?: los)? permisos(?: de compra)?)$/.test(command);
 }
 /** Server notices always take priority over a retained selection. */
 export function voicePageReply(reply: string, stage: string, previousStage: string, selected: VoiceJourneyOption | null, options: readonly VoiceJourneyOption[], notice: boolean, language: string): string {
@@ -52,6 +52,12 @@ export interface VoiceChargerContext {
 /** Exact website clarification commands only. Never permission or payment approval. */
 export function chargerVoiceAction(text: string, state: VoiceChargerContext["state"]): {action:string;value?:string} | null {
  const command=normalize(text).replace(/[,]/g," ").replace(/\s+/g," ");
+ if(state==="task_choice") {
+  if(/^(?:(?:i want|i need|find|choose|select)(?: a| the)? )?laptop$/.test(command))return {action:"choose_task",value:"laptop"};
+  if(/^(?:(?:i want|i need|find|choose|select)(?: a| the)? )?charger$/.test(command))return {action:"choose_task",value:"charger"};
+  if(/^(?:(?:yo )?(?:quiero|busco|necesito)|busca|buscar|continuar con)(?: un| el| la)? (?:portatil|laptop|computadora)$/.test(command) || /^(?:portatil|laptop|computadora)$/.test(command))return {action:"choose_task",value:"laptop"};
+  if(/^(?:(?:yo )?(?:quiero|busco|necesito)|busca|buscar)(?: un| el)? cargador$/.test(command) || command==="cargador")return {action:"choose_task",value:"charger"};
+ }
  if(state==="awaiting_model") {
   const model=command.replace(/^(?:my model is|my laptop is|mi modelo es|mi portatil es) /,"");
   if(/^(?:mac14 ?2|macbook air (?:\(m2 2022\)|m2 2022|m2 de 2022))$/.test(model))return {action:"choose_model",value:"Mac14,2"};

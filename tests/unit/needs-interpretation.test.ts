@@ -325,3 +325,26 @@ describe("needs interpretation", () => {
     expect(needsDraftsFor(runtime.store).get(session.value.id)?.shopperText).toBe("I need a laptop for school.");
   });
 });
+
+describe("Spanish budget words", () => {
+  it.each([
+    ["Necesito un portátil para programar. Mi presupuesto es mil dólares.", "1000"],
+    ["Presupuesto dos mil dólares", "2000"],
+    ["Presupuesto mil quinientos dólares", "1500"],
+    ["Presupuesto novecientos noventa y nueve dólares", "999"],
+    ["Presupuesto veintidós dólares", "22"],
+  ])("reads a whole-dollar budget from %s", (text, amount) => {
+    expect(readBudgetFromText(text)).toEqual({ candidate: amount, ambiguous: false });
+  });
+  it("puts mil dólares into review without trusting a model amount", () => {
+    expect(settleShopperText("Mi presupuesto es mil dólares", { understoodUse: "programming", budgetDollars: null, followUp: "budget" })).toEqual({
+      prefilledUse: "programming", prefilledBudgetDollars: "1000", notice: "review",
+    });
+  });
+  it("does not choose between conflicting word and digit amounts", () => {
+    expect(readBudgetFromText("Presupuesto mil dólares o 900 dólares")).toEqual({ candidate: null, ambiguous: true });
+  });
+  it.each(["mil GB", "Presupuesto mil coma cinco dólares", "Presupuesto dos mil mil dólares", "Presupuesto cien mil dólares", "Presupuesto menos mil dólares"])("rejects a non-budget or malformed amount: %s", text => {
+    expect(readBudgetFromText(text).candidate).toBeNull();
+  });
+});
