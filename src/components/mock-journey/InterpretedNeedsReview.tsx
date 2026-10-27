@@ -31,7 +31,7 @@ export function InterpretedNeedsReview({
   readonly headingTabIndex?: -1;
 }) {
   return (
-    <form method="post" action="/shop/needs/confirm" aria-labelledby={NEEDS_REVIEW_HEADING_ID} className="journey-form journey-panel flex max-w-xl flex-col gap-4 rounded-lg border border-zinc-400 p-4">
+    <form key={`${draft.draftId}:${draft.version}`} method="post" action="/shop/needs/confirm" aria-labelledby={NEEDS_REVIEW_HEADING_ID} className="journey-form journey-panel flex max-w-xl flex-col gap-4 rounded-lg border border-zinc-400 p-4">
       <h2 id={NEEDS_REVIEW_HEADING_ID} tabIndex={headingTabIndex} className="text-xl font-semibold">
         {copy.reviewTitle}
       </h2>

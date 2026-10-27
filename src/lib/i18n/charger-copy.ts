@@ -1,3 +1,5 @@
+import { macBookPro2019Guide } from "@/lib/compatibility/macbook-pro-2019-guide";
+import { isChargerModelDescription } from "@/lib/compatibility/charger-intent";
 import type { ConnectorType } from "@/lib/compatibility/evidence";
 import type { BasicGap, FastVerdict, WattageVerdict } from "@/lib/compatibility/rules";
 import type { JourneyLanguage } from "./language";
@@ -334,4 +336,19 @@ const SPANISH: ChargerCopy = {
 
 export function chargerCopy(language: JourneyLanguage): ChargerCopy {
   return language === "es" ? SPANISH : ENGLISH;
+}
+
+
+/** Presentation help derived from the saved shopper words; never identifies a device or changes stored outcomes. */
+export function chargerModelHelp(text: string, language: JourneyLanguage): string | null {
+ const modelGuide=macBookPro2019Guide(text,language);
+ if(modelGuide)return modelGuide.summary;
+ const value=text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[’']/g, "");
+ if(/(?:dont know|do not know|not sure|no se|no conozco)/.test(value) && /(?:model|modelo)/.test(value))return language === "es"
+  ? "En su Mac, abra el menú Apple y Acerca de esta Mac para encontrar el modelo. No comparta el número de serie."
+  : "On your Mac, open the Apple menu and About This Mac to find the model. Do not share the serial number.";
+ if(isChargerModelDescription(text) || (/\b(?:charger|cargador)\b/.test(value) && /\bmacbook (?:pro|air)\b/.test(value) && /\b20[0-9]{2}\b/.test(value)))return language === "es"
+  ? "No pude vincular esa descripción con los modelos verificados de nuestro catálogo. No recomendaré un adaptador sin confirmar la compatibilidad."
+  : "I could not match that description to the checked models in our catalog. I will not recommend an adapter without confirmed compatibility.";
+ return null;
 }

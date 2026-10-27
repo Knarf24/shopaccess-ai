@@ -14,6 +14,8 @@ export type ChargerTextKind = "charger" | "laptop" | "mixed" | "ambiguous_adapte
 
 export interface ChargerTextReading {
   readonly kind: ChargerTextKind;
+  /** A description of an owned Mac, not a request to shop for another laptop. It identifies no model. */
+  readonly modelDescription?: true;
   /** The one exact curated identifier in the text, or null (none, several different ones, or not curated). */
   readonly exactDevice: DeviceId | null;
 }
@@ -129,6 +131,12 @@ function exactDeviceIn(text: string): DeviceId | null {
   return found.size === 1 ? [...found][0] : null;
 }
 
+export function isChargerModelDescription(text: string): boolean {
+ const value=normalize(text).trim();
+ return /^(?:my (?:laptop|computer|macbook) is|mi (?:portátil|portatil|computadora|macbook) es|i have|tengo) (?:a |un |una )?macbook(?: pro| air)?\b/.test(value)
+  && !/\b(?:buy|purchase|shopping|want|need|comprar|quiero|necesito)\b/.test(value);
+}
+
 export function classifyChargerText(text: string): ChargerTextReading {
   const normalized = normalize(text);
   const charger = hasCue(normalized, CHARGER_CUES);
@@ -146,5 +154,5 @@ export function classifyChargerText(text: string): ChargerTextReading {
         : adapter
           ? "ambiguous_adapter"
           : "none";
-  return { kind, exactDevice: exactDeviceIn(text) };
+  return { kind, exactDevice: exactDeviceIn(text), ...(isChargerModelDescription(text) ? {modelDescription:true as const} : {}) };
 }

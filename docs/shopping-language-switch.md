@@ -1,0 +1,7 @@
+# Explicit shopping language switching
+
+October 26, 2026. C11 remains in progress. User observed selecting Spanish repeatedly returning to an existing English conversation. The previous canonical redirect deliberately retained saved draft language; a new tab did not create an isolated session. The Incognito workaround did not resolve the user-reported case, so it is not recorded as passing.
+
+A different-language entry from /session/needs now presents a deliberate confirmation in the requested language. The protected POST changes the saved draft language and conversation interfaceLanguage; a needs-page button also offers the opposite language. Original messages, confirmed use/budget, permission outcomes, recommendation and expiry stay unchanged. The shopping version stays unchanged to preserve external results and recommendation provenance. Language forms bind to both draft version and prior saved language, rejecting a stale language choice. In-flight interpretation/recommendation must finish before a change. No page-load language mutation is introduced. All unknown, missing or repeated fields and stale drafts are rejected; normal admission, origin/session/CSRF and rate controls apply.
+
+This switches the shopping interface and the website voice language. It does not translate original shopper/provider text, change an existing checkout's saved language, or complete extension-language switching. No migration, provider configuration or hosted deployment is performed. Browser observation of the new behavior remains pending on the owner Mac.

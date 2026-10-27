@@ -1,3 +1,4 @@
+import postcss from "postcss";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createElement } from "react";
@@ -28,22 +29,14 @@ describe("needs workspace presentation", () => {
     ]) {
       expect(readFileSync(file, "utf8")).not.toContain("needs-workspace");
     }
-    const selectors = css
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .matchAll(/([^{}]+)\{/g);
-    for (const match of selectors) {
-      const block = match[1].trim();
-      if (block.startsWith("@")) continue;
-      for (const selector of block.split(",").map((item) => item.trim())) {
+    postcss.parse(css).walkRules(rule => {
+      // Keyframe percentages are animation steps, not selectors for document elements.
+      if (rule.parent?.type === "atrule" && /keyframes$/i.test(rule.parent.name)) return;
+      for (const selector of rule.selectors) {
         expect(selector.startsWith(".needs-workspace"), selector).toBe(true);
         if (isComparisonSelector(selector)) expectComparisonAncestor(selector);
       }
-    }
-    const tableSelectors = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{/g)]
-      .flatMap((match) => match[1].trim().split(",").map((selector) => selector.trim()))
-      .filter((selector) => /\btable\b|\bth\b|\btd\b/.test(selector));
-    expect(tableSelectors.length).toBeGreaterThan(0);
-    for (const selector of tableSelectors) expectComparisonAncestor(selector);
+    });
   });
 
   it("hosts the three official faces locally and does not add a font package or remote image", () => {

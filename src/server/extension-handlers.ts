@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { journeyCopy } from "@/lib/i18n/demo-copy";
-import { chargerCopy } from "@/lib/i18n/charger-copy";
+import { chargerCopy, chargerModelHelp } from "@/lib/i18n/charger-copy";
 import { CHARGER_LINES } from "@/lib/session/charger-clarification";
 import type { NeedsNotice } from "@/lib/i18n/needs-notice";
 import { readConversation } from "@/lib/session/conversation";
@@ -101,9 +101,14 @@ export function extensionConversationView(runtime: Runtime, sessionId: string) {
       draft && conversation && conversation.draftId === draft.draftId
         ? {
             interfaceLanguage: conversation.interfaceLanguage,
-            turns: conversation.turns.map((turn) => {
+            turns: conversation.turns.map((turn, index) => {
               if (turn.role !== "assistant") return turn;
               if (NOTICES.has(turn.text)) return { role: turn.role, text: journeyCopy(conversation.interfaceLanguage).notices[turn.text as NeedsNotice] };
+              if (turn.text === "charger_model") {
+                const previous=conversation.turns[index-1];
+                const help=chargerModelHelp(previous?.role === "shopper" ? previous.text : "",conversation.interfaceLanguage);
+                if(help)return {role:turn.role,text:help};
+              }
               if ((CHARGER_LINES as readonly string[]).includes(turn.text)) {
                 return { role: turn.role, text: chargerCopy(conversation.interfaceLanguage).conversationLines[turn.text as (typeof CHARGER_LINES)[number]] };
               }

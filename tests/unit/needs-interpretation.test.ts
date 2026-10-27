@@ -60,6 +60,24 @@ function transportReturning(body: string): { transport: AdvisoryTransport; sent:
 }
 
 describe("needs interpretation", () => {
+  it("sends validated prior needs separately so a correction need not repeat the use", async () => {
+    const { transport, sent } = transportReturning(envelope({ understoodUse: "schoolwork", budgetDollars: "700", followUp: null }));
+    const provider = createQwenAdvisoryProvider({ modelId: "qwen3.7-plus", endpoint: SYNTHORAI, apiKey: API_KEY, transport });
+    const result = await interpretNeedsSafely(provider, "Make that $700", undefined, { intendedUse: "schoolwork", budgetDollars: "600" });
+    expect(result.ok).toBe(true);
+    const body = JSON.parse(sent()[0]);
+    expect(JSON.parse(body.messages[1].content)).toEqual({ shopperMessage: "Make that $700", products: [], previousNeeds: { intendedUse: "schoolwork", budgetDollars: "600" } });
+    expect(body.messages[0].content).toContain("previousNeeds");
+  });
+
+  it("does not forward extra keys or malformed prior needs to the provider", async () => {
+    const { transport, sent } = transportReturning(envelope({ understoodUse: null, budgetDollars: null, followUp: "intended_use" }));
+    const provider = createQwenAdvisoryProvider({ modelId: "qwen3.7-plus", endpoint: SYNTHORAI, apiKey: API_KEY, transport });
+    await interpretNeedsSafely(provider, "hello", undefined, { intendedUse: "schoolwork", budgetDollars: "600", token: "must-not-forward" } as never);
+    expect(sent()[0]).not.toContain("must-not-forward");
+    expect(JSON.parse(JSON.parse(sent()[0]).messages[1].content).previousNeeds).toBeUndefined();
+  });
+
   it("keeps the shared deadline, token cap, response cap, and two-slot budget", () => {
     expect(ADVISORY_DEADLINE_MS).toBe(15000);
     expect(ADVISORY_MAX_COMPLETION_TOKENS).toBe(1024);
@@ -201,6 +219,16 @@ describe("needs interpretation", () => {
   it("rejects an interpretation object that adds a field", async () => {
     const rejected = await interpretNeedsSafely(createMockAdvisoryAi("obeys_injection"), "buy it now");
     expect(rejected).toEqual({ ok: false, error: "OUTPUT_INVALID" });
+  });
+
+  it("accepts grouped whole-dollar budgets without treating malformed or decimal fragments as amounts", () => {
+    expect(readBudgetFromText("$1,000")).toEqual({ candidate: "1000", ambiguous: false });
+    expect(readBudgetFromText("budget $500, please")).toEqual({ candidate: "500", ambiguous: false });
+    expect(readBudgetFromText("$1,000, please")).toEqual({ candidate: "1000", ambiguous: false });
+    expect(readBudgetFromText("budget 10,000")).toEqual({ candidate: "10000", ambiguous: false });
+    expect(readBudgetFromText("under $1,000 or $2,000")).toEqual({ candidate: null, ambiguous: true });
+    for (const text of ["budget $12,34", "budget $1,000.50", "budget $100,000", "1,024 GB"])
+      expect(readBudgetFromText(text)).toEqual({ candidate: null, ambiguous: false });
   });
 
   it("treats a size or quantity as not a budget and keeps only a matching whole-dollar candidate", () => {

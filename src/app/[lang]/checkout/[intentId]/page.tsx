@@ -1,3 +1,5 @@
+import { HandsFreeControls } from "@/components/mock-journey/HandsFreeControls";
+import { checkoutVoiceGuidance } from "@/lib/voice/checkout-guidance";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
@@ -225,6 +227,7 @@ async function CheckoutContentUnguarded({ params, searchParams }: PageProps) {
     <main className="guided-presentation ui-refresh" lang={language}>
       <DocumentLanguageSync language={language} />
       <div className="presentation-column presentation-column-narrow">
+      <HandsFreeControls language={language} stage="checkout" replyKey={`checkout:${view.intentId}:${view.state}:${view.challenge?.confirmationId ?? ""}:${errorCode ?? ""}:${noticeCode ?? ""}:${typeof query.voiceTurn === "string" ? query.voiceTurn.slice(0,64) : ""}`} reply={checkoutVoiceGuidance(view.state, language, sandbox, view.itemTitle ?? "", view.quote?.totalCents ?? null, Boolean(permissionRefusal), error?.text ?? null)} />
       <SkipToCurrentStep label={copy.skipToCurrentStep} targetId={skipTarget} />
       {completed ? (
         <>

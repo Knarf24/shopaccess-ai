@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cloneElement, Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderWithAppRouter as renderToStaticMarkup } from "./router-render";
 import { afterEach, expect, it, vi } from "vitest";
 import { getURLFromRedirectError } from "next/dist/client/components/redirect";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
@@ -83,4 +83,28 @@ it.each(["en", "es"] as const)("renders the eligible recommendation once in the 
  expect(after).not.toContain('class="charger-rec-layout"');
  expect(after).toContain('name="action" value="confirm_budget"');
  expect(after).not.toContain('action="/checkout/start"');
+});
+
+
+it.each(["en", "es"] as const)("passes saved charger facts and prioritized refusal to the %s voice controller", async language => {
+ const w=await world(language);
+ const findVoice=(node:ReactNode): ReactElement<Record<string,unknown>> | null => {
+  if(Array.isArray(node)){for(const child of node){const found=findVoice(child);if(found)return found;}return null;}
+  if(!isValidElement(node))return null;
+  const element=node as ReactElement<Record<string,unknown>>;
+  if(typeof element.type==="function" && element.type.name==="HandsFreeControls")return element;
+  return findVoice(element.props.children as ReactNode);
+ };
+ const tree=await NeedsPage({params:Promise.resolve({lang:language}),searchParams:Promise.resolve({})});
+ const voice=findVoice(await resolveServer(tree));expect(voice).not.toBeNull();
+ expect(voice!.props.stage).toBe("options");
+ expect(voice!.props.charger).toMatchObject({state:"confirmed",deviceId:"Mac14,2",confirmedCents:5900,purchasable:true,permitted:false});
+ expect(voice!.props.options).toEqual([expect.objectContaining({title:"Apple 70W USB-C Power Adapter",priceCents:5900})]);
+ expect(voice!.props.reply).toContain(language==="en" ? "Cable sold separately" : "El cable se vende por separado");
+ const refused=findVoice(await resolveServer(await NeedsPage({params:Promise.resolve({lang:language}),searchParams:Promise.resolve({error:"PERMISSION_REQUIRED"})})));
+ expect(refused!.props.notice).toBe(true);expect(refused!.props.reply).toContain(language==="en" ? "permission" : "permiso");
+ await w.control({action:"propose_budget",dollars:"50"});
+ const edited=findVoice(await resolveServer(await NeedsPage({params:Promise.resolve({lang:language}),searchParams:Promise.resolve({})})));
+ expect(edited!.props.stage).toBe("charger");expect(edited!.props.options).toEqual([]);
+ expect(edited!.props.reply).toContain("50.00");
 });

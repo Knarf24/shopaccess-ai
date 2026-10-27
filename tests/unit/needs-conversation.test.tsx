@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { NeedsConversation } from "@/components/mock-journey/NeedsConversation";
+import type { AdvisoryRequest } from "@/lib/providers/ai";
 import { prepareConfirmation } from "@/lib/confirmation/confirmation";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
 import { MAX_CONVERSATION_TURNS, readConversation } from "@/lib/session/conversation";
@@ -45,6 +46,47 @@ function draftFor(runtime: Runtime, sessionId: string) {
 }
 
 describe("guided conversation increment", () => {
+  it("carries a confirmed use through a budget-only reply and requires confirmation again", async () => {
+    const { runtime } = world();
+    const buyer = await shopper(runtime);
+    await handleNeedsSubmit(post("/shop/needs/submit", { lang: "en", use: "schoolwork", budget: "600", csrfToken: buyer.csrfToken }, buyer.cookie), runtime);
+    let draft = draftFor(runtime, buyer.sessionId);
+    await handleNeedsConfirm(post("/shop/needs/confirm", { lang: "en", draftId: draft.draftId, version: String(draft.version), use: "schoolwork", budget: "600", csrfToken: buyer.csrfToken }, buyer.cookie), runtime);
+    draft = draftFor(runtime, buyer.sessionId);
+    expect(draft.confirmedBudgetDollars).toBe("600");
+    let calls = 0;
+    const guided = { ...runtime, ai: { ...runtime.ai, async interpretNeeds(request: AdvisoryRequest) {
+      calls++;
+      expect(request.untrustedData.previousNeeds).toEqual({ intendedUse: "schoolwork", budgetDollars: "600" });
+      return { understoodUse: null, budgetDollars: "700", followUp: "intended_use" };
+    } } };
+    await handleNeedsSubmit(post("/shop/needs/submit", { lang: "en", draftId: draft.draftId, version: String(draft.version), shopperText: "Make that $700", csrfToken: buyer.csrfToken }, buyer.cookie), guided);
+    const changed = draftFor(runtime, buyer.sessionId);
+    expect(calls).toBe(1);
+    expect(changed.prefilledUse).toBe("schoolwork");
+    expect(changed.prefilledBudgetDollars).toBe("700");
+    expect(changed.confirmedUse).toBeNull();
+    expect(changed.confirmedBudgetDollars).toBeNull();
+    expect(changed.recommendation).toBeNull();
+    expect(changed.notice).toBe("review");
+  });
+
+  it.each(["en", "es"] as const)("starts with a message and an optional form in %s", (language) => {
+    const markup = renderToStaticMarkup(<NeedsConversation copy={journeyCopy(language)} language={language} csrfToken="test" draft={null} mode="first" />);
+    expect(markup).toMatch(/<details[^>]*class="needs-optional-fields"/);
+    expect(markup).not.toMatch(/<details[^>]*open/);
+    expect(markup).toContain(language === "es" ? "Prefiero usar el formulario" : "I prefer using the form");
+    expect(markup).toContain(language === "es" ? "Enviar mensaje" : "Send message");
+    expect(markup).toContain('name="csrfToken"');
+  });
+
+  it("opens the fallback when AI is limited or the initial request is invalid", () => {
+    for (const props of [{ aiLimited: true }, { validationAlertId: "needs-validation" }]) {
+      const markup = renderToStaticMarkup(<NeedsConversation copy={journeyCopy("en")} language="en" csrfToken="test" draft={null} mode="first" {...props} />);
+      expect(markup).toMatch(/<details[^>]*open/);
+    }
+  });
+
   it("keeps later messages in a bounded history and does not confirm them implicitly", async () => {
     const { runtime } = world();
     expect(runtime.advisory).toBe("local");
@@ -61,8 +103,10 @@ describe("guided conversation increment", () => {
       ...runtime,
       ai: {
         ...runtime.ai,
-        async interpretNeeds() {
+        async interpretNeeds(request: AdvisoryRequest) {
           interpretations += 1;
+          if (interpretations === 1) expect(request.untrustedData.previousNeeds).toBeUndefined();
+          else expect(request.untrustedData.previousNeeds).toEqual({ intendedUse: "schoolwork", budgetDollars: null });
           return responses[Math.min(interpretations, responses.length) - 1] ?? responses[0]!;
         },
       },

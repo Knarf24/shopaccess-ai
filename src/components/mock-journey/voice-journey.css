@@ -1,0 +1,48 @@
+/* The shared voice panel is a compact prelude, not a separate full-height page. */
+.guided-presentation[data-voice-journey] {
+  min-height: 0;
+  flex: 0 0 auto;
+  width: 100%;
+}
+[data-voice-journey] .voice-journey-column {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 0;
+}
+[data-voice-journey][data-voice-stage="checkout"] .voice-journey-column { max-width: 48rem; }
+[data-voice-journey] + main .presentation-column { padding-top: 1rem; }
+[data-voice-journey] button.shopaccess-voice-start {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .75rem;
+  width: 100%;
+  min-height: 3.25rem;
+  padding: .75rem 1rem;
+  border: 1px solid #1b43ad;
+  border-radius: 999px;
+  background: #2457d6;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+[data-voice-journey] button.shopaccess-voice-start:hover:not(:disabled) { background: #1b43ad; }
+[data-voice-journey] button.shopaccess-voice-start:focus-visible { outline: 3px solid #173c95; outline-offset: 4px; }
+[data-voice-journey] button.shopaccess-voice-start:disabled { opacity: .65; cursor: wait; }
+[data-voice-journey] .shopaccess-voice-orb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  border: 1px solid #ffffffb3;
+  border-radius: 50%;
+  background: #ffffff1a;
+}
+@media (max-width: 640px) {
+  [data-voice-journey] .voice-journey-column { padding: .75rem .75rem 0; }
+}

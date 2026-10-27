@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isLaptopVariant } from "@/lib/catalog/schemas";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -293,6 +294,13 @@ describe("URL-01: unsafe external URLs are rejected and never fetched by the ser
     const advisoryAdapter = join(SRC, "lib", "providers", "qwen-advisory.ts");
     const paypalTransport = join(SRC, "lib", "providers", "paypal-sandbox.ts");
     const channel3Adapter = join(SRC, "lib", "providers", "channel3-discovery.ts");
+    const handsFreeClient = join(SRC, "components", "mock-journey", "HandsFreeControls.tsx");
+    const messageFetchOnly = (text: string): boolean =>
+      text.match(/\bfetch\s*\(/g)?.length === 1 &&
+      text.includes('fetch(action, { method: "POST"') &&
+      text.includes('if (!isJourneyPost(action) || pending.current) { session.fail(); return; }') &&
+      createHash("sha256").update(readFileSync(join(SRC, "lib", "voice", "journey.ts"))).digest("hex") === "36a7abea53fd24405580dd2887e3e0a78202babc81489f653a660b9e4d529ceb" &&
+      text.includes('credentials: "same-origin", mode: "same-origin"');
     // First-party adapter exception. The filename is the Channel3 adapter, not a way around the scan.
     const channel3FetchOnlyInTransport = (text: string): boolean => {
       const start = text.indexOf("export function createFetchChannel3Transport(");
@@ -341,6 +349,10 @@ describe("URL-01: unsafe external URLs are rejected and never fetched by the ser
       const text = readFileSync(file, "utf8");
       for (const pattern of forbidden) {
         if (pattern === fetchCall && file === advisoryAdapter) continue;
+        if (pattern === fetchCall && file === handsFreeClient) {
+          expect(messageFetchOnly(text), file).toBe(true);
+          continue;
+        }
         if (pattern === fetchCall && file === paypalTransport) {
           expect(paypalFetchOnlyInTransport(text), file).toBe(true);
           continue;
@@ -357,6 +369,10 @@ describe("URL-01: unsafe external URLs are rejected and never fetched by the ser
       }
     }
     expect(fetchCall.test(readFileSync(advisoryAdapter, "utf8"))).toBe(true);
+    const handsFree = readFileSync(handsFreeClient, "utf8");
+    expect(messageFetchOnly(handsFree)).toBe(true);
+    expect(messageFetchOnly(handsFree.replace('fetch(action,', 'fetch("https://elsewhere.example/",'))).toBe(false);
+    expect(messageFetchOnly(handsFree + '\nfetch("/checkout/start");')).toBe(false);
     const paypal = readFileSync(paypalTransport, "utf8");
     expect(paypalFetchOnlyInTransport(paypal)).toBe(true);
     expect(paypalFetchOnlyInTransport(`${paypal}\nfetch("https://api-m.sandbox.paypal.com/v2/checkout/orders");`)).toBe(false);

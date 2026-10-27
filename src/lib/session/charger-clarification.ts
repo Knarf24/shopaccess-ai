@@ -111,6 +111,8 @@ export function routeChargerText(input: {
           ? { state: "candidate", deviceId: exactDevice }
           : { state: "awaiting_model", deviceId: null }
         : { state: "task_choice", deviceId: null };
+  } else if (input.reading.modelDescription && !input.structuredChange && kind !== "mixed") {
+    next = exactDevice ? { state: "candidate", deviceId: exactDevice } : { state: "awaiting_model", deviceId: null };
   } else if (existing.state === "task_choice" && kind === "charger" && !input.structuredChange) {
     next = exactDevice ? { state: "candidate", deviceId: exactDevice } : { state: "awaiting_model", deviceId: null };
   } else if (kind === "laptop" || kind === "mixed" || input.structuredChange) {
