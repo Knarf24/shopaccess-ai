@@ -24,6 +24,11 @@ import {
   type ReadinessAssessment,
   type ReadinessStatus,
 } from "@/lib/readiness/engine";
+import {
+  assessAiHardwareEvidence,
+  evidenceFromAiLaptopVariant,
+  type AiHardwareEvidenceAssessment,
+} from "@/lib/readiness/ai-hardware";
 import type { NeedsNotice } from "@/lib/i18n/needs-notice";
 import { chargerTrackFor, deleteChargerTracks, laptopOutputAllowed, type ChargerTrack } from "@/lib/session/charger-clarification";
 import { readConversation, type ConversationState } from "@/lib/session/conversation";
@@ -71,6 +76,8 @@ export interface AssessedVariant {
   readonly product: MerchantProduct;
   readonly variant: LaptopMerchantVariant;
   readonly assessment: ReadinessAssessment;
+  /** AI hardware evidence only; never a compatibility verdict or purchase permission. */
+  readonly aiHardware: AiHardwareEvidenceAssessment;
   readonly explanation: SafeExplanation | null;
   /** Whether a quote can be requested. Depends only on catalog availability, never on the readiness label or on AI output. */
   readonly quotable: boolean;
@@ -161,6 +168,11 @@ export async function buildShoppingView(runtime: Runtime, preferences: ShopperPr
         product,
         variant,
         assessment: result.value,
+        aiHardware: assessAiHardwareEvidence(
+          "unspecified_ai",
+          evidenceFromAiLaptopVariant(variant, runtime.catalog.revision, now),
+          now,
+        ),
         explanation,
         quotable: variant.availability === "IN_STOCK",
       });
@@ -584,6 +596,11 @@ function assessGuidedVariants(runtime: Runtime, preferences: ShopperPreferences)
         product,
         variant,
         assessment: result.value,
+        aiHardware: assessAiHardwareEvidence(
+          "unspecified_ai",
+          evidenceFromAiLaptopVariant(variant, runtime.catalog.revision, now),
+          now,
+        ),
         explanation: null,
         productId: product.productId,
         variantId: variant.variantId,

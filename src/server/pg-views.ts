@@ -3,6 +3,10 @@ import { laptopProducts, type MerchantCatalog } from "@/lib/catalog/schemas";
 import type { ConfirmationChallenge } from "@/lib/confirmation/confirmation";
 import { UnexpectedRowError, type CheckoutRead, type EffectiveStatus, type OwnerCheckout, type StoredState } from "@/lib/pg/checkout-service";
 import { explainAssessmentSafely, suggestProductsSafely } from "@/lib/providers/ai";
+import {
+  assessAiHardwareEvidence,
+  evidenceFromAiLaptopVariant,
+} from "@/lib/readiness/ai-hardware";
 import { assessReadiness, evidenceFromMerchantVariant, type EvidenceItem } from "@/lib/readiness/engine";
 import { ID_PATTERNS } from "@/lib/shared/ids";
 import { resolvePgSession, type PgRequestContext, type PgSessionState } from "./pg-request-guard";
@@ -90,7 +94,18 @@ export async function buildPgShoppingView(services: PgServices, preferences: Sho
       );
       if (!result.ok) continue;
       const explained = await explainAssessmentSafely(services.ai, result.value, "Explain this assessment in plain language.");
-      variants.push({ product, variant, assessment: result.value, explanation: explained.ok ? explained.value : null, quotable: variant.availability === "IN_STOCK" });
+      variants.push({
+        product,
+        variant,
+        assessment: result.value,
+        aiHardware: assessAiHardwareEvidence(
+          "unspecified_ai",
+          evidenceFromAiLaptopVariant(variant, catalog.revision, now),
+          now,
+        ),
+        explanation: explained.ok ? explained.value : null,
+        quotable: variant.availability === "IN_STOCK",
+      });
     }
   }
   variants.sort((a, b) => STATUS_ORDER[a.assessment.status] - STATUS_ORDER[b.assessment.status] || a.variant.unitAmountCents - b.variant.unitAmountCents);
