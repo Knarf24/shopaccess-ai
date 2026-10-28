@@ -154,7 +154,7 @@ function HandsFreeSession({language,reply,replyKey,stage="needs",options=NO_OPTI
         if(page.stage==="options") {
           const chosen=selectVoiceOption(text,page.options);
           if(chosen) {selection.current=chosen;session.respond(language==="es" ? `Seleccionó ${chosen.title}, a ${(chosen.priceCents/100).toFixed(2)} dólares. Diga revisar mi selección. No se ha autorizado el pago.` : `You selected ${chosen.title}, at ${(chosen.priceCents/100).toFixed(2)} dollars. Say review my selection. No payment has been authorized.`);return;}
-          if(/^(?:choose|select|i choose|i want|(?:yo )?(?:elijo|selecciono|quiero)|elegir|seleccionar)\b/.test(command)) {session.respond(language==="es" ? "Indique una opción por número o el nombre completo del producto." : "Please choose an option by number or the full product name.");return;}
+          if(/^(?:(?:choose|select|i choose|i want)\s+(?:the\s+)?option\b|(?:yo )?(?:elijo|selecciono|quiero|elegir|seleccionar)\s+(?:la\s+)?opcion\b)/.test(command)) {session.respond(language==="es" ? "Indique una opción por número o el nombre completo del producto." : "Please choose an option by number or the full product name.");return;}
           if(/^(?:review my selections?|review my purchase|revisar mi seleccion|revisar mi compra)$/.test(command)) {
             const chosen=selection.current;
             const current=chosen && page.options.find(o=>o.productId===chosen.productId && o.variantId===chosen.variantId && o.priceCents===chosen.priceCents);
