@@ -196,6 +196,7 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
       <DocumentLanguageSync language={language} />
       <SkipToCurrentStep copy={copy} targetId={currentTargetId} />
       {!expiredDraft ? <HandsFreeControls language={language} reply={spokenReply} notice={Boolean(alert || permissionRefusal)} replyKey={voiceReplyKey} stage={voiceCharger ? purchaseTrack && !adapterInProgress ? "options" : "charger" : suggestionsRendered ? "options" : "needs"} charger={voiceCharger} options={voiceOptions} /> : null}
+      <header className="needs-unified-header">
       {journey.draft ? <NeedsLanguageChoice language={language} target={language === "en" ? "es" : "en"} csrfToken={session.csrfToken} draft={journey.draft} busy={journey.draft.interpretationPending || journey.draft.recommendationClaim === "pending"} /> : null}
       {!purchaseTrack ? <h1
         id={currentTarget === "heading" ? NEEDS_PAGE_HEADING_ID : undefined}
@@ -205,6 +206,7 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
         {copy.pageTitle}
       </h1> : null}
       {!purchaseTrack && currentStep ? <GuidedProgress copy={copy} current={currentStep} /> : null}
+      </header>
       {expiredDraft ? (
         <>
           <p id={NEEDS_EXPIRED_ALERT_ID} role="alert" tabIndex={-1}>
@@ -280,6 +282,8 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           ) : null}
         </>
       ) : null}
+      <div className="needs-shopping-columns">
+        <div className="needs-shopping-left">
       {showFirstAsk ? (
         <NeedsConversation
           copy={copy}
@@ -338,9 +342,9 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           </div>
         </>
       ) : null}
-      {!chargerOpen && journey.draft && confirmedUse && confirmedBudgetDollars ? (
-        <>
-          <NeedsConversation
+        {!chargerOpen && journey.draft && confirmedUse && confirmedBudgetDollars ? (
+          <>
+            <NeedsConversation
             copy={copy}
             language={language}
             csrfToken={session.csrfToken}
@@ -353,9 +357,38 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
             aiLimited={aiLimited}
             secondary
           />
-          <a className="needs-results-jump" href="#guided-advisory-heading">
+            <a className="needs-results-jump" href="#guided-advisory-heading">
             {copy.resultsJump(eligibleLines.length)}
           </a>
+          </>
+        ) : null}
+<aside className="needs-side">
+        <p>
+          <Link href={`/${language}/shop/permissions`} prefetch={false} className="underline">
+            {permissionCopy(language).managePermissions}
+          </Link>
+        </p>
+        {!chargerOpen ? <details className="needs-handoff">
+          <summary><Icon name="plug" />{language === "es" ? "¿Busca un cargador?" : "Looking for a charger?"}</summary>
+          <h2 id="needs-handoff-heading">
+            <Link href={`/${language}/shop/chargers`} prefetch={false} className="underline">
+              {chargerCopy(language).needsLink}
+            </Link>
+          </h2>
+          <ChargerDeviceHandoff language={language} />
+        </details> : null}
+        <p>
+          <Link href="/" prefetch={false} className="underline">
+            {copy.navigationHome}
+          </Link>
+        </p>
+      </aside>
+        </div>
+        <div className="needs-shopping-right">
+      {!chargerOpen && journey.draft && confirmedUse && confirmedBudgetDollars ? (
+        <>
+
+
           <div className="needs-results-panel">
           <p className="needs-confirmed-brief">
             {copy.confirmedBrief(copy.uses[confirmedUse], `$${Number(confirmedBudgetDollars).toLocaleString("en-US")}`)}
@@ -394,6 +427,9 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           </div>
         </>
       ) : null}
+
+        </div>
+      </div>
       {pairedAccessShown ? (
         <PairedAccess
           language={language}
@@ -402,27 +438,7 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
           revokedLabel={revokedLabel}
         />
       ) : null}
-      <aside className="needs-side">
-        <p>
-          <Link href={`/${language}/shop/permissions`} prefetch={false} className="underline">
-            {permissionCopy(language).managePermissions}
-          </Link>
-        </p>
-        {!chargerOpen ? <details className="needs-handoff">
-          <summary><Icon name="plug" />{language === "es" ? "¿Busca un cargador?" : "Looking for a charger?"}</summary>
-          <h2 id="needs-handoff-heading">
-            <Link href={`/${language}/shop/chargers`} prefetch={false} className="underline">
-              {chargerCopy(language).needsLink}
-            </Link>
-          </h2>
-          <ChargerDeviceHandoff language={language} />
-        </details> : null}
-        <p>
-          <Link href="/" prefetch={false} className="underline">
-            {copy.navigationHome}
-          </Link>
-        </p>
-      </aside>
+
     </div>
   );
 }
