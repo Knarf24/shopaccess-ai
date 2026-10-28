@@ -1,3 +1,4 @@
+import { workloadGuidance } from "@/lib/readiness/workload-guidance";
 import type { ReactNode } from "react";
 import type { JourneyCopy } from "@/lib/i18n/demo-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
@@ -30,6 +31,7 @@ const CHARGER_LINES = ["charger_task_choice", "charger_model", "charger_review",
 
 export function assistantText(text: string, copy: JourneyCopy, language: JourneyLanguage, previousShopperText = ""): string {
   if(text === "charger_model") { const help=chargerModelHelp(previousShopperText,language); if(help)return help; }
+  if (text === "review") { const guidance = workloadGuidance(previousShopperText, language); if (guidance) return guidance; }
   return isNeedsNotice(text) ? copy.notices[text]
     : (CHARGER_LINES as readonly string[]).includes(text)
       ? chargerCopy(language).conversationLines[text as (typeof CHARGER_LINES)[number]]

@@ -385,17 +385,65 @@ function normalizeSpanishBudgetWords(text: string): { text: string; ambiguous: b
  return {text:converted,ambiguous};
 }
 
+const ENGLISH_SMALL: Readonly<Record<string, number>> = {
+ zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,
+ twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90,
+};
+function englishUnderHundred(words: readonly string[]): number | null {
+ if(words.length===1)return ENGLISH_SMALL[words[0]] ?? null;
+ if(words.length===2){const tens=ENGLISH_SMALL[words[0]],unit=ENGLISH_SMALL[words[1]];if(tens>=20 && tens%10===0 && unit>=1 && unit<=9)return tens+unit;}
+ return null;
+}
+function englishUnderThousand(words: readonly string[]): number | null {
+ if(!words.length)return 0;
+ if(words[1]!=="hundred")return englishUnderHundred(words);
+ const hundreds=ENGLISH_SMALL[words[0]];
+ if(!(hundreds>=1 && hundreds<=9))return null;
+ if(words.length===2)return hundreds*100;
+ const rest=englishUnderHundred(words.slice(words[2]==="and" ? 3 : 2));
+ return rest!==null && rest>0 ? hundreds*100+rest : null;
+}
+function englishNumber(words: readonly string[]): number | null {
+ const at=words.indexOf("thousand");
+ if(at===-1)return englishUnderThousand(words);
+ if(words.lastIndexOf("thousand")!==at)return null;
+ const thousands=englishUnderHundred(words.slice(0,at));
+ const suffix=words.slice(at+1);
+ const rest=englishUnderThousand(suffix[0]==="and" ? suffix.slice(1) : suffix);
+ if(suffix.length===1 && suffix[0]==="and")return null;
+ return thousands!==null && thousands>0 && rest!==null ? thousands*1000+rest : null;
+}
+function normalizeEnglishBudgetWords(text: string): { text: string; ambiguous: boolean } {
+ const tokens=[...Object.keys(ENGLISH_SMALL),"hundred","thousand","million","point","minus","negative"];
+ const word=`(?:${tokens.join("|")})`;
+ const pattern=new RegExp(`\\b${word}(?:[\\s-]+(?:${word}|and))*\\b`,"gi");
+ let ambiguous=false;
+ const converted=text.replace(pattern,(phrase:string,at:number)=>{
+  const left=text.slice(Math.max(0,at-48),at),right=text.slice(at+phrase.length,at+phrase.length+48);
+  const budgetDistance=cueDistance(left,right,[...BUDGET_CUES,"dollars"]),specDistance=cueDistance(left,right,SPEC_CUES);
+  if(budgetDistance===null || (specDistance!==null && specDistance<budgetDistance))return phrase;
+  const value=englishNumber(phrase.toLowerCase().split(/[\s-]+/));
+  if(value!==null && value<10)return phrase;
+  if(value===null || value>99999 || /[\d.,-]\s*$/.test(left) || /^\s*(?:\d|[.,]\s*(?:\d|\w))/.test(right)){ambiguous=true;return phrase;}
+  return String(value);
+ });
+ return {text:converted,ambiguous};
+}
+
 /** A clean budget is a 2–5 digit whole-dollar amount with a budget cue closer than any size or quantity cue. */
 export function readBudgetFromText(text: string): BudgetReading {
-  const spanish = normalizeSpanishBudgetWords(text);
+  const english = normalizeEnglishBudgetWords(text);
+  const spanish = normalizeSpanishBudgetWords(english.text);
   text = spanish.text;
+  // A sentence-ending period is punctuation; a decimal point before digits remains invalid.
+  text = text.replace(/(?<=\d)\.(?=\s|$)/g, " ");
   // A comma before prose/end is punctuation, not part of a numeric amount.
   text = text.replace(/(?<=\d),(?=\s+[a-záéíóúñ]|$)/gi, " ");
   // Normalize only complete US-style thousands groups; never split malformed/decimal amounts.
   text = text.replace(/(?<![\d.,])([1-9][0-9]{0,2}(?:,[0-9]{3})+)(?![\d.,])/g, value => value.replaceAll(",", ""));
   const pattern = /(^|[^\d.,])(\$)?\s*([1-9][0-9]{1,4})(?![\d.,])/g;
   const candidates = new Set<string>();
-  let ambiguous = spanish.ambiguous;
+  let ambiguous = english.ambiguous || spanish.ambiguous;
   for (const match of text.matchAll(pattern)) {
     const value = match[3];
     if (!value || match.index === undefined) continue;

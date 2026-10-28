@@ -1,3 +1,4 @@
+import { workloadGuidance } from "@/lib/readiness/workload-guidance";
 import { macBookPro2019Guide } from "@/lib/compatibility/macbook-pro-2019-guide";
 import { voiceOptionsSummary, chargerVoiceGuidance, type VoiceChargerContext } from "@/lib/voice/journey";
 import { ChargerRecommendationLayout } from "@/components/mock-journey/ChargerRecommendationLayout";
@@ -178,7 +179,8 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
     purchasable: purchaseTrack !== null && !adapterInProgress, permitted: adapterPermitted,
   } : undefined;
   const voiceOptions = purchaseTrack && !adapterInProgress ? [{productId:CHARGER_PRODUCT_ID,variantId:CHARGER_VARIANT_ID,title:"Apple 70W USB-C Power Adapter",priceCents:5900,description:language === "es" ? "Cable vendido por separado." : "Cable sold separately.",recommended:true}] : chargerOpen ? [] : eligibleLines.filter(line => line.quotable).map(line => ({ productId: line.productId, variantId: line.variantId, title: line.title, priceCents: line.unitAmountCents, description: line.label, recommended: suggestedVariantIds.includes(line.variantId) }));
-  const spokenReply = alert ?? (permissionRefusal ? language === "es" ? "Esta compra necesita un permiso válido. Diga abrir permisos." : "This purchase needs a valid permission. Say open permissions." : voiceCharger ? chargerVoiceGuidance(voiceCharger,language) : showConfirm
+  const workloadReply = !chargerOpen && lastAssistant?.text === "review" ? workloadGuidance(lastShopper?.text ?? "", language) : null;
+  const spokenReply = alert ?? (permissionRefusal ? language === "es" ? "Esta compra necesita un permiso válido. Diga abrir permisos." : "This purchase needs a valid permission. Say open permissions." : voiceCharger ? chargerVoiceGuidance(voiceCharger,language) : workloadReply ?? (showConfirm
     ? language === "es"
       ? `Entendí: ${copy.uses[journey.draft!.prefilledUse!]}, con un presupuesto de ${journey.draft!.prefilledBudgetDollars} dólares. Revise sus opciones. Diga confirmo mis opciones o use el botón de la página.`
       : `I understood: ${copy.uses[journey.draft!.prefilledUse!]}, with a budget of ${journey.draft!.prefilledBudgetDollars} dollars. Check your choices. Say confirm my choices or use the button on the page.`
@@ -186,7 +188,7 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
       ? (permissionRefusal
         ? language === "es" ? "Esta compra necesita un permiso válido. Diga abrir permisos." : "This purchase needs a valid permission. Say open permissions."
         : voiceOptionsSummary(voiceOptions, language))
-      : lastAssistant ? assistantText(lastAssistant.text, copy, language) : copy.prompt);
+      : lastAssistant ? assistantText(lastAssistant.text, copy, language) : copy.prompt));
   const voiceReplyKey = [journey.draft?.draftId ?? "new", journey.draft?.version ?? 0, confirmedUse, confirmedBudgetDollars, language, notice, permissionRefusal ?? "", chargerTrack?.revision ?? 0, chargerTrack?.state ?? "", typeof query.voiceTurn === "string" ? query.voiceTurn.slice(0, 64) : ""].join(":");
 
   return (
