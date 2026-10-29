@@ -1,3 +1,4 @@
+import { voiceAiOption } from "@/lib/voice/ai-caveat";
 import { workloadGuidance } from "@/lib/readiness/workload-guidance";
 import { macBookPro2019Guide } from "@/lib/compatibility/macbook-pro-2019-guide";
 import { voiceOptionsSummary, chargerVoiceGuidance, type VoiceChargerContext } from "@/lib/voice/journey";
@@ -178,7 +179,7 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
     proposedCents: chargerTrack.budget?.proposedCents ?? null, confirmedCents: chargerTrack.budget?.confirmedCents ?? null,
     purchasable: purchaseTrack !== null && !adapterInProgress, permitted: adapterPermitted,
   } : undefined;
-  const voiceOptions = purchaseTrack && !adapterInProgress ? [{productId:CHARGER_PRODUCT_ID,variantId:CHARGER_VARIANT_ID,title:"Apple 70W USB-C Power Adapter",priceCents:5900,description:language === "es" ? "Cable vendido por separado." : "Cable sold separately.",recommended:true}] : chargerOpen ? [] : eligibleLines.filter(line => line.quotable).map(line => ({ productId: line.productId, variantId: line.variantId, title: line.title, priceCents: line.unitAmountCents, description: line.label, recommended: suggestedVariantIds.includes(line.variantId) }));
+  const voiceOptions = purchaseTrack && !adapterInProgress ? [{productId:CHARGER_PRODUCT_ID,variantId:CHARGER_VARIANT_ID,title:"Apple 70W USB-C Power Adapter",priceCents:5900,description:language === "es" ? "Cable vendido por separado." : "Cable sold separately.",recommended:true}] : chargerOpen ? [] : eligibleLines.filter(line => line.quotable).map(line => ({ productId: line.productId, variantId: line.variantId, title: line.title, priceCents: line.unitAmountCents, ...voiceAiOption(line, suggestedVariantIds.includes(line.variantId), language) }));
   const workloadReply = !chargerOpen && lastAssistant?.text === "review" ? workloadGuidance(lastShopper?.text ?? "", language) : null;
   const spokenReply = alert ?? (permissionRefusal ? language === "es" ? "Esta compra necesita un permiso válido. Diga abrir permisos." : "This purchase needs a valid permission. Say open permissions." : voiceCharger ? chargerVoiceGuidance(voiceCharger,language) : workloadReply ?? (showConfirm
     ? language === "es"

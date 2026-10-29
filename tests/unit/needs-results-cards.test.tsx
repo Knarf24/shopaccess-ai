@@ -1,3 +1,4 @@
+import { assessAiHardwareEvidence } from "@/lib/readiness/ai-hardware";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { cloneElement, Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
@@ -87,6 +88,7 @@ async function briefIn(lang: "en" | "es", budget: string, confirm: boolean) {
 }
 
 const line = (patch: Partial<GuidedCatalogLine> = {}): GuidedCatalogLine => ({
+  aiHardware: assessAiHardwareEvidence("unspecified_ai", [], new Date("2026-10-22T12:00:00.000Z")),
   productId: "dmp_aspirego15",
   variantId: "dmv_aspirego15",
   title: "Acer Aspire Go 15",
@@ -173,9 +175,37 @@ describe("compact laptop result cards", () => {
     const card = item(markup, "dmv_aspirego15");
     expect(card).toContain(copy.meetsAllChecks);
     expect(card).not.toContain('class="result-tradeoff"');
-    expect(markup).not.toMatch(/best fit|rank|checks supported|check unknown|#1|compatib|recommended pick|tax and shipping included/i);
+    expect(markup).not.toMatch(/best fit|rank|checks supported|check unknown|#1|recommended pick|tax and shipping included/i);
+    expect(card).toContain("AI compatibility: not verified");
+    expect(card).toContain('data-ai-compatibility="not_assessed"');
+    expect(card).toContain("VRAM: not provided");
+    expect(card).toContain("General readiness does not establish that it can run this workload.");
+    expect(card).not.toMatch(/AI compatibility:\s*(?:verified|confirmed|supported|guaranteed)\b/i);
     // Only the server price, the difference, the confirmed budget and the existing $0.00 demonstration line appear.
     expect(amounts(card)).toEqual(["$0.00", "$20.01", "$579.99", "$600"].sort());
+  });
+
+  it("does not confuse general readiness with verified local AI training compatibility", () => {
+    const trainingEvidence = assessAiHardwareEvidence(
+      "local_training",
+      [],
+      new Date("2026-10-22T12:00:00.000Z"),
+    );
+
+    const card = item(
+      catalog("en", [line({ status: "READY", aiHardware: trainingEvidence })]),
+      "dmv_aspirego15",
+    );
+
+    expect(card).toContain('data-status="READY"');
+    expect(card).toContain('data-ai-workload="local_training"');
+    expect(card).toContain('data-ai-compatibility="not_assessed"');
+    expect(card).toContain("AI compatibility: not verified");
+    expect(card).toContain("local AI training");
+    expect(card).toContain("RAM: not provided");
+    expect(card).toContain("VRAM: not provided");
+    expect(card).toContain("does not authorize a purchase");
+    expect(card).not.toMatch(/AI compatibility:\s*(?:verified|confirmed|supported|guaranteed)\b/i);
   });
 
   it("states the difference at and over the budget, and keeps an excluded card free of purchase controls", () => {
@@ -209,6 +239,9 @@ describe("compact laptop result cards", () => {
     expect(card).toContain('<span lang="en">Acer Aspire Go 15</span>');
     expect(card).toContain('<span lang="en">8 GB LPDDR5, 256 GB PCIe NVMe SSD</span>');
     expect(card).toContain('name="lang" value="es"');
+    expect(card).toContain("Compatibilidad con IA: no verificada");
+    expect(card).toContain("VRAM: no disponible");
+    expect(card).toContain('data-ai-compatibility="not_assessed"');
     expect(copy.budgetUnder("$1", "$2")).not.toBe(journeyCopy("en").budgetUnder("$1", "$2"));
   });
 

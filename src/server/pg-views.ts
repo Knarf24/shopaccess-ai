@@ -103,6 +103,8 @@ export async function buildPgShoppingView(services: PgServices, preferences: Sho
           evidenceFromAiLaptopVariant(variant, catalog.revision, now),
           now,
         ),
+        // The database-backed page has no conversation, so no AI workload: AI disclosures are left out.
+        aiContext: false,
         explanation: explained.ok ? explained.value : null,
         quotable: variant.availability === "IN_STOCK",
       });

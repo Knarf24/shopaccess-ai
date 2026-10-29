@@ -6,6 +6,11 @@ import { formatAdvisoryFailureDiagnostic, interpretNeedsSafely } from "@/lib/pro
 import { withAdvisorySession } from "./advisory-limits";
 import { INTENDED_USES, type IntendedUse } from "@/lib/readiness/engine";
 import { ShopperMessageSchema } from "@/lib/security/limits";
+import { legacyWorkloadRecord } from "@/lib/readiness/conversation-workload";
+import { resolveDurableConversationWorkload } from "@/lib/readiness/durable-conversation-workload";
+import { updateWorkloadFromShopperTurn } from "@/lib/readiness/workload-record-update";
+import { setWorkloadRecord, workloadRecordForDraft } from "@/lib/session/workload-state";
+import { recordAcceptedLaptopWorkload } from "@/lib/readiness/accepted-workload-turn";
 import { classifyChargerText } from "@/lib/compatibility/charger-intent";
 import {
   applyChargerControl,
@@ -412,6 +417,11 @@ function rememberNeedsTurn(store: object, sessionId: string, draft: NeedsDraft, 
     shopperText,
     assistantNotice: draft.notice,
   });
+  if (shopperText.trim()) {
+    recordAcceptedLaptopWorkload(
+      store, sessionId, draft.draftId, draft.version, shopperText,
+    );
+  }
 }
 
 function rememberChargerTurn(store: object, sessionId: string, draft: NeedsDraft, shopperText: string, assistantLine: ChargerLine): void {
@@ -423,7 +433,7 @@ function rememberChargerTurn(store: object, sessionId: string, draft: NeedsDraft
   });
 }
 
-function rememberLaptopResult(store: object, sessionId: string, draft: NeedsDraft, shopperText: string): void {
+function rememberLaptopResult(store: object, sessionId: string, draft: NeedsDraft, shopperText: string, workloadAlreadyHandled = false): void {
   const track = chargerTrackFor(store, sessionId, draft.draftId);
   const assistantLine = assistantLineAfterLaptopResult(track, draft.notice);
   recordConversationTurn(store, sessionId, {
@@ -432,6 +442,11 @@ function rememberLaptopResult(store: object, sessionId: string, draft: NeedsDraf
     shopperText: laptopOutputAllowed(track) ? shopperText : "",
     assistantNotice: assistantLine,
   });
+  if (!workloadAlreadyHandled && laptopOutputAllowed(track) && shopperText.trim()) {
+    recordAcceptedLaptopWorkload(
+      store, sessionId, draft.draftId, draft.version, shopperText,
+    );
+  }
 }
 
 function controlChange<T extends string>(posted: T | null, current: string | null): T | null {
@@ -524,7 +539,7 @@ export async function continueNeedsFollowUp(
   const merged = mergeFollowUpCandidate(claimed.draft, settled);
   const confirmedUse = claimed.draft.confirmedUse;
   const confirmedBudget = claimed.draft.confirmedBudgetDollars;
-  const withdrawConfirmation = Boolean(
+  const withdrawConfirmationForNeeds = Boolean(
     confirmedUse &&
       confirmedBudget &&
       merged.notice === "review" &&
@@ -534,9 +549,52 @@ export async function continueNeedsFollowUp(
   );
   // One durable decision: the follow-up result, any confirmation withdrawal, and the conversation line.
   await runtime.durable.change((host) => {
-    const written = commitFollowUp(host, sessionId, claimed.draft.draftId, claimed.draft.version, { ...merged, withdrawConfirmation }, runtime.clock().getTime());
+    const conversation = conversationStateOf(host).conversations.get(sessionId) ?? null;
+      const previous = conversation?.draftId === claimed.draft.draftId ? conversation : null;
+      const previousWorkload = resolveDurableConversationWorkload(
+        host,
+        sessionId,
+        claimed.draft.draftId,
+        claimed.draft.version,
+        previous,
+      );
+      const savedWorkload = workloadRecordForDraft(
+        host,
+        sessionId,
+        claimed.draft.draftId,
+        claimed.draft.version,
+      );
+      // Recover legacy context only when no matching durable record exists, and only from what the retained
+      // conversation actually states: no stated workload recovers no record.
+      const workloadBeforeTurn =
+        savedWorkload ??
+        legacyWorkloadRecord(previous, sessionId, claimed.draft.draftId, claimed.draft.version);
+      const updatedWorkload = updateWorkloadFromShopperTurn(
+        workloadBeforeTurn,
+        claimedText,
+        sessionId,
+        claimed.draft.draftId,
+        claimed.draft.version,
+      );
+      // A workload change counts, and is persisted, only while laptop output is allowed. An open charger track
+      // (for example opened while the interpreter ran) means this laptop turn changes no workload.
+      const workloadWritable = laptopOutputAllowed(chargerTrackFor(host, sessionId, claimed.draft.draftId));
+      const nextWorkload = workloadWritable ? updatedWorkload?.kind ?? previousWorkload : previousWorkload;
+      const withdrawConfirmation =
+        withdrawConfirmationForNeeds ||
+        Boolean(
+          confirmedUse &&
+          confirmedBudget &&
+          previousWorkload !== nextWorkload,
+        );
+      const written = commitFollowUp(host, sessionId, claimed.draft.draftId, claimed.draft.version, { ...merged, withdrawConfirmation }, runtime.clock().getTime());
     if (written && withdrawConfirmation) invalidatePurchaseSelections(host, sessionId);
-    if (written) rememberLaptopResult(host, sessionId, written, claimedText);
+    if (written) {
+      if (workloadWritable && updatedWorkload) {
+        setWorkloadRecord(host, updatedWorkload);
+      }
+      rememberLaptopResult(host, sessionId, written, claimedText, true);
+    }
   });
   return { kind: "done", failure: model === "malformed" || model === "unavailable" ? model : null, aiLimited: !interpreted.ok && interpreted.error === "AI_LIMITED" };
 }

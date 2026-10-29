@@ -152,6 +152,38 @@ describe("session start route", () => {
 });
 
 describe("recommendations view", () => {
+
+  it("assesses cloud AI requirements without claiming compatibility", async () => {
+    const { runtime } = world();
+    const preferences = parsePreferences("programming", "900")!;
+    const view = await buildShoppingView(runtime, preferences, "cloud-ai-test", "cloud_ai");
+
+    expect(view.variants.length).toBeGreaterThan(0);
+    for (const entry of view.variants) {
+      expect(entry.aiHardware.workload).toBe("cloud_ai");
+      expect(entry.aiHardware.facts.vramGb.quality).toBe("MISSING");
+      expect(entry.aiHardware.compatibility).toBe("not_assessed");
+      expect(entry.aiHardware.authorizesPurchase).toBe(false);
+    }
+  });
+
+  it("assesses local training requirements without granting purchase permission", async () => {
+    const { runtime } = world();
+    const preferences = parsePreferences("programming", "900")!;
+    const view = await buildShoppingView(runtime, preferences, "local-training-test", "local_training");
+
+    expect(view.variants.length).toBeGreaterThan(0);
+    for (const entry of view.variants) {
+      expect(entry.aiHardware.workload).toBe("local_training");
+      expect(entry.aiHardware.facts.vramGb.quality).toBe("MISSING");
+      expect(entry.aiHardware.facts.vramGb.value).toBeNull();
+      expect(entry.aiHardware.compatibility).toBe("not_assessed");
+      expect(entry.aiHardware.authorizesPurchase).toBe(false);
+      expect(entry.assessment.authorizesPurchase).toBe(false);
+    }
+  });
+
+
   it("includes catalog-backed AI hardware evidence without changing purchase behavior", async () => {
     const { runtime } = world();
     const preferences = parsePreferences("programming", "900")!;

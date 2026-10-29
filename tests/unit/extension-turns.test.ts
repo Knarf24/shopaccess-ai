@@ -9,6 +9,7 @@ import { parseTrustedOrigins } from "@/lib/session/request-guard";
 import { recoverStateGate } from "@/lib/session/snapshot-state";
 import type { CommitResult, FoundationStore, PublishedBody } from "@/lib/session/snapshot-store";
 import { needsDraftsFor } from "@/lib/session/store";
+import { replaceWorkloadRecords, workloadRecordForDraft } from "@/lib/session/workload-state";
 import { handleExtensionConversation, handleExtensionPairingExchange, handleExtensionPairingStart, handleExtensionTurn } from "@/server/extension-handlers";
 import { handleNeedsConfirm, handleNeedsSession, handleNeedsSubmit } from "@/server/handlers";
 import { withMockRuntime } from "@/server/respond";
@@ -229,6 +230,378 @@ describe("panel turns on the shared conversation", () => {
     expect(response.status).toBe(200);
     expect(draft().confirmedUse).toBeNull();
     expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(false);
+  });
+
+  it("withdraws a confirmed cloud AI recommendation when the workload changes to local training", async () => {
+    const runtime = memoryRuntime();
+    const { buyer, draft } = await setUp(runtime, "900");
+
+    const initial = draft();
+    vi.spyOn(runtime.ai, "interpretNeeds").mockResolvedValue({
+      understoodUse: "programming",
+      budgetDollars: "900",
+      followUp: null,
+    });
+
+    await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: initial.draftId,
+      version: String(initial.version),
+      shopperText: "I will use cloud AI",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    const cloudDraft = draft();
+    await handleNeedsConfirm(site("/shop/needs/confirm", {
+      lang: "en",
+      draftId: cloudDraft.draftId,
+      version: String(cloudDraft.version),
+      use: "programming",
+      budget: "900",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(draft().confirmedUse).toBe("programming");
+    expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(true);
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, cloudDraft.draftId, cloudDraft.version,
+    )?.kind).toBe("cloud_ai");
+
+    const confirmed = draft();
+    await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: confirmed.draftId,
+      version: String(confirmed.version),
+      shopperText: "Actually I want to train AI models locally on my laptop",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(draft().confirmedUse).toBeNull();
+    expect(draft().confirmedBudgetDollars).toBeNull();
+    expect(draft().recommendation).toBeNull();
+    expect(draft().recommendationClaim).toBeNull();
+    expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(false);
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, draft().draftId, draft().version,
+    )?.kind).toBe("local_training");
+  });
+
+  it("records an extension-originated workload change and withdraws confirmation", async () => {
+    const runtime = memoryRuntime();
+    const { buyer, bearer, draft } = await setUp(runtime, "900");
+
+    vi.spyOn(runtime.ai, "interpretNeeds").mockResolvedValue({
+      understoodUse: "programming",
+      budgetDollars: "900",
+      followUp: null,
+    });
+
+    const initial = draft();
+    const cloud = await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: initial.draftId,
+      version: String(initial.version),
+      shopperText: "I will use cloud AI",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(cloud.status).toBe(303);
+
+    const cloudDraft = draft();
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, cloudDraft.draftId, cloudDraft.version,
+    )?.kind).toBe("cloud_ai");
+
+    await handleNeedsConfirm(site("/shop/needs/confirm", {
+      lang: "en",
+      draftId: cloudDraft.draftId,
+      version: String(cloudDraft.version),
+      use: "programming",
+      budget: "900",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(draft().confirmedUse).toBe("programming");
+    expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(true);
+
+    const confirmed = draft();
+    const response = await handleExtensionTurn(turn(
+      confirmed.draftId,
+      confirmed.version,
+      "Actually I want to train AI models locally on my laptop",
+      "req-workload-0001",
+      bearer,
+    ), runtime);
+
+    expect(response.status).toBe(200);
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, draft().draftId, draft().version,
+    )?.kind).toBe("local_training");
+    expect(draft().confirmedUse).toBeNull();
+    expect(draft().confirmedBudgetDollars).toBeNull();
+    expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(false);
+  });
+
+  it("preserves legacy local-training context after a short confirmed follow-up", async () => {
+    const runtime = memoryRuntime();
+    const { buyer, draft } = await setUp(runtime, "900");
+
+    vi.spyOn(runtime.ai, "interpretNeeds").mockResolvedValue({
+      understoodUse: "programming",
+      budgetDollars: "900",
+      followUp: null,
+    });
+
+    const initial = draft();
+    const submitted = await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: initial.draftId,
+      version: String(initial.version),
+      shopperText: "I want to train AI models locally on my laptop",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(submitted.status).toBe(303);
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, draft().draftId, draft().version,
+    )?.kind).toBe("local_training");
+
+    const beforeConfirm = draft();
+    await handleNeedsConfirm(site("/shop/needs/confirm", {
+      lang: "en",
+      draftId: beforeConfirm.draftId,
+      version: String(beforeConfirm.version),
+      use: "programming",
+      budget: "900",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(draft().confirmedUse).toBe("programming");
+    expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(true);
+
+    replaceWorkloadRecords(runtime.store, new Map());
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, draft().draftId, draft().version,
+    )).toBeNull();
+    expect(readConversation(runtime.store, buyer.sessionId)?.turns.some(
+      (turn) => turn.role === "shopper" &&
+        turn.text.includes("train AI models locally"),
+    )).toBe(true);
+
+    const confirmed = draft();
+    const response = await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: confirmed.draftId,
+      version: String(confirmed.version),
+      shopperText: "On my laptop",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(response.status).toBe(303);
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, draft().draftId, draft().version,
+    )?.kind).toBe("local_training");
+    expect(draft().confirmedUse).toBe("programming");
+    expect(draft().confirmedBudgetDollars).toBe("900");
+    expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(true);
+  });
+
+  it("preserves a confirmed workload after an unrelated follow-up", async () => {
+    const runtime = memoryRuntime();
+    const { buyer, draft } = await setUp(runtime, "900");
+
+    vi.spyOn(runtime.ai, "interpretNeeds").mockResolvedValue({
+      understoodUse: "programming",
+      budgetDollars: "900",
+      followUp: null,
+    });
+
+    const initial = draft();
+    await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: initial.draftId,
+      version: String(initial.version),
+      shopperText: "I will use cloud AI",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    const beforeConfirm = draft();
+    await handleNeedsConfirm(site("/shop/needs/confirm", {
+      lang: "en",
+      draftId: beforeConfirm.draftId,
+      version: String(beforeConfirm.version),
+      use: "programming",
+      budget: "900",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(draft().confirmedUse).toBe("programming");
+    expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(true);
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, draft().draftId, draft().version,
+    )?.kind).toBe("cloud_ai");
+
+    const confirmed = draft();
+    await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: confirmed.draftId,
+      version: String(confirmed.version),
+      shopperText: "Thank you, that helps",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(draft().confirmedUse).toBe("programming");
+    expect(draft().confirmedBudgetDollars).toBe("900");
+    expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(true);
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, draft().draftId, draft().version,
+    )?.kind).toBe("cloud_ai");
+  });
+
+  it("retains local training after conversation truncation without withdrawing confirmation", async () => {
+    const runtime = memoryRuntime();
+    const { buyer, draft } = await setUp(runtime, "900");
+
+    vi.spyOn(runtime.ai, "interpretNeeds").mockResolvedValue({
+      understoodUse: "programming",
+      budgetDollars: "900",
+      followUp: null,
+    });
+
+    const initial = draft();
+    const first = await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: initial.draftId,
+      version: String(initial.version),
+      shopperText: "I want to train AI models locally on my laptop",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(first.status).toBe(303);
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, draft().draftId, draft().version,
+    )?.kind).toBe("local_training");
+
+    const beforeConfirm = draft();
+    await handleNeedsConfirm(site("/shop/needs/confirm", {
+      lang: "en",
+      draftId: beforeConfirm.draftId,
+      version: String(beforeConfirm.version),
+      use: "programming",
+      budget: "900",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(draft().confirmedUse).toBe("programming");
+    expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(true);
+
+    for (let i = 0; i < 9; i++) {
+      const current = draft();
+      const response = await handleNeedsSubmit(site("/shop/needs/submit", {
+        lang: "en",
+        draftId: current.draftId,
+        version: String(current.version),
+        shopperText: `Thank you, follow-up ${i + 1}`,
+        csrfToken: buyer.csrfToken,
+      }, buyer), runtime);
+      expect(response.status).toBe(303);
+    }
+
+    const conversation = readConversation(runtime.store, buyer.sessionId);
+    expect(conversation?.turns.some((turn) =>
+      turn.text.includes("train AI models locally"),
+    )).toBe(false);
+
+    const retained = draft();
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, retained.draftId, retained.version,
+    )?.kind).toBe("local_training");
+    expect(retained.confirmedUse).toBe("programming");
+    expect(retained.confirmedBudgetDollars).toBe("900");
+    expect(purchaseSelectionsOpen(runtime.store, buyer.sessionId)).toBe(true);
+  });
+
+  it("does not change the saved workload when a stale follow-up is rejected", async () => {
+    const runtime = memoryRuntime();
+    const { buyer, draft } = await setUp(runtime, "900");
+
+    vi.spyOn(runtime.ai, "interpretNeeds").mockResolvedValue({
+      understoodUse: "programming",
+      budgetDollars: "900",
+      followUp: null,
+    });
+
+    const initial = draft();
+    const accepted = await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: initial.draftId,
+      version: String(initial.version),
+      shopperText: "I want to train AI models locally on my laptop",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(accepted.status).toBe(303);
+
+    const current = draft();
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, current.draftId, current.version,
+    )?.kind).toBe("local_training");
+
+    const stale = await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: current.draftId,
+      version: String(initial.version),
+      shopperText: "Actually I only want cloud AI",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(stale.headers.get("location")).toContain("STALE_DRAFT");
+    expect(draft().version).toBe(current.version);
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, current.draftId, current.version,
+    )?.kind).toBe("local_training");
+  });
+
+  it("does not overwrite a laptop workload when the shopper switches to a charger request", async () => {
+    const runtime = memoryRuntime();
+    const { buyer, draft } = await setUp(runtime, "900");
+
+    vi.spyOn(runtime.ai, "interpretNeeds").mockResolvedValue({
+      understoodUse: "programming",
+      budgetDollars: "900",
+      followUp: null,
+    });
+
+    const initial = draft();
+    const accepted = await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: initial.draftId,
+      version: String(initial.version),
+      shopperText: "I want to train AI models locally on my laptop",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(accepted.status).toBe(303);
+
+    const before = draft();
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, before.draftId, before.version,
+    )?.kind).toBe("local_training");
+
+    const response = await handleNeedsSubmit(site("/shop/needs/submit", {
+      lang: "en",
+      draftId: before.draftId,
+      version: String(before.version),
+      shopperText: "Actually I need a charger for my laptop",
+      csrfToken: buyer.csrfToken,
+    }, buyer), runtime);
+
+    expect(response.status).toBe(303);
+
+    const after = draft();
+    expect(workloadRecordForDraft(
+      runtime.store, buyer.sessionId, after.draftId, after.version,
+    )?.kind).toBe("local_training");
   });
 
   it("requires a write-capable token from the extension origin and refuses originless and revoked requests", async () => {

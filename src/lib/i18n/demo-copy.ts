@@ -60,6 +60,10 @@ export interface JourneyCopy {
   readonly advisoryHeading: string;
   readonly suggestedLabel: string;
   readonly otherChoiceLabel: string;
+  /** Shown instead of Recommended when local AI suitability cannot be substantiated from the catalog. */
+  readonly aiUnverifiedChoiceLabel: string;
+  /** Shown beside the suggestion when it is a general-readiness match only. */
+  readonly aiGeneralOnlyNote: string;
   readonly suggestionSourceMock: string;
   readonly suggestionSourceModel: string;
   readonly suggestionSourceFallback: string;
@@ -215,6 +219,8 @@ const ENGLISH: JourneyCopy = {
   advisoryHeading: "Recommendations",
   suggestedLabel: "Recommended",
   otherChoiceLabel: "Another option",
+  aiUnverifiedChoiceLabel: "Matches your budget and general use; not verified for AI workloads",
+  aiGeneralOnlyNote: "General readiness only: AI suitability has not been verified.",
   suggestionSourceMock: "This suggestion comes from the local demo assistant, not a live model.",
   suggestionSourceModel: "This suggestion comes from the configured model. It is not a purchase instruction.",
   suggestionSourceFallback: "Live AI was unavailable or limited. This suggestion comes from the local demo assistant, not a live model.",
@@ -370,6 +376,8 @@ const SPANISH: JourneyCopy = {
   advisoryHeading: "Recomendaciones",
   suggestedLabel: "Recomendado",
   otherChoiceLabel: "Otra opción",
+  aiUnverifiedChoiceLabel: "Cumple su presupuesto y uso general; no verificado para cargas de IA",
+  aiGeneralOnlyNote: "Solo idoneidad general: no se ha verificado la idoneidad para IA.",
   suggestionSourceMock: "Esta sugerencia viene del asistente local de demostración, no de un modelo en vivo.",
   suggestionSourceModel: "Esta sugerencia viene del modelo configurado. No es una instrucción de compra.",
   suggestionSourceFallback: "La IA en vivo no estaba disponible o alcanzó su límite. Esta sugerencia viene del asistente local de demostración, no de un modelo en vivo.",
