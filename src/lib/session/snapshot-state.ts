@@ -1,4 +1,5 @@
 import { restorePermissions } from "../permissions/model";
+import type { WorkloadRecord } from "../readiness/workload-record";
 import { canonicalJson } from "../shared/canonical-json";
 import type { ChargerTrack } from "./charger-clarification";
 import type { ConversationState } from "./conversation";
@@ -100,13 +101,19 @@ export interface DurableState {
   readonly profileRevisions: readonly PersistedProfileRevision[];
   /** Charger clarification tracks (format 7, proposed), keyed by session and bound to that session's current draft. */
   readonly chargerTracks: ReadonlyMap<string, ChargerTrack>;
+  readonly workloads?: ReadonlyMap<string, WorkloadRecord>;
+  /**
+   * In memory only, never written: drafts restored from a format without workload records (7, 8), whose missing record
+   * may mean it was lost. Pruned to live drafts as the state changes.
+   */
+  readonly unrecoveredWorkloadDrafts?: ReadonlySet<string>;
 }
 
 /**
  * Builds the body to commit. Entries whose session is gone, and conversations and charger tracks for a replaced or
  * removed draft, are left out.
  */
-export function bodyFromState(state: DurableState): PublishedBody {
+export function bodyFromState(state: DurableState, format: 7 | 9 = 7): PublishedBody {
   const ids = new Set(state.sessions.map((session) => session.id));
   const drafts = [...state.drafts].filter(([sessionId]) => ids.has(sessionId));
   const draftOf = new Map(drafts.map(([sessionId, draft]) => [sessionId, draft.draftId]));
@@ -172,6 +179,11 @@ export function bodyFromState(state: DurableState): PublishedBody {
     chargerTracks: [...state.chargerTracks]
       .filter(([sessionId, track]) => track.sessionId === sessionId && draftOf.get(sessionId) === track.draftId)
       .map(([, track]) => ({ sessionId: track.sessionId, draftId: track.draftId, state: track.state, deviceId: track.deviceId, revision: track.revision, ...(track.budget ? { budget: { ...track.budget } } : {}) })),
+    ...(format === 9 ? {
+      workloads: [...(state.workloads ?? new Map<string, WorkloadRecord>())]
+        .filter(([sessionId, record]) => record.sessionId === sessionId && draftOf.get(sessionId) === record.draftId)
+        .map(([, record]) => ({ ...record })),
+    } : {}),
   };
 }
 
@@ -232,6 +244,12 @@ export function restoreState(body: PublishedBody, now: Date): RecoveredState {
     }
     drafts.set(sessionId, draft);
   }
+  const workloads = new Map<string, WorkloadRecord>();
+  for (const record of body.workloads ?? []) {
+    if (drafts.get(record.sessionId)?.draftId === record.draftId) {
+      workloads.set(record.sessionId, { ...record });
+    }
+  }
   const conversations = new Map<string, ConversationState>();
   for (const conversation of body.conversations) {
     if (drafts.get(conversation.sessionId)?.draftId !== conversation.draftId) continue;
@@ -285,6 +303,9 @@ export function restoreState(body: PublishedBody, now: Date): RecoveredState {
       profiles,
       profileRevisions,
       chargerTracks,
+      workloads,
+      // A body without a workloads array (formats 7 and 8) cannot say which drafts had a record.
+      ...(body.workloads === undefined ? { unrecoveredWorkloadDrafts: new Set([...drafts.values()].map((draft) => draft.draftId)) } : {}),
     },
     interrupted: { interpretations, recommendations },
     droppedSessions,
@@ -322,9 +343,9 @@ export interface StateGate {
 
 type CommitTarget = Pick<FoundationStore, "commit">;
 
-export function createStateGate(store: CommitTarget, initial: DurableState): StateGate {
+export function createStateGate(store: CommitTarget, initial: DurableState, format: 7 | 9 = 7): StateGate {
   let published = initial;
-  let publishedDigest = canonicalJson(bodyFromState(initial));
+  let publishedDigest = canonicalJson(bodyFromState(initial, format));
   let status: GateStatus = { kind: "ready" };
   let chain: Promise<unknown> = Promise.resolve();
   const listeners: Array<(state: DurableState) => void> = [];
@@ -334,7 +355,7 @@ export function createStateGate(store: CommitTarget, initial: DurableState): Sta
     const decision = decide(published);
     if (!decision.next || decision.next === published) return { status: "done", value: decision.value };
     const candidate = decision.next;
-    const body = bodyFromState(candidate);
+    const body = bodyFromState(candidate, format);
     const digest = canonicalJson(body);
     // Nothing persisted would change: no commit, and the published state stays the same object.
     if (digest === publishedDigest) return { status: "done", value: decision.value };
@@ -348,7 +369,14 @@ export function createStateGate(store: CommitTarget, initial: DurableState): Sta
       status = { kind: "blocked", outcome: result.outcome };
       return { status: "unavailable" };
     }
-    published = candidate;
+    published = format === 9
+      ? {
+          ...candidate,
+          workloads: new Map(
+            (body.workloads ?? []).map((record) => [record.sessionId, record]),
+          ),
+        }
+      : candidate;
     publishedDigest = digest;
     for (const listener of listeners) listener(published);
     return { status: "done", value: decision.value };
@@ -384,7 +412,8 @@ export async function recoverStateGate(store: FoundationStore, now: Date): Promi
   const read = store.readPublished();
   if (read.status !== "ready") return { status: "unavailable", code: "snapshot-unavailable" };
   const recovered = restoreState(read.value.body, now);
-  const committed = await store.commit(bodyFromState(recovered.state));
+  const format = read.value.format === 9 ? 9 : 7;
+  const committed = await store.commit(bodyFromState(recovered.state, format));
   if (committed.status !== "ready") return { status: "unavailable", code: committed.outcome === "definite" ? "recovery-commit-definite" : "recovery-commit-indeterminate" };
-  return { status: "ready", gate: createStateGate(store, recovered.state), interrupted: recovered.interrupted, droppedSessions: recovered.droppedSessions };
+  return { status: "ready", gate: createStateGate(store, recovered.state, format), interrupted: recovered.interrupted, droppedSessions: recovered.droppedSessions };
 }

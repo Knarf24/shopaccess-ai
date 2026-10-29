@@ -1,6 +1,7 @@
 import { revokeSessionPermissions } from "../permissions/model";
 import { chargerTracksOf, deleteChargerTracks, replaceChargerTracks, type ChargerTrack } from "./charger-clarification";
 import { conversationStateOf, replaceConversationState } from "./conversation";
+import { replaceUnrecoveredWorkloadDrafts, replaceWorkloadRecords, unrecoveredWorkloadDraftsOf, workloadRecordsOf } from "./workload-state";
 import type { DurableState, PersistedDeviceProfile, PersistedGrant, PersistedPermission, PersistedProfileRevision, StateGate, Windows } from "./snapshot-state";
 import { needsDraftsFor, replaceNeedsDrafts, type InMemorySessionStore, type SessionRecord, type SessionStore } from "./store";
 
@@ -243,6 +244,18 @@ function load(host: object, state: DurableState): void {
     selections: new Map([...state.selections].filter(([sessionId]) => ids.has(sessionId))),
   });
   replaceChargerTracks(host, [...state.chargerTracks].filter(([sessionId]) => ids.has(sessionId)));
+  const liveDraftIds = new Set([...state.drafts].filter(([sessionId]) => ids.has(sessionId)).map(([, draft]) => draft.draftId));
+  replaceUnrecoveredWorkloadDrafts(host, [...(state.unrecoveredWorkloadDrafts ?? [])].filter((id) => liveDraftIds.has(id)));
+  replaceWorkloadRecords(
+    host,
+    new Map(
+      [...(state.workloads ?? new Map())].filter(
+        ([sessionId, record]) =>
+          ids.has(sessionId) &&
+          state.drafts.get(sessionId)?.draftId === record.draftId,
+      ),
+    ),
+  );
 }
 
 /**
@@ -251,7 +264,17 @@ function load(host: object, state: DurableState): void {
  */
 function withHost(state: DurableState, host: object): DurableState {
   const conversation = conversationStateOf(host);
-  return { ...state, drafts: new Map(needsDraftsFor(host)), conversations: conversation.conversations, selections: conversation.selections, chargerTracks: new Map(tracksMatchingDrafts(host)) };
+  return { ...state, drafts: new Map(needsDraftsFor(host)), conversations: conversation.conversations, selections: conversation.selections, chargerTracks: new Map(tracksMatchingDrafts(host)), unrecoveredWorkloadDrafts: new Set(
+    [...unrecoveredWorkloadDraftsOf(host)].filter((id) => [...needsDraftsFor(host).values()].some((draft) => draft.draftId === id)),
+  ), workloads: state.workloads === undefined
+      ? undefined
+      : new Map(
+          [...workloadRecordsOf(host)].filter(
+            ([sessionId, record]) =>
+              state.sessions.some((session) => session.id === sessionId) &&
+              needsDraftsFor(host).get(sessionId)?.draftId === record.draftId,
+          ),
+        ) };
 }
 
 /** Drops everything a removed session owned, in the same state. */
@@ -328,7 +351,10 @@ export function snapshotDurableHost(gate: StateGate, published: object): Durable
         const profileRevisions = state.profileRevisions.filter((revision) => revision.sessionId !== id);
         // Logout removes the session's charger clarification in the same decision.
         const chargerTracks = new Map([...state.chargerTracks].filter(([sessionId]) => sessionId !== id));
-        return { value: undefined, next: { ...replaceSession(state, { ...record, revokedAt: at }), grants, permissions, profiles, profileRevisions, chargerTracks } };
+          const workloads = state.workloads
+            ? new Map([...state.workloads].filter(([sessionId]) => sessionId !== id))
+            : undefined;
+        return { value: undefined, next: { ...replaceSession(state, { ...record, revokedAt: at }), grants, permissions, profiles, profileRevisions, chargerTracks, workloads } };
       }),
     deleteExpired: (now, idleCutoff) =>
       decide((state) => {

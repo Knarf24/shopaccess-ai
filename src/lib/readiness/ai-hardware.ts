@@ -166,6 +166,34 @@ function resolveAiHardwareFact(
 }
 
 /**
+ * True when the workload runs on the laptop's own GPU and the catalog gives no verified VRAM. Missing evidence is not
+ * proof of incompatibility: it only means a "Recommended" claim cannot be substantiated for this workload.
+ */
+export function localAiEvidenceMissing(assessment: AiHardwareEvidenceAssessment): boolean {
+  return (
+    (assessment.workload === "local_training" || assessment.workload === "local_inference") &&
+    assessment.facts.vramGb.quality !== "VERIFIED"
+  );
+}
+
+/**
+ * True when a suggestion must not be shown as an unqualified recommendation for this shopper: local AI without
+ * verified VRAM, or an AI request the classifier could not pin down ("potential"). This is a label rule only. It
+ * says nothing about whether the laptop works, and it never changes eligibility, ranking or purchase authorization.
+ */
+export function aiRecommendationUnverified(
+  assessment: AiHardwareEvidenceAssessment,
+  aiContext: boolean | "potential" | undefined,
+): boolean {
+  // "unspecified_ai" with a known AI context means local use cannot be ruled out; only explicit cloud-only use is exempt.
+  return (
+    localAiEvidenceMissing(assessment) ||
+    aiContext === "potential" ||
+    (aiContext === true && assessment.workload === "unspecified_ai")
+  );
+}
+
+/**
  * Source-aware hardware evidence inventory.
  * No model-specific compatibility conclusion or purchase authorization.
  */

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import fsExt from "fs-ext";
 
 import { canonicalJson } from "../shared/canonical-json";
+import { validateWorkloadRecord, type WorkloadRecord } from "../readiness/workload-record";
 import type { NeedsDraft, RetainedRecommendation, SessionRecord } from "./store";
 
 /**
@@ -131,7 +132,7 @@ type SnapshotSession = {
   readonly revokedAt: string | null;
 };
 
-type Format = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+type Format = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 type SnapshotDraft = NeedsDraft & { readonly sessionId: string };
 
@@ -191,6 +192,7 @@ export type PublishedBody = {
   readonly profiles: readonly SnapshotProfile[];
   readonly profileRevisions: readonly SnapshotProfileRevision[];
   readonly chargerTracks: readonly SnapshotChargerTrack[];
+  readonly workloads?: readonly WorkloadRecord[];
 };
 
 /** One charger clarification record (format 7). `deviceId` is set exactly for `candidate` and `confirmed`. */
@@ -236,6 +238,8 @@ export type CommitResult =
 export type FoundationStore = {
   readPublished(): StoreReadResult;
   commit(body: unknown): Promise<CommitResult>;
+  /** Optional for mocks; file-backed stores release their writer lock here. */
+  close?(): Promise<void>;
 };
 
 export type OpenResult =
@@ -245,6 +249,8 @@ export type OpenResult =
 export type OpenOptions = {
   /** Explicit fresh-test-store mode. Refuses every existing format other than 8; never migrates it. */
   readonly format8TestStore?: boolean;
+  /** Isolated disposable workload test store. Refuses all formats except 9. */
+  readonly format9WorkloadTestStore?: boolean;
   readonly directoryFsync?: (fd: number) => Promise<void>;
   readonly temporaryWrite?: (fd: number, bytes: Buffer) => Promise<void>;
   readonly beforePathRecheck?: () => Promise<void>;
@@ -253,7 +259,7 @@ export type OpenOptions = {
 
 type StoreState = {
   faulted: boolean;
-  writeFormat: 7 | 8;
+  writeFormat: 7 | 8 | 9;
   published: PublishedSnapshot | null;
   directory: string;
   keyBytes: Buffer;
@@ -269,6 +275,7 @@ export function lockStatRejects(stat: { uid: number; mode: number; isFile: boole
 
 export async function openFoundationStore(directory: string, keyBytes: Uint8Array, options: OpenOptions = {}): Promise<OpenResult> {
   if (typeof fs.constants.O_NOFOLLOW !== "number") return unavailable("no-nofollow");
+  if (options.format8TestStore && options.format9WorkloadTestStore) return unavailable("conflicting-test-modes");
   const key = Buffer.from(keyBytes);
   let directoryHandle: fs.promises.FileHandle | null = null;
   let lockHandle: fs.promises.FileHandle | null = null;
@@ -299,7 +306,7 @@ export async function openFoundationStore(directory: string, keyBytes: Uint8Arra
     }
     let activeKey = key;
     if (options.initializeEmpty) {
-      const created = await writeEmptyIfAbsent(directory, directoryHandle, options.initializeEmpty.keyFile, options.directoryFsync, options.format8TestStore ? 8 : 7);
+      const created = await writeEmptyIfAbsent(directory, directoryHandle, options.initializeEmpty.keyFile, options.directoryFsync, options.format9WorkloadTestStore ? 9 : options.format8TestStore ? 8 : 7);
       if (!created.ok) {
         await closeQuiet(lockHandle);
         await closeQuiet(directoryHandle);
@@ -308,14 +315,21 @@ export async function openFoundationStore(directory: string, keyBytes: Uint8Arra
       activeKey = Buffer.from(created.bytes);
     }
     const loaded = await readVerified(directory, activeKey);
-    if (!loaded.ok || (loaded.value.format === 8) !== (options.format8TestStore === true)) {
+    const formatAllowed =
+      loaded.ok &&
+      (options.format9WorkloadTestStore
+        ? loaded.value.format === 9
+        : options.format8TestStore
+          ? loaded.value.format === 8
+          : loaded.value.format <= 7);
+    if (!loaded.ok || !formatAllowed) {
       await closeQuiet(lockHandle);
       await closeQuiet(directoryHandle);
       return unavailable(loaded.ok ? "test-format-mismatch" : loaded.code);
     }
     const state: StoreState = {
       faulted: false,
-      writeFormat: options.format8TestStore ? 8 : 7,
+      writeFormat: options.format9WorkloadTestStore ? 9 : options.format8TestStore ? 8 : 7,
       published: loaded.value,
       directory,
       keyBytes: activeKey,
@@ -346,6 +360,9 @@ export async function openFoundationStoreWithKeyFile(directory: string, keyFile:
 
 function createStore(state: StoreState): FoundationStore {
   let chain = Promise.resolve();
+  let closing = false;
+  let closePromise: Promise<void> | null = null;
+
   const enqueue = <T>(task: () => Promise<T>): Promise<T> => {
     const run = chain.then(task, task);
     chain = run.then(
@@ -354,18 +371,32 @@ function createStore(state: StoreState): FoundationStore {
     );
     return run;
   };
+
   return {
     readPublished() {
-      if (state.faulted || state.published === null) return { status: "unavailable" };
+      if (closing || state.faulted || state.published === null) return { status: "unavailable" };
       return { status: "ready", value: structuredClone(state.published) };
     },
     commit(body: unknown) {
+      if (closing) return Promise.resolve(definite());
       try {
         const owned = structuredClone(body);
         return enqueue(() => commitBody(state, owned));
       } catch {
         return enqueue(() => Promise.resolve(definite()));
       }
+    },
+    close() {
+      if (closePromise) return closePromise;
+      closing = true;
+      closePromise = enqueue(async () => {
+        try {
+          await state.lockHandle.close();
+        } finally {
+          await state.directoryHandle.close();
+        }
+      });
+      return closePromise;
     },
   };
 }
@@ -448,13 +479,13 @@ async function writeEmptyIfAbsent(
   directoryHandle: fs.promises.FileHandle,
   keyFile: string,
   directoryFsync: ((fd: number) => Promise<void>) | undefined,
-  format: 7 | 8,
+  format: 7 | 8 | 9,
 ): Promise<{ ok: true; bytes: Buffer } | { ok: false; code: string }> {
   const existing = await lstatOrNull(join(directory, "store.json"));
   if (existing) return { ok: false, code: existing.isSymbolicLink() ? "symlink-store" : "already-present" };
   const key = await readKeyFile(keyFile);
   if (!key.ok) return key;
-  const snapshot = seal(emptyBody(), key.bytes, format);
+  const snapshot = seal(format === 9 ? { ...emptyBody(), workloads: [] } : emptyBody(), key.bytes, format);
   const tempPath = join(directory, `store.json.tmp.${randomBytes(8).toString("hex")}`);
   const bytes = Buffer.from(JSON.stringify(snapshot), "utf8");
   let temp: fs.promises.FileHandle | null = null;
@@ -540,6 +571,7 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
   }
   if (!isRecord(parsed) || !hasExactKeys(parsed, ["format", "identity", "sha256", "body"])) return null;
   if (
+    parsed.format !== 9 &&
     parsed.format !== 8 &&
     parsed.format !== FORMAT &&
     parsed.format !== FORMAT_6 &&
@@ -564,7 +596,7 @@ function decodeSnapshot(bytes: Buffer, key: Buffer): PublishedSnapshot | null {
               ? 5
               : parsed.format === FORMAT_6
                 ? 6
-                : parsed.format === 8 ? 8 : 7;
+                : parsed.format === 9 ? 9 : parsed.format === 8 ? 8 : 7;
   if (typeof parsed.identity !== "string" || !HEX_64.test(parsed.identity)) return null;
   if (typeof parsed.sha256 !== "string" || !HEX_64.test(parsed.sha256)) return null;
   if (parsed.identity !== identityFor(key)) return null;
@@ -582,6 +614,7 @@ const FORMAT_4_BODY_KEYS = [...FORMAT_3_BODY_KEYS, "permissions"] as const;
 const FORMAT_5_BODY_KEYS = [...FORMAT_4_BODY_KEYS, "profiles"] as const;
 const FORMAT_6_BODY_KEYS = [...FORMAT_5_BODY_KEYS, "profileRevisions"] as const;
 const BODY_KEYS = [...FORMAT_6_BODY_KEYS, "chargerTracks"] as const;
+const FORMAT_9_BODY_KEYS = [...BODY_KEYS, "workloads"] as const;
 
 /** Parses a body written in `format`. Older formats are returned upgraded with empty lists for the keys they did not have. */
 function parseBody(value: unknown, format: Format): PublishedBody | null {
@@ -598,7 +631,9 @@ function parseBody(value: unknown, format: Format): PublishedBody | null {
               ? FORMAT_5_BODY_KEYS
               : format === FORMAT_6
                 ? FORMAT_6_BODY_KEYS
-                : BODY_KEYS;
+                : format === 9
+                  ? FORMAT_9_BODY_KEYS
+                  : BODY_KEYS;
   if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
   const allocation = parseWindow(value.allocation, MAX_ALLOCATION_COUNT);
   const admissionLogin = parseWindow(value.admissionLogin, MAX_SAFE);
@@ -729,6 +764,18 @@ function parseBody(value: unknown, format: Format): PublishedBody | null {
     if (!sessionId || trackSessions.has(sessionId)) return null;
     trackSessions.add(sessionId);
   }
+  if (format === 9) {
+    if (!Array.isArray(value.workloads) || value.workloads.length > value.sessions.length) return null;
+    const workloadSessions = new Set<string>();
+    for (const entry of value.workloads) {
+      const workload = validateWorkloadRecord(entry);
+      if (!workload) return null;
+      if (draftOf.get(workload.sessionId) !== workload.draftId) return null;
+      if (workloadSessions.has(workload.sessionId)) return null;
+      workloadSessions.add(workload.sessionId);
+    }
+  }
+
   return value as PublishedBody;
 }
 
@@ -1009,7 +1056,7 @@ function emptyBody(): PublishedBody {
   };
 }
 
-function seal(body: PublishedBody, key: Buffer, format: 7 | 8): PublishedSnapshot {
+function seal(body: PublishedBody, key: Buffer, format: 7 | 8 | 9): PublishedSnapshot {
   const identity = identityFor(key);
   const sha256 = checksumFor(body);
   return { format, identity, sha256, body };

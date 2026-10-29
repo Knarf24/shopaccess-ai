@@ -1,4 +1,4 @@
-import { classifyAiWorkload } from "./ai-workload";
+import { classifyAiWorkload, mentionsLocalWork, normalizeWorkloadText, withoutNegatedAi } from "./ai-workload";
 
 /** Bounded clarification, shared by the transcript and speech; never a suitability verdict. */
 export function workloadGuidance(text: string, language: 'en' | 'es'): string | null {
@@ -6,11 +6,9 @@ export function workloadGuidance(text: string, language: 'en' | 'es'): string | 
   const workload = classifyAiWorkload(text);
 
   if (workload === "unspecified_ai") {
-    const normalized = text.normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase();
+    const normalized = normalizeWorkloadText(text);
     const mentionsCloud = /\b(cloud|colab|nube|sagemaker|vertex ai)\b/.test(normalized);
-    const mentionsLocal = /\b(local(?:ly|mente)?|on (?:the |my )?laptop(?: itself)?|en (?:el |mi )?(?:portatil|equipo))\b/.test(normalized);
+    const mentionsLocal = mentionsLocalWork(normalized);
 
     if (mentionsCloud && mentionsLocal) {
       return language === "es"
@@ -29,9 +27,9 @@ export function workloadGuidance(text: string, language: 'en' | 'es'): string | 
       : "For local AI training, we need the model, dataset size, framework, and accelerator requirements, plus verified CPU, RAM, GPU and VRAM specifications. I cannot yet verify which laptop supports this training workload. What model and dataset do you plan to train?";
   }
 
- const words = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+ const words = withoutNegatedAi(normalizeWorkloadText(text));
  if (!/\b(ai models?|machine learning|inteligencia artificial|modelos? de ia|modelos? de inteligencia artificial)\b/.test(words)) return null;
- const local = /\b(local(?:ly|mente)?|on (?:the |my )?laptop(?: itself)?|en (?:el |mi )?(?:portatil|equipo))\b/.test(words);
+ const local = mentionsLocalWork(words);
  const cloud = /\b(cloud|nube|colab)\b/.test(words);
  if (!local && !cloud) return language === 'es'
   ? 'Para comparar opciones de IA necesito aclarar cómo las usará. ¿Ejecutará los modelos en el portátil o usará un servicio en la nube?'
