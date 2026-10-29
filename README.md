@@ -74,6 +74,8 @@ does not. A purchase permission may store the
 checkout id that ended it. That id is not the checkout. Checkouts, quotes,
 payment states, payment operations, and the audit log remain in memory, so a
 checkout started before a restart does not resume. Use synthetic data only.
+Snapshot format 10 (workload records) exists as a compatibility layer only and is not activated here; see
+[docs/workload-record-snapshot-format.md](docs/workload-record-snapshot-format.md).
 The directory must be new. The initializer below is the supported way to
 create it. Do not pass an existing owner or rehearsal store as `--directory`
 or as `SHOPACCESS_MOCK_STORE_DIR`.

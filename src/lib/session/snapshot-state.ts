@@ -110,6 +110,15 @@ export interface DurableState {
 }
 
 /**
+ * The body shape the gate commits for a snapshot format: 9 means "with workload records" (formats 9 and 10, whose
+ * writers require the `workloads` array); 7 means "without" (formats 7 and 8, which have none). The store's strict
+ * open modes make the file's format and its write format the same, so the gate, the writer and the file agree.
+ */
+export function bodyFormatFor(snapshotFormat: number): 7 | 9 {
+  return snapshotFormat === 9 || snapshotFormat === 10 ? 9 : 7;
+}
+
+/**
  * Builds the body to commit. Entries whose session is gone, and conversations and charger tracks for a replaced or
  * removed draft, are left out.
  */
@@ -412,7 +421,7 @@ export async function recoverStateGate(store: FoundationStore, now: Date): Promi
   const read = store.readPublished();
   if (read.status !== "ready") return { status: "unavailable", code: "snapshot-unavailable" };
   const recovered = restoreState(read.value.body, now);
-  const format = read.value.format === 9 ? 9 : 7;
+  const format = bodyFormatFor(read.value.format);
   const committed = await store.commit(bodyFromState(recovered.state, format));
   if (committed.status !== "ready") return { status: "unavailable", code: committed.outcome === "definite" ? "recovery-commit-definite" : "recovery-commit-indeterminate" };
   return { status: "ready", gate: createStateGate(store, recovered.state, format), interrupted: recovered.interrupted, droppedSessions: recovered.droppedSessions };

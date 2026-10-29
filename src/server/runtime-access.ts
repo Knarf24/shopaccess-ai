@@ -1,7 +1,7 @@
 import { isPersistenceUnavailable } from "@/lib/session/durable";
 import { recoverStateGate, type StateGate } from "@/lib/session/snapshot-state";
 import { openFoundationStoreWithKeyFile, type FoundationStore } from "@/lib/session/snapshot-store";
-import { chargerBudgetTestStoreRequested, createSnapshotApplication, getApplication, mockStoreSettings, type Application, type MockStoreSettings } from "./runtime";
+import { chargerBudgetTestStoreRequested, workloadRecordsRequested, createSnapshotApplication, getApplication, mockStoreSettings, type Application, type MockStoreSettings } from "./runtime";
 
 /**
  * The one way production code reaches the process application (M2-1, docs/m2-1-plan.md §9).
@@ -66,6 +66,14 @@ export function createRuntimeAccess(deps: RuntimeAccessDeps): RuntimeAccessor {
   };
 }
 
+/**
+ * The snapshot open options this process asks for. Both are off unless their exact environment token is set, so an
+ * unconfigured process opens an ordinary store: it reads formats up to 7 and writes 7, and refuses 8, 9 and 10.
+ */
+export function snapshotOpenOptions(): { readonly format8TestStore: boolean; readonly workloadRecords: boolean } {
+  return { format8TestStore: chargerBudgetTestStoreRequested(), workloadRecords: workloadRecordsRequested() };
+}
+
 const ACCESSOR = Symbol.for("shopaccess.runtimeAccess");
 type GlobalWithAccessor = typeof globalThis & { [ACCESSOR]?: RuntimeAccessor };
 
@@ -76,7 +84,7 @@ function processAccessor(): RuntimeAccessor {
   const created = createRuntimeAccess({
     settings: mockStoreSettings,
     memory: getApplication,
-    openStore: (directory, keyFile) => openFoundationStoreWithKeyFile(directory, keyFile, { format8TestStore: chargerBudgetTestStoreRequested() }),
+    openStore: (directory, keyFile) => openFoundationStoreWithKeyFile(directory, keyFile, snapshotOpenOptions()),
     recover: recoverStateGate,
     build: createSnapshotApplication,
     now: () => new Date(),
