@@ -45,7 +45,7 @@ describe("snapshot foundation", () => {
     const valueImporters = source.filter((file) => valueImport.test(fs.readFileSync(file, "utf8"))).map(rel).sort();
     const typeImporters = source.filter((file) => typeImport.test(fs.readFileSync(file, "utf8"))).map(rel).sort();
     const fsExtImporters = source.filter((file) => fsExt.test(fs.readFileSync(file, "utf8"))).map(rel).sort();
-    const allowedValue = ["src/server/mock-store-init.mts", "src/server/runtime-access.ts"];
+    const allowedValue = ["src/server/mock-store-init.mts", "src/server/mock-store-migrate.mts", "src/server/runtime-access.ts"];
     expect(valueImporters.every((file) => allowedValue.includes(file)), valueImporters.join(", ")).toBe(true);
     expect(typeImporters.every((file) => file === "src/lib/session/snapshot-state.ts"), typeImporters.join(", ")).toBe(true);
     expect(fsExtImporters.every((file) => ["src/lib/session/snapshot-store.ts", "src/server/mock-store-init.mts", "src/types/fs-ext.ts"].includes(file)), fsExtImporters.join(", ")).toBe(true);

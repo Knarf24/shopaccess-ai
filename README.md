@@ -15,25 +15,57 @@ runs are not acceptance of the shop, the advisory path, or payments.
 **Judges:** the hosted demonstration, the suggested journey and what is live or simulated are in
 [`docs/judges.md`](docs/judges.md). The project is released under the [MIT License](LICENSE).
 
+## MVP status and limitations
+
+What works in this build (covered by the automated tests; the website journey below was also driven end to end over
+HTTP on a production build):
+
+- **Conversational shopping.** The shopper describes a need in the guided conversation (typed, or dictated through the
+  browser's speech services). The assistant asks follow-up questions, shows its understanding, and nothing counts until
+  the shopper confirms it. English and Spanish, with an explicit language switch.
+- **Recommendations from a fixed demo catalog** (three laptops). Budget, memory, storage and weight are checked by the
+  server; a card says why a laptop is or is not eligible.
+- **AI uncertainty is disclosed, never guessed.** When a request involves AI work, the assistant asks whether the
+  models run on the laptop or in the cloud. Every card then states "AI compatibility: not verified" unless the catalog
+  has the evidence, and a laptop that has not been verified for that workload is not marked Recommended.
+- **Purchase permissions.** Checkout is refused (nothing is charged) until the shopper creates a permission for that
+  exact item, limited by quantity, total and expiry. A permission can be revoked.
+- **Server-priced checkout.** The total is calculated by the server and confirmed explicitly. The default payment step
+  is a local simulation that ends in a verified simulated result. A PayPal Sandbox mode exists for owner-authorized
+  runs only.
+- **Chrome side panel** (`extension/`, unpacked, Manifest V3). After the shopper approves a pairing code on the
+  website, the panel can read and continue the same conversation. It cannot confirm, check out or pay.
+
+Limits you should know about:
+
+- Catalog, sellers, prices, stock and payments are simulated. Nothing is shipped and no real money moves.
+- By default everything is held in memory and a restart clears it. A local snapshot file store is optional (below).
+  Snapshot format 10 and the offline conversion tool (`src/server/mock-store-migrate.mts`) are inactive unless an
+  operator runs them by hand; nothing activates them on its own.
+- The AI is a local assistant unless a live provider is configured. Its output is advisory. The server enforces
+  catalog identity, suitability, budget and every purchase rule.
+- Voice input and read-aloud use the browser's speech services, which may send audio to them. Real-microphone,
+  screen-reader and native-speaker acceptance is not complete.
+- The side panel is a developer extension. Against a hosted service it works only if that service allows the panel's
+  Chrome extension ID (`SHOPACCESS_EXTENSION_ORIGINS`), and an unpacked extension's ID depends on where it was loaded
+  from. See `extension/README.md`.
+- The charger purchase journey exists only in a test-only runtime (`docs/charger-purchase-test-store.md`).
+- PostgreSQL mode is opt-in and does not include the guided journey, purchase permissions or payment simulation (see
+  below).
+
 Product intent is recorded in `docs/product-governance.md` (October 12, 2026).
 That record authorizes planning. It does not authorize a live call, a payment,
 a deployment, or a database change, and it does not replace the evidence above.
 
 ## Run the demo locally
 
-This checkout is the wired charger conversation, PR #11
-(`feature/f03-charger-conversation`). The needs page runs task choice, model
-selection, confirmation, and Change as server-rendered controls bound to the
-draft revision. It also includes the skip-link correction, the needs-page
-export split, the needs workspace, and document-language synchronization. The
-format-7 reader can still load formats 1–6. The next successful commit,
-including startup recovery, rewrites that file as format 7.
-
-PR #10 (`feature/f03-charger-clarification-state`, `5883700`) is the unwired
-foundation included here. On that foundation alone, no handler, route, page,
-or extension calls the clarification state. These instructions launch this
-wired checkout. They do not merge either pull request. Any build that contains
-this format-7 reader follows the store rule below.
+This build runs the guided needs journey, including the charger conversation
+(task choice, model selection, confirmation and Change as server-rendered
+controls bound to the draft revision), purchase permissions, the side-panel
+API and the AI-workload safeguards. The format-7 reader can still load
+formats 1–6. The next successful commit, including startup recovery, rewrites
+that file as format 7. The default snapshot format stays 7. Any build that
+contains this format-7 reader follows the store rule below.
 
 Existing owner and rehearsal stores remain untouched and reserved for their
 current builds. Format-7 development uses memory mode, as in the command
@@ -68,12 +100,16 @@ A format-7 snapshot persists shopper state: the session-allocation and
 admission windows, sessions, needs drafts, the guided conversation (language
 and the last eight lines), confirmation-selection markers, extension grants,
 purchase permissions, device profiles, profile-revision markers, and
-charger-track records. This wired checkout can write a charger-track record
-when the shopper uses the charger conversation. The foundation commit alone
-does not. A purchase permission may store the
+charger-track records. A charger-track record is written when the shopper uses
+the charger conversation. A purchase permission may store the
 checkout id that ended it. That id is not the checkout. Checkouts, quotes,
 payment states, payment operations, and the audit log remain in memory, so a
 checkout started before a restart does not resume. Use synthetic data only.
+Snapshot format 10 (durable AI workload records) is opt-in and is not activated by default: it is read only with the
+exact setting `SHOPACCESS_WORKLOAD_RECORDS=1` against a store that is already format 10. The only way to convert an
+older store is the explicit offline tool, which needs a stopped server, a verified backup and the original key kept
+separately. No real store is converted automatically. See
+[docs/workload-record-snapshot-format.md](docs/workload-record-snapshot-format.md).
 The directory must be new. The initializer below is the supported way to
 create it. Do not pass an existing owner or rehearsal store as `--directory`
 or as `SHOPACCESS_MOCK_STORE_DIR`.
@@ -192,10 +228,12 @@ Open http://127.0.0.1:3000.
 ## PostgreSQL mode (opt-in; written, never run)
 
 The application can be pointed at PostgreSQL instead of its in-memory stores.
-This mode has been written and has **not been run**: it has not been compiled,
-its tests have not been executed, and the application has never been started in
-it. See `docs/postgresql/postgresql-specification-v2.0-draft.md`, section 19.19
-for the contract and section 19.18 for what exists and what has run.
+The application mode has **not been run**: the application has never been
+started against a database in it. Its SQL (the bootstrap file and migrations
+for Increments 1, 2.1 and 2.2) has run only on disposable test clusters. See
+`docs/postgresql/postgresql-specification-v2.0-draft.md`, section 19.19 for the
+contract and section 19.18 for what exists and what has run. This mode has no
+guided needs journey, purchase permissions, device profiles or extension API.
 
 It is chosen only by setting `SHOPACCESS_PERSISTENCE_MODE=postgres`. With that
 variable not set at all the application is the mock above, unchanged. Any other
@@ -233,6 +271,9 @@ npm run lint
 npm test
 npm run build
 ```
+
+Run them from a clean checkout. A `.env*` file in the working directory makes
+the environment-security tests fail by design.
 
 See `docs/security-foundation.md` for what is and is not active, and
 `docs/implementation-report.md` for test evidence.

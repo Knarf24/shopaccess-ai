@@ -1,8 +1,35 @@
+import { classifyAiWorkload, mentionsLocalWork, normalizeWorkloadText, withoutNegatedAi } from "./ai-workload";
+
 /** Bounded clarification, shared by the transcript and speech; never a suitability verdict. */
 export function workloadGuidance(text: string, language: 'en' | 'es'): string | null {
- const words = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  const workload = classifyAiWorkload(text);
+
+  if (workload === "unspecified_ai") {
+    const normalized = normalizeWorkloadText(text);
+    const mentionsCloud = /\b(cloud|colab|nube|sagemaker|vertex ai)\b/.test(normalized);
+    const mentionsLocal = mentionsLocalWork(normalized);
+
+    if (mentionsCloud && mentionsLocal) {
+      return language === "es"
+        ? "Para entender su trabajo con IA, ¿ejecutará o entrenará los modelos en el portátil, en la nube o en ambos?"
+        : "To understand your AI workload, will you run or train models on the laptop, in the cloud, or both?";
+    }
+
+    return language === "es"
+      ? "Para comparar opciones de IA necesito aclarar cómo las usará. ¿Ejecutará los modelos en el portátil o usará un servicio en la nube?"
+      : "To compare AI options, I need to understand the workload. Will you run the models on the laptop itself or use a cloud service?";
+  }
+
+  if (workload === "local_training") {
+    return language === "es"
+      ? "Para entrenar modelos de IA localmente, necesitamos conocer el modelo, el tamaño del conjunto de datos, el framework y los requisitos de aceleración. También necesitamos especificaciones verificadas de CPU, RAM, GPU y VRAM. Todavía no puedo verificar qué portátil admite este entrenamiento. ¿Qué modelo y conjunto de datos quiere usar?"
+      : "For local AI training, we need the model, dataset size, framework, and accelerator requirements, plus verified CPU, RAM, GPU and VRAM specifications. I cannot yet verify which laptop supports this training workload. What model and dataset do you plan to train?";
+  }
+
+ const words = withoutNegatedAi(normalizeWorkloadText(text));
  if (!/\b(ai models?|machine learning|inteligencia artificial|modelos? de ia|modelos? de inteligencia artificial)\b/.test(words)) return null;
- const local = /\b(local(?:ly|mente)?|on (?:the |my )?laptop(?: itself)?|en (?:el |mi )?(?:portatil|equipo))\b/.test(words);
+ const local = mentionsLocalWork(words);
  const cloud = /\b(cloud|nube|colab)\b/.test(words);
  if (!local && !cloud) return language === 'es'
   ? 'Para comparar opciones de IA necesito aclarar cómo las usará. ¿Ejecutará los modelos en el portátil o usará un servicio en la nube?'

@@ -1,4 +1,6 @@
 import { Icon } from "../Icon";
+import { AiCompatibilityDisclosure } from "@/components/AiCompatibilityDisclosure";
+import { aiRecommendationUnverified } from "@/lib/readiness/ai-hardware";
 import { productPhoto } from "@/lib/catalog/product-photos";
 import { ProductPhotoCredit } from "../ProductPhotoCredit";
 import { DEMO_MERCHANT_CATALOG, formatUsd } from "@/lib/catalog/merchant-catalog";
@@ -193,14 +195,18 @@ export function TranslatedCatalogList({
       </div>
       <ul className="eligible-list flex flex-col gap-4">
         {lines.map((line) => {
-          const recommended = labelChoices && suggestedVariantIds.includes(line.variantId);
+          const suggested = labelChoices && suggestedVariantIds.includes(line.variantId);
+          // A suggestion for local AI is not shown as an unqualified recommendation without GPU/VRAM evidence.
+          const unverifiedForAi = suggested && aiRecommendationUnverified(line.aiHardware, line.aiContext);
+          const recommended = suggested && !unverifiedForAi;
           return (
           <li key={line.variantId} className="result-card eligible-card">
             <CatalogIdentity copy={copy} language={language} line={line} confirmedBudgetDollars={confirmedBudgetDollars} />
             {labelChoices ? (
-              <p className={`result-choice${suggestedVariantIds.includes(line.variantId) ? " recommendation-badge" : ""}`}>{suggestedVariantIds.includes(line.variantId) ? copy.suggestedLabel : copy.otherChoiceLabel}</p>
+              <p className={`result-choice${recommended ? " recommendation-badge" : ""}`}>{recommended ? copy.suggestedLabel : unverifiedForAi ? copy.aiUnverifiedChoiceLabel : copy.otherChoiceLabel}</p>
             ) : null}
             <ResultSummary copy={copy} line={line} factors={line.factors} hidePass={recommended} />
+              {line.aiContext === false ? null : <AiCompatibilityDisclosure assessment={line.aiHardware} language={language} />}
             <details className="result-details">
               <summary>{copy.whyThis}</summary>
               {recommended ? (
@@ -249,6 +255,7 @@ export function TranslatedCatalogList({
                 <li key={line.variantId} className="result-card excluded-card">
                   <CatalogIdentity copy={copy} language={language} line={line} confirmedBudgetDollars={confirmedBudgetDollars} />
                   <ResultSummary copy={copy} line={line} factors={failing} excluded />
+              {line.aiContext === false ? null : <AiCompatibilityDisclosure assessment={line.aiHardware} language={language} />}
                   <details className="result-details">
                     <summary>{copy.whyThis}</summary>
                     <CatalogDescription copy={copy} language={language} line={line} />

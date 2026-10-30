@@ -1,3 +1,4 @@
+import type { AiWorkloadKind } from "@/lib/readiness/ai-workload";
 import { z } from "zod";
 import { findMerchantVariant } from "../catalog/merchant-catalog";
 import { isLaptopVariant, laptopProducts, MERCHANT_PRODUCT_ID_PATTERN, MERCHANT_VARIANT_ID_PATTERN, type MerchantCatalog } from "../catalog/schemas";
@@ -57,6 +58,8 @@ export interface AdvisoryRequest {
     readonly shopperMessage: string;
     readonly intendedUse?: IntendedUse;
     readonly budgetCents?: number;
+    /** Shopper workload context only; not verified hardware compatibility. */
+    readonly aiWorkload?: AiWorkloadKind;
     /** Validated saved needs for interpreting the latest follow-up, never purchase authority. */
     readonly previousNeeds?: { readonly intendedUse: IntendedUse | null; readonly budgetDollars: string | null };
     readonly products: readonly AdvisorySuggestedProduct[];
@@ -174,6 +177,7 @@ const SuggestionOutputSchema = z.strictObject({
 export interface AdvisorySuitability {
   readonly intendedUse: IntendedUse;
   readonly budgetCents: number;
+  readonly aiWorkload?: AiWorkloadKind;
   readonly products: readonly EligibleAdvisoryProduct[];
 }
 
@@ -353,6 +357,7 @@ export async function suggestProductsSafely(
             shopperMessage: message.data,
             intendedUse: suitability.intendedUse,
             budgetCents: suitability.budgetCents,
+            aiWorkload: suitability.aiWorkload,
             products: suitability.products.filter((candidate) => {
               const entry = findMerchantVariant(catalog, candidate.productId, candidate.variantId);
               return entry !== null && isLaptopVariant(entry.variant);

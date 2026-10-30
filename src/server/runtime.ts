@@ -377,6 +377,14 @@ export function chargerBudgetTestStoreRequested(): boolean {
   return environment().SHOPACCESS_CHARGER_BUDGET_TEST_STORE === "1";
 }
 
+/**
+ * The explicit workload-record setting. Only the exact token "1" selects the workload-capable snapshot format (10),
+ * and then only for a store that is already format 10. Nothing sets it; see docs/workload-record-snapshot-format.md.
+ */
+export function workloadRecordsRequested(): boolean {
+  return environment().SHOPACCESS_WORKLOAD_RECORDS === "1";
+}
+
 /** Snapshot persistence settings (M2-1). Values are paths; they are never logged or shown. */
 export type MockStoreSettings =
   | { readonly state: "absent" }

@@ -6,12 +6,18 @@ import { formatAdvisoryFailureDiagnostic, interpretNeedsSafely } from "@/lib/pro
 import { withAdvisorySession } from "./advisory-limits";
 import { INTENDED_USES, type IntendedUse } from "@/lib/readiness/engine";
 import { ShopperMessageSchema } from "@/lib/security/limits";
+import { legacyWorkloadRecord } from "@/lib/readiness/conversation-workload";
+import { resolveDurableConversationWorkload } from "@/lib/readiness/durable-conversation-workload";
+import { updateWorkloadFromShopperTurn } from "@/lib/readiness/workload-record-update";
+import { setWorkloadRecord, workloadRecordForDraft } from "@/lib/session/workload-state";
+import { recordAcceptedLaptopWorkload } from "@/lib/readiness/accepted-workload-turn";
 import { classifyChargerText } from "@/lib/compatibility/charger-intent";
 import {
   applyChargerControl,
   assistantLineAfterLaptopResult,
   chargerTrackFor,
   deleteChargerTracks,
+  isOpenChargerTrack,
   laptopOutputAllowed,
   routeChargerText,
   setChargerTrack,
@@ -45,6 +51,8 @@ import type { Session } from "@/lib/session/service";
 import {
   checkoutSelectionCurrent,
   conversationStateOf,
+  MAX_CONVERSATION_TURNS,
+  type ConversationState,
   replaceConversationState,
   invalidatePurchaseSelections,
   mergeFollowUpCandidate,
@@ -341,6 +349,12 @@ export async function handleChargerControl(request: Request, runtime: Runtime): 
     if (applied.kind === "refused") return { kind: "limit" as const, language: draft.language };
     setChargerTrack(host, applied.track);
     if (control.action !== "propose_budget" && control.action !== "confirm_budget") rememberChargerTurn(host, session.id, draft, "", applied.line);
+    // A mixed charger-and-laptop request is a charger turn, which records no laptop workload. When the charger task ends
+    // (the laptop is chosen, or the shopper stops), recover the AI requirement stated in the retained conversation and
+    // persist it with this transition. Only an AI workload is recovered, and an existing record is never replaced.
+    if ((control.action === "stop" || (control.action === "choose_task" && control.task === "laptop")) && applied.track.state === "closed") {
+      recoverWorkloadAtTrackEnd(host, session.id, draft);
+    }
     return { kind: "applied" as const, language: draft.language };
   });
   if (result.kind === "session_dead") return seeOther(needsBack(requestedLanguage));
@@ -412,9 +426,40 @@ function rememberNeedsTurn(store: object, sessionId: string, draft: NeedsDraft, 
     shopperText,
     assistantNotice: draft.notice,
   });
+  if (shopperText.trim()) {
+    recordAcceptedLaptopWorkload(
+      store, sessionId, draft.draftId, draft.version, shopperText,
+    );
+  }
+}
+
+/**
+ * The retained conversation for this draft with the draft's own text placed first, as the oldest turn. The retained
+ * conversation keeps only the last eight turns, so the original request may have rolled out of it. This draft's text
+ * stays unchanged while a charger track is open (charger-routed texts leave it alone), so it precedes the retained turns,
+ * and a later withdrawal that is still retained therefore still wins. No other draft's text can enter.
+ */
+function conversationWithOrigin(host: object, sessionId: string, draft: NeedsDraft, later: ConversationState["turns"] = []): ConversationState | null {
+  const stored = conversationStateOf(host).conversations.get(sessionId) ?? null;
+  const retained = stored?.draftId === draft.draftId ? stored : null;
+  const turns = [...(retained?.turns ?? []), ...later];
+  if (!draft.shopperText.trim()) return retained ? { ...retained, turns } : null;
+  return {
+    draftId: draft.draftId,
+    interfaceLanguage: retained?.interfaceLanguage ?? draft.language,
+    turns: [{ role: "shopper", text: draft.shopperText }, ...turns],
+  };
+}
+
+/** Persists an AI workload recovered from the conversation, unless the draft already has a record. */
+function recoverWorkloadAtTrackEnd(host: object, sessionId: string, draft: NeedsDraft, later: ConversationState["turns"] = []): void {
+  if (workloadRecordForDraft(host, sessionId, draft.draftId, draft.version)) return;
+  const recovered = legacyWorkloadRecord(conversationWithOrigin(host, sessionId, draft, later), sessionId, draft.draftId, draft.version);
+  if (recovered && recovered.kind !== "general_programming") setWorkloadRecord(host, recovered);
 }
 
 function rememberChargerTurn(store: object, sessionId: string, draft: NeedsDraft, shopperText: string, assistantLine: ChargerLine): void {
+  retainWorkloadBeforeTruncation(store, sessionId, draft, shopperText);
   recordConversationTurn(store, sessionId, {
     draftId: draft.draftId,
     interfaceLanguage: draft.language,
@@ -423,7 +468,25 @@ function rememberChargerTurn(store: object, sessionId: string, draft: NeedsDraft
   });
 }
 
-function rememberLaptopResult(store: object, sessionId: string, draft: NeedsDraft, shopperText: string): void {
+/**
+ * Charger-routed texts reach only the retained conversation, which keeps the last eight turns. When this turn would push
+ * an earlier one out, the AI workload stated so far (this turn included) is made durable first, so it is not lost before
+ * the charger task ends. A draft that already has a record follows this turn like any accepted turn, so a later
+ * withdrawal still wins. Nothing is recorded for a draft that has stated no AI workload.
+ */
+function retainWorkloadBeforeTruncation(store: object, sessionId: string, draft: NeedsDraft, shopperText: string): void {
+  const text = shopperText.trim();
+  if (workloadRecordForDraft(store, sessionId, draft.draftId, draft.version)) {
+    if (text) recordAcceptedLaptopWorkload(store, sessionId, draft.draftId, draft.version, text);
+    return;
+  }
+  const stored = conversationStateOf(store).conversations.get(sessionId) ?? null;
+  if (!stored || stored.draftId !== draft.draftId) return;
+  if (stored.turns.length + (text ? 2 : 1) <= MAX_CONVERSATION_TURNS) return;
+  recoverWorkloadAtTrackEnd(store, sessionId, draft, text ? [{ role: "shopper", text }] : []);
+}
+
+function rememberLaptopResult(store: object, sessionId: string, draft: NeedsDraft, shopperText: string, workloadAlreadyHandled = false): void {
   const track = chargerTrackFor(store, sessionId, draft.draftId);
   const assistantLine = assistantLineAfterLaptopResult(track, draft.notice);
   recordConversationTurn(store, sessionId, {
@@ -432,6 +495,11 @@ function rememberLaptopResult(store: object, sessionId: string, draft: NeedsDraf
     shopperText: laptopOutputAllowed(track) ? shopperText : "",
     assistantNotice: assistantLine,
   });
+  if (!workloadAlreadyHandled && laptopOutputAllowed(track) && shopperText.trim()) {
+    recordAcceptedLaptopWorkload(
+      store, sessionId, draft.draftId, draft.version, shopperText,
+    );
+  }
 }
 
 function controlChange<T extends string>(posted: T | null, current: string | null): T | null {
@@ -524,7 +592,7 @@ export async function continueNeedsFollowUp(
   const merged = mergeFollowUpCandidate(claimed.draft, settled);
   const confirmedUse = claimed.draft.confirmedUse;
   const confirmedBudget = claimed.draft.confirmedBudgetDollars;
-  const withdrawConfirmation = Boolean(
+  const withdrawConfirmationForNeeds = Boolean(
     confirmedUse &&
       confirmedBudget &&
       merged.notice === "review" &&
@@ -534,9 +602,52 @@ export async function continueNeedsFollowUp(
   );
   // One durable decision: the follow-up result, any confirmation withdrawal, and the conversation line.
   await runtime.durable.change((host) => {
-    const written = commitFollowUp(host, sessionId, claimed.draft.draftId, claimed.draft.version, { ...merged, withdrawConfirmation }, runtime.clock().getTime());
+    const conversation = conversationStateOf(host).conversations.get(sessionId) ?? null;
+      const previous = conversation?.draftId === claimed.draft.draftId ? conversation : null;
+      const previousWorkload = resolveDurableConversationWorkload(
+        host,
+        sessionId,
+        claimed.draft.draftId,
+        claimed.draft.version,
+        previous,
+      );
+      const savedWorkload = workloadRecordForDraft(
+        host,
+        sessionId,
+        claimed.draft.draftId,
+        claimed.draft.version,
+      );
+      // Recover legacy context only when no matching durable record exists, and only from what the retained
+      // conversation actually states: no stated workload recovers no record.
+      const workloadBeforeTurn =
+        savedWorkload ??
+        legacyWorkloadRecord(previous, sessionId, claimed.draft.draftId, claimed.draft.version);
+      const updatedWorkload = updateWorkloadFromShopperTurn(
+        workloadBeforeTurn,
+        claimedText,
+        sessionId,
+        claimed.draft.draftId,
+        claimed.draft.version,
+      );
+      // A workload change counts, and is persisted, only while laptop output is allowed. An open charger track
+      // (for example opened while the interpreter ran) means this laptop turn changes no workload.
+      const workloadWritable = laptopOutputAllowed(chargerTrackFor(host, sessionId, claimed.draft.draftId));
+      const nextWorkload = workloadWritable ? updatedWorkload?.kind ?? previousWorkload : previousWorkload;
+      const withdrawConfirmation =
+        withdrawConfirmationForNeeds ||
+        Boolean(
+          confirmedUse &&
+          confirmedBudget &&
+          previousWorkload !== nextWorkload,
+        );
+      const written = commitFollowUp(host, sessionId, claimed.draft.draftId, claimed.draft.version, { ...merged, withdrawConfirmation }, runtime.clock().getTime());
     if (written && withdrawConfirmation) invalidatePurchaseSelections(host, sessionId);
-    if (written) rememberLaptopResult(host, sessionId, written, claimedText);
+    if (written) {
+      if (workloadWritable && updatedWorkload) {
+        setWorkloadRecord(host, updatedWorkload);
+      }
+      rememberLaptopResult(host, sessionId, written, claimedText, true);
+    }
   });
   return { kind: "done", failure: model === "malformed" || model === "unavailable" ? model : null, aiLimited: !interpreted.ok && interpreted.error === "AI_LIMITED" };
 }
@@ -695,15 +806,40 @@ export async function handleNeedsSubmit(request: Request, runtime: Runtime): Pro
   }
 
   // The claim is durable before the interpreter starts.
-  const claimed = await runtime.durable.change((host) =>
-    beginInterpretation(host, session.id, {
+  const claimed = await runtime.durable.change((host) => {
+    // A text that carries only a version still follows the charger rules: while a track is open it is a charger turn and
+    // never replaces the draft text, so the conversation keeps its order.
+    const current = needsDraftsFor(host).get(session.id) ?? null;
+    const open =
+      current && reading && current.version === submittedVersion && now < current.expiresAtMs
+        ? chargerTrackFor(host, session.id, current.draftId)
+        : null;
+    if (current && reading && isOpenChargerTrack(open)) {
+      if (!runtime.checkout.sessionIsLive(session.id)) return { kind: "session_dead" as const };
+      const routed = routeChargerText({
+        existing: open,
+        sessionId: session.id,
+        draftId: current.draftId,
+        reading,
+        structuredChange: typedUse !== null || typedBudget !== null,
+      });
+      if (routed.kind === "refused") return { kind: "limit" as const };
+      if (routed.kind === "charger") {
+        if (routed.changed) setChargerTrack(host, routed.track);
+        rememberChargerTurn(host, session.id, current, message.data, routed.line);
+        return { kind: "charger" as const };
+      }
+    }
+    return beginInterpretation(host, session.id, {
       submittedVersion,
       language,
       shopperText: message.data,
       expiresAtMs,
       now,
-    }),
-  );
+    });
+  });
+  if (claimed.kind === "charger" || claimed.kind === "session_dead") return seeOther(needsBack(language));
+  if (claimed.kind === "limit") return seeOther(needsBack(language, "CLARIFICATION_INVALID"));
   if (claimed.kind === "duplicate") return seeOther(needsBack(language));
   if (claimed.kind === "stale") return seeOther(needsBack(language, "STALE_DRAFT"));
   if (claimed.kind === "expired") return seeOther(needsBack(language, "DRAFT_EXPIRED"));

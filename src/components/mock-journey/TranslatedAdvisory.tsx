@@ -3,6 +3,7 @@ import { spanishFactorReason } from "@/lib/i18n/assessment-reasons";
 import type { JourneyCopy } from "@/lib/i18n/demo-copy";
 import { recommendationSentence } from "@/lib/i18n/demo-copy";
 import type { JourneyLanguage } from "@/lib/i18n/language";
+import { aiRecommendationUnverified } from "@/lib/readiness/ai-hardware";
 import type { GuidedCatalogLine } from "@/server/shopping";
 
 function assessmentLanguages(language: JourneyLanguage, reason: string, spanish: string | null, fallback: string) {
@@ -72,6 +73,10 @@ export function TranslatedAdvisory({
       {draft.recommendationClaim === "failed" ? <p role="alert">{copy.unavailable}</p> : null}
       {draft.recommendationClaim === "completed" && sentence ? <p role="status">{sentence}</p> : null}
       {sourceSentence ? <p>{sourceSentence}</p> : null}
+      {draft.recommendationClaim === "completed" && (draft.recommendation?.recommendations ?? []).some((item) => {
+        const line = lines.find((entry) => entry.productId === item.productId && entry.variantId === item.variantId);
+        return line !== undefined && eligible.has(item.variantId) && aiRecommendationUnverified(line.aiHardware, line.aiContext);
+      }) ? <p data-ai-general-only>{copy.aiGeneralOnlyNote}</p> : null}
       {draft.recommendationClaim === "completed" && !sentence ? <p role="alert">{copy.unavailable}</p> : null}
       {compact ? null : (
       <ul className="flex flex-col gap-3">
@@ -79,7 +84,7 @@ export function TranslatedAdvisory({
           const line = lines.find((entry) => entry.productId === item.productId && entry.variantId === item.variantId);
           return (
             <li key={item.variantId}>
-              {eligible.has(item.variantId) ? <p>{copy.suggestedLabel}</p> : null}
+              {eligible.has(item.variantId) && !(line && aiRecommendationUnverified(line.aiHardware, line.aiContext)) ? <p>{copy.suggestedLabel}</p> : null}
               <p>{language === "es" ? <span lang="en">{item.title}</span> : item.title}</p>
               <p>
                 {copy.priceLabel} {formatUsd(item.unitAmountCents)} {item.currency}

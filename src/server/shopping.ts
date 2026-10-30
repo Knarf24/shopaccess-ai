@@ -24,6 +24,13 @@ import {
   type ReadinessAssessment,
   type ReadinessStatus,
 } from "@/lib/readiness/engine";
+import {
+  assessAiHardwareEvidence,
+  evidenceFromAiLaptopVariant,
+  type AiHardwareEvidenceAssessment,
+} from "@/lib/readiness/ai-hardware";
+import type { AiWorkloadKind } from "@/lib/readiness/ai-workload";
+import { durableAiContext, resolveDurableConversationWorkload } from "@/lib/readiness/durable-conversation-workload";
 import type { NeedsNotice } from "@/lib/i18n/needs-notice";
 import { chargerTrackFor, deleteChargerTracks, laptopOutputAllowed, type ChargerTrack } from "@/lib/session/charger-clarification";
 import { readConversation, type ConversationState } from "@/lib/session/conversation";
@@ -71,6 +78,10 @@ export interface AssessedVariant {
   readonly product: MerchantProduct;
   readonly variant: LaptopMerchantVariant;
   readonly assessment: ReadinessAssessment;
+  /** AI hardware evidence only; never a compatibility verdict or purchase permission. */
+  readonly aiHardware: AiHardwareEvidenceAssessment;
+  /** False: confirmed non-AI (AI disclosures left out). True: AI workload known. "potential": AI likely or unknown. Absent: unknown (shown). */
+  readonly aiContext?: boolean | "potential";
   readonly explanation: SafeExplanation | null;
   /** Whether a quote can be requested. Depends only on catalog availability, never on the readiness label or on AI output. */
   readonly quotable: boolean;
@@ -131,7 +142,7 @@ const STATUS_ORDER = { READY: 0, READY_WITH_CAVEATS: 1, INSUFFICIENT_EVIDENCE: 2
  * The local assistant explains each variant and suggests once. The external provider
  * is asked for one suggestion and is not asked to explain or to start a checkout.
  */
-export async function buildShoppingView(runtime: Runtime, preferences: ShopperPreferences, sessionId: string): Promise<ShoppingView> {
+export async function buildShoppingView(runtime: Runtime, preferences: ShopperPreferences, sessionId: string, aiWorkload?: AiWorkloadKind): Promise<ShoppingView> {
   const now = runtime.clock();
   const stated = (fact: "budgetCents" | "intendedUse", value: number | string): EvidenceItem => ({
     fact,
@@ -161,6 +172,13 @@ export async function buildShoppingView(runtime: Runtime, preferences: ShopperPr
         product,
         variant,
         assessment: result.value,
+        aiHardware: assessAiHardwareEvidence(
+          aiWorkload ?? "unspecified_ai",
+          evidenceFromAiLaptopVariant(variant, runtime.catalog.revision, now),
+          now,
+        ),
+        // The direct-entry page has no conversation: it has an AI context only when a workload is supplied.
+        aiContext: aiWorkload !== undefined && aiWorkload !== "general_programming",
         explanation,
         quotable: variant.availability === "IN_STOCK",
       });
@@ -531,6 +549,9 @@ export interface GuidedAssessmentFactor {
 }
 
 export interface GuidedCatalogLine {
+  readonly aiHardware: AiHardwareEvidenceAssessment;
+  /** See AssessedVariant.aiContext. */
+  readonly aiContext?: boolean | "potential";
   readonly productId: string;
   readonly variantId: string;
   readonly title: string;
@@ -556,7 +577,7 @@ type GuidedAssessed = AssessedVariant & {
   status: ReadinessStatus;
 };
 
-function assessGuidedVariants(runtime: Runtime, preferences: ShopperPreferences): GuidedAssessed[] {
+function assessGuidedVariants(runtime: Runtime, preferences: ShopperPreferences, aiWorkload: AiWorkloadKind = "unspecified_ai", aiContext?: boolean | "potential"): GuidedAssessed[] {
   const now = runtime.clock();
   const stated = (fact: "budgetCents" | "intendedUse", value: number | string): EvidenceItem => ({
     fact,
@@ -584,6 +605,12 @@ function assessGuidedVariants(runtime: Runtime, preferences: ShopperPreferences)
         product,
         variant,
         assessment: result.value,
+        aiHardware: assessAiHardwareEvidence(
+          aiWorkload,
+          evidenceFromAiLaptopVariant(variant, runtime.catalog.revision, now),
+          now,
+        ),
+        aiContext,
         explanation: null,
         productId: product.productId,
         variantId: variant.variantId,
@@ -616,12 +643,13 @@ export async function recommendConfirmedNeeds(runtime: Runtime, preferences: Sho
 async function recommendWithSource(
   runtime: Runtime,
   preferences: ShopperPreferences,
+  aiWorkload: AiWorkloadKind = "unspecified_ai",
 ): Promise<{ outcome: RetainedRecommendation | "failed"; source: SuggestionSource }> {
   const primary: SuggestionSource = runtime.ai.suggestionSource === "model" ? "model" : "mock";
-  const lines = assessGuidedVariants(runtime, preferences);
+  const lines = assessGuidedVariants(runtime, preferences, aiWorkload);
   const eligible = lines.filter((line) => variantQualifies(line, preferences.budgetCents));
   if (eligible.length === 0) return { outcome: { assistantMessage: NO_CATALOG_MATCH, recommendations: [] }, source: primary };
-  const suitability = { intendedUse: preferences.use, budgetCents: preferences.budgetCents, products: eligible.map(eligibleProduct) };
+  const suitability = { intendedUse: preferences.use, budgetCents: preferences.budgetCents, aiWorkload, products: eligible.map(eligibleProduct) };
   const message = `Laptop for ${USE_LABELS[preferences.use]}`;
   let source: SuggestionSource = primary;
   let suggestion = await suggestProductsSafely(runtime.ai, runtime.catalog, message, recordExternalAdvisoryFailure, suitability);
@@ -711,7 +739,17 @@ export async function loadNeedsJourney(
     const claimedDraft = claim.draft;
     const preferences = parsePreferences(claimedDraft.confirmedUse, claimedDraft.confirmedBudgetDollars);
     // The suggestion runs in this session's advisory scope, so any AI call reserves against the call limits.
-    const recommended = preferences ? await withAdvisorySession(session.id, () => recommendWithSource(runtime, preferences)) : null;
+    const workload = resolveDurableConversationWorkload(
+      runtime.store,
+      session.id,
+      claimedDraft.draftId,
+      claimedDraft.version,
+      conversationFor(claimedDraft.draftId),
+      claimedDraft.shopperText,
+    );
+    const recommended = preferences
+      ? await withAdvisorySession(session.id, () => recommendWithSource(runtime, preferences, workload))
+      : null;
     const outcome = recommended ? recommended.outcome : "failed";
     {
       // Rechecked against the live session, claimed draft id and version inside the save-first decision.
@@ -763,7 +801,14 @@ export async function loadNeedsJourney(
     draft,
     suggestionSource,
     listings,
-    lines: assessGuidedVariants(runtime, preferences).map((line) => ({
+    lines: assessGuidedVariants(
+      runtime,
+      preferences,
+      resolveDurableConversationWorkload(runtime.store, session.id, draft.draftId, draft.version, conversationFor(draft.draftId), draft.shopperText),
+      durableAiContext(runtime.store, session.id, draft.draftId, draft.version, conversationFor(draft.draftId), draft.shopperText),
+    ).map((line) => ({
+        aiHardware: line.aiHardware,
+      aiContext: line.aiContext,
       productId: line.productId,
       variantId: line.variantId,
       title: line.title,

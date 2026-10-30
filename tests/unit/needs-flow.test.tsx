@@ -1,3 +1,4 @@
+import { assessAiHardwareEvidence } from "@/lib/readiness/ai-hardware";
 import { isLaptopVariant } from "@/lib/catalog/schemas";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -363,6 +364,7 @@ describe("guided needs flow", () => {
         confirmedBudgetDollars="500"
         lines={[
           {
+            aiHardware: assessAiHardwareEvidence("unspecified_ai", [], new Date("2026-10-22T12:00:00.000Z")),
             productId: "dmp_aspirego15",
             variantId: "dmv_aspirego15",
             title: "Acer Aspire Go 15",
@@ -413,6 +415,7 @@ describe("guided needs flow", () => {
     }));
     const copy = journeyCopy("es");
     const line = {
+      aiHardware: assessAiHardwareEvidence("unspecified_ai", [], new Date("2026-10-22T12:00:00.000Z")),
       productId: product.productId,
       variantId: variant.variantId,
       title: product.title,
@@ -897,6 +900,7 @@ describe("guided needs flow", () => {
     };
     expect(spanishFactorReason(unknownReason)).toBeNull();
     const line = {
+      aiHardware: assessAiHardwareEvidence("unspecified_ai", [], new Date("2026-10-22T12:00:00.000Z")),
       productId: product.productId,
       variantId: variant.variantId,
       title: product.title,
@@ -1356,6 +1360,7 @@ describe("guided needs flow", () => {
 
   it("keeps spaces inside the purchase button name for English and Spanish", () => {
     const line = {
+      aiHardware: assessAiHardwareEvidence("unspecified_ai", [], new Date("2026-10-22T12:00:00.000Z")),
       productId: "dmp_aspirego15",
       variantId: "dmv_aspirego15",
       title: "Acer Aspire Go 15",
@@ -1702,6 +1707,7 @@ describe("guided needs flow", () => {
     expect(textById(noticeOnly, "needs-notice")).toBe(spanish.notices.missing_budget);
 
     const purchaseLine = {
+      aiHardware: assessAiHardwareEvidence("unspecified_ai", [], new Date("2026-10-22T12:00:00.000Z")),
       productId: "studybook-14",
       variantId: "studybook-14-base",
       title: "Acer Aspire Go 15",

@@ -42,6 +42,9 @@
   --ui-brand: #2457d6;
   --ui-input: #64748b;
   --ui-panel: #f3f7fe;
+  --ui-neu-raised: 8px 8px 20px rgb(133 155 190 / 22%), -8px -8px 20px rgb(255 255 255 / 85%);
+  --ui-neu-raised-soft: 5px 5px 12px rgb(133 155 190 / 18%), -5px -5px 12px rgb(255 255 255 / 80%);
+  --ui-neu-inset: inset 3px 3px 7px rgb(133 155 190 / 18%), inset -3px -3px 7px rgb(255 255 255 / 90%);
   --ui-font-heading: "Plus Jakarta Sans", Arial, Helvetica, sans-serif;
   --ui-font-body: "DM Sans", Arial, Helvetica, sans-serif;
   --ui-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -93,14 +96,14 @@
   background: var(--gp-paper);
   border: 1px solid var(--gp-line);
   border-radius: 1.25rem;
-  box-shadow: 0 1px 3px 0 rgb(15 23 42 / 0.04);
+  box-shadow: var(--ui-neu-raised-soft);
 }
 
 .guided-presentation.ui-refresh .catalog-board article {
   background: var(--gp-paper);
   border-color: var(--gp-line);
   border-radius: 1rem;
-  box-shadow: 0 1px 3px 0 rgb(15 23 42 / 0.04);
+  box-shadow: var(--ui-neu-raised-soft);
 }
 
 .guided-presentation.ui-refresh .catalog-board article li,
@@ -112,6 +115,7 @@
 .guided-presentation.ui-refresh .demo-illustration {
   background: var(--gp-teal-soft);
   border-radius: 1.25rem;
+  box-shadow: var(--ui-neu-inset);
 }
 
 /* Notices keep their meaning colours; only the shape follows the refresh. */
@@ -157,6 +161,7 @@
   color: var(--gp-ink);
   padding: 0.625rem 0.75rem;
   font-size: 0.9375rem;
+  box-shadow: var(--ui-neu-inset);
 }
 
 .guided-presentation.ui-refresh input:focus,
@@ -181,7 +186,7 @@
   color: #fff;
   font-weight: 600;
   font-size: 0.9375rem;
-  box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.1);
+  box-shadow: var(--ui-neu-raised-soft);
 }
 
 .guided-presentation.ui-refresh button[type="submit"]:not(:disabled):hover,
@@ -203,7 +208,7 @@
   color: var(--gp-ink);
   font-weight: 600;
   text-align: left;
-  box-shadow: none;
+  box-shadow: var(--ui-neu-raised-soft);
 }
 
 .guided-presentation.ui-refresh button[type="submit"][name="step"]:not(:disabled):hover {
@@ -231,7 +236,7 @@
   background: var(--gp-paper);
   border: 1px solid var(--gp-line);
   border-radius: 1rem;
-  box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+  box-shadow: var(--ui-neu-raised-soft);
 }
 
 .guided-presentation.ui-refresh .journey-steps li {
@@ -426,11 +431,44 @@
   font-weight: 600;
 }
 
-/* Tinted bands give the plain white cards something to sit on. */
+/* Raised homepage surfaces establish depth around the softer inner cards. */
 .guided-presentation.ui-refresh .home-hero,
 .guided-presentation.ui-refresh .catalog-board {
   background: rgb(255 255 255 / 0.55);
   border: 1px solid var(--gp-line);
   border-radius: 1.25rem;
   padding: 1rem;
+  box-shadow: var(--ui-neu-raised);
+}
+
+
+/* ShopAccess navy Neumorphic homepage hero */
+.guided-presentation.ui-refresh .home-hero {
+  background:
+    radial-gradient(ellipse at 90% 10%, rgb(59 130 246 / 24%), transparent 55%),
+    linear-gradient(135deg, #101d38 0%, #172d56 65%, #203e75 100%);
+  border: 1px solid #314e7c;
+  box-shadow:
+    10px 10px 24px rgb(86 108 145 / 25%),
+    -8px -8px 22px rgb(255 255 255 / 65%);
+}
+
+.guided-presentation.ui-refresh .home-hero .guided-entry {
+  background: #f8faff;
+  border: 1px solid #d6e3f8;
+  box-shadow:
+    6px 6px 16px rgb(4 15 38 / 28%),
+    -3px -3px 12px rgb(255 255 255 / 12%);
+}
+
+.guided-presentation.ui-refresh .home-hero .demo-illustration {
+  background: #eaf2ff;
+  border: 1px solid #c7d9f5;
+  box-shadow:
+    6px 6px 16px rgb(4 15 38 / 28%),
+    -3px -3px 12px rgb(255 255 255 / 12%);
+}
+
+.guided-presentation.ui-refresh .home-hero .demo-illustration figcaption {
+  color: #334155;
 }

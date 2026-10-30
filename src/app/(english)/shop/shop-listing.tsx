@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AdvisoryRecommendations } from "@/components/AdvisoryRecommendations";
+import { AiCompatibilityDisclosure } from "@/components/AiCompatibilityDisclosure";
 import { ExternalProductCard } from "@/components/ExternalProductCard";
 import { PreferencesForm } from "@/components/PreferencesForm";
 import { ReadinessPanel } from "@/components/ReadinessPanel";
@@ -70,7 +71,7 @@ export function ShopListing({
           Sold by {view.merchantName}. {journeyCopy("en").catalogNotice}
         </p>
         <ul className="flex flex-col gap-4">
-          {view.variants.map(({ product, variant, assessment, explanation, quotable }) => (
+          {view.variants.map(({ product, variant, assessment, aiHardware, aiContext, explanation, quotable }) => (
             <li key={variant.variantId} className="flex flex-col gap-3 rounded-lg border border-zinc-400 p-4">
               <h3 className="text-lg font-semibold">
                 {product.title} — {variant.label}
@@ -84,6 +85,7 @@ export function ShopListing({
                 explanation={explanation?.explanation ?? null}
                 explanationLabel={view.explanationLabel}
               />
+                {aiContext === false ? null : <AiCompatibilityDisclosure assessment={aiHardware} language="en" />}
               {quotable ? (
                 <form method="post" action="/checkout/start">
                   <input type="hidden" name="csrfToken" value={csrfToken} />
