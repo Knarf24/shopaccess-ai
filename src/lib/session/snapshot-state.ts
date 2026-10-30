@@ -103,6 +103,12 @@ export interface DurableState {
   readonly chargerTracks: ReadonlyMap<string, ChargerTrack>;
   readonly workloads?: ReadonlyMap<string, WorkloadRecord>;
   /**
+   * Converted legacy drafts (session to draft), written only by a format-7-to-10 conversion. Undefined means the store
+   * carries none; an empty map is kept and written back as an empty list. Entries survive until their draft is
+   * replaced, expires or its session ends; a workload record never removes one.
+   */
+  readonly legacyDrafts?: ReadonlyMap<string, string>;
+  /**
    * In memory only, never written: drafts restored from a format without workload records (7, 8), whose missing record
    * may mean it was lost. Pruned to live drafts as the state changes.
    */
@@ -192,6 +198,11 @@ export function bodyFromState(state: DurableState, format: 7 | 9 = 7): Published
       workloads: [...(state.workloads ?? new Map<string, WorkloadRecord>())]
         .filter(([sessionId, record]) => record.sessionId === sessionId && draftOf.get(sessionId) === record.draftId)
         .map(([, record]) => ({ ...record })),
+    } : {}),
+    ...(format === 9 && state.legacyDrafts ? {
+      legacyDrafts: [...state.legacyDrafts]
+        .filter(([sessionId, draftId]) => draftOf.get(sessionId) === draftId)
+        .map(([sessionId, draftId]) => ({ sessionId, draftId })),
     } : {}),
   };
 }
@@ -300,6 +311,11 @@ export function restoreState(body: PublishedBody, now: Date): RecoveredState {
   const profileRevisions = body.profileRevisions
     .filter((revision) => ids.has(revision.sessionId))
     .map((revision) => ({ sessionId: revision.sessionId, version: revision.version }));
+  // Converted legacy drafts, kept only while the draft they name is still this session's current draft.
+  const legacyDrafts = new Map<string, string>();
+  for (const entry of body.legacyDrafts ?? []) {
+    if (drafts.get(entry.sessionId)?.draftId === entry.draftId) legacyDrafts.set(entry.sessionId, entry.draftId);
+  }
   return {
     state: {
       sessions,
@@ -314,7 +330,13 @@ export function restoreState(body: PublishedBody, now: Date): RecoveredState {
       chargerTracks,
       workloads,
       // A body without a workloads array (formats 7 and 8) cannot say which drafts had a record.
-      ...(body.workloads === undefined ? { unrecoveredWorkloadDrafts: new Set([...drafts.values()].map((draft) => draft.draftId)) } : {}),
+      // A converted store lists the drafts whose earlier evidence is unknown; a native one lists none and infers none.
+      ...(body.workloads === undefined
+        ? { unrecoveredWorkloadDrafts: new Set([...drafts.values()].map((draft) => draft.draftId)) }
+        : body.legacyDrafts !== undefined
+          ? { unrecoveredWorkloadDrafts: new Set(legacyDrafts.values()) }
+          : {}),
+      ...(body.legacyDrafts !== undefined ? { legacyDrafts } : {}),
     },
     interrupted: { interpretations, recommendations },
     droppedSessions,

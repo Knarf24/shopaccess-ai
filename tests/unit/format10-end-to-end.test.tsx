@@ -10,6 +10,7 @@ import { canonicalJson } from "@/lib/shared/canonical-json";
 import { readConversation } from "@/lib/session/conversation";
 import { chargerTrackFor, setChargerTrack } from "@/lib/session/charger-clarification";
 import { SESSION_COOKIE_NAME } from "@/lib/session/cookie";
+import { convertBodyToWorkloadBody } from "@/lib/session/snapshot-migration";
 import { recoverStateGate } from "@/lib/session/snapshot-state";
 import { openFoundationStore, openFoundationStoreWithKeyFile, type FoundationStore, type OpenOptions } from "@/lib/session/snapshot-store";
 import { needsDraftsFor } from "@/lib/session/store";
@@ -1166,6 +1167,252 @@ describe("B1.1 clarification-track AI workload preservation", () => {
       await versionOnly(buyer, "I want to train AI models locally on my laptop");
       expect(buyer.draft()!.shopperText).toBe("I want to train AI models locally on my laptop");
       expect(buyer.record()?.kind).toBe("local_training");
+    });
+  });
+});
+
+// Release B2: converted legacy drafts keep the fail-closed AI treatment through a persisted marker; native drafts do not.
+describe("B2 legacy-draft provenance: a format-7 store converted to format 10 in a disposable copy", () => {
+  type Body = Parameters<typeof convertBodyToWorkloadBody>[0];
+
+  /** A format-7 store whose draft has a full history (the AI request has rolled out), then its converted twin. */
+  async function convertedWorld(followUps = 9) {
+    const world7 = await freshWorld("ordinary");
+    pointAt(world7, false);
+    const first = await mustStart(world7);
+    const buyer7 = await shopper(first.runtime);
+    await buyer7.submit("I want to train AI models locally on my laptop");
+    for (let i = 0; i < followUps; i++) await buyer7.submit(`Thank you, follow-up ${i + 1}`);
+    await buyer7.confirm();
+    await first.stop();
+    const source = diskFile(world7);
+    expect(source.format).toBe(7);
+    expect("workloads" in source.body).toBe(false);
+
+    const world10 = await freshWorld("format10");
+    const opened = await openFoundationStore(world10.dir, KEY, { workloadRecords: true });
+    if (opened.status !== "ready") throw new Error(`format-10 store did not open: ${opened.code}`);
+    const body = convertBodyToWorkloadBody(source.body as unknown as Body, new Date());
+    expect((await opened.value.commit(body)).status).toBe("ready");
+    await opened.value.close?.();
+    pointAt(world10, true);
+    return { world7, world10, token: buyer7.token, source, body };
+  }
+
+  async function reopened(world: World, token: string) {
+    const started = await mustStart(world);
+    return { started, buyer: await shopper(started.runtime, token) };
+  }
+
+  it("is written once, byte-for-byte equal to the source in every other key, and the source store is untouched", async () => {
+    const { world7, world10, source, body } = await convertedWorld();
+    const out = diskFile(world10);
+    expect(out.format).toBe(10);
+    expect(out.identity).toBe(source.identity);
+    expect(out.body.workloads).toEqual([]);
+    expect(out.body.legacyDrafts).toEqual([{ sessionId: source.body.sessions[0].id, draftId: source.body.drafts[0].draftId }]);
+    expect(body.legacyDrafts).toEqual(out.body.legacyDrafts);
+    const { workloads, legacyDrafts, ...rest } = out.body;
+    expect(rest).toEqual(source.body);
+    expect(diskFile(world7)).toEqual(source);
+  });
+
+  it("keeps the potential-AI disclosure and withholds the badge across three restarts", { timeout: 120000 }, async () => {
+    const { world10, token } = await convertedWorld();
+    for (let restart = 1; restart <= 3; restart++) {
+      const { started, buyer } = await reopened(world10, token);
+      expect(buyer.record()).toBeNull();
+      expect(unrecoveredWorkloadDraftsOf(started.runtime.store).size).toBe(1);
+      const { journey, html } = await buyer.cards();
+      for (const line of journey.lines) expect(line.aiContext, `restart ${restart}`).toBe("potential");
+      expect(html).not.toContain("recommendation-badge");
+      expect(html).toContain("AI compatibility");
+      expect(diskFile(world10).body.legacyDrafts).toHaveLength(1);
+      await started.stop();
+    }
+  });
+
+  it("an ordinary laptop preference neither erases the marker nor produces a record", async () => {
+    const { world10, token } = await convertedWorld();
+    const { started, buyer } = await reopened(world10, token);
+    await buyer.submit("I prefer something lightweight");
+    await buyer.confirm();
+    expect(diskFile(world10).body.legacyDrafts).toHaveLength(1);
+    for (const line of (await buyer.cards()).journey.lines) expect(line.aiContext).toBe("potential");
+    await started.stop();
+  });
+
+  it("an explicit AI statement supersedes the effect and keeps the marker; a withdrawal does not delete it", async () => {
+    const { world10, token } = await convertedWorld();
+    const { started, buyer } = await reopened(world10, token);
+    await buyer.submit("Actually I will use cloud AI services");
+    await buyer.confirm();
+    expect(buyer.record()?.kind).toBe("cloud_ai");
+    for (const line of (await buyer.cards()).journey.lines) expect(line.aiContext).toBe(true);
+    expect(diskFile(world10).body.legacyDrafts).toHaveLength(1);
+    await started.stop();
+    const again = await reopened(world10, token);
+    expect(again.buyer.record()?.kind).toBe("cloud_ai");
+    expect(diskFile(world10).body.legacyDrafts).toHaveLength(1);
+    await again.started.stop();
+  });
+
+  it("disappears when the draft is replaced, and the new draft is an ordinary native one", async () => {
+    const { world10, token } = await convertedWorld();
+    const { started, buyer } = await reopened(world10, token);
+    await started.runtime.durable.change((host) => {
+      const draft = needsDraftsFor(host).get(buyer.session.id)!;
+      needsDraftsFor(host).set(buyer.session.id, { ...draft, draftId: `nd_${"d".repeat(32)}`, version: 1, shopperText: "I need a laptop for school", prefilledUse: null, prefilledBudgetDollars: null, confirmedUse: null, confirmedBudgetDollars: null, interpretationClaimVersion: null, recommendationClaim: null, recommendation: null, notice: null });
+    });
+    expect(diskFile(world10).body.legacyDrafts).toEqual([]);
+    expect(unrecoveredWorkloadDraftsOf(started.runtime.store).size).toBe(0);
+    await started.stop();
+  });
+
+  it("a converted draft with six retained turns is unmarked and keeps its AI intent as it grows past eight turns", { timeout: 120000 }, async () => {
+    const REQUEST = "I want to train AI models locally on my laptop";
+    const { world10, source, token } = await convertedWorld(2);
+    expect(source.body.conversations[0].turns).toHaveLength(6);
+    expect(source.body.conversations[0].turns.some((turn: any) => turn.text === REQUEST)).toBe(true);
+    expect(diskFile(world10).body.legacyDrafts).toEqual([]);
+
+    let { started, buyer } = await reopened(world10, token);
+    expect(buyer.record()).toBeNull();
+    expect(unrecoveredWorkloadDraftsOf(started.runtime.store).size).toBe(0);
+    let cards = await buyer.cards();
+    for (const line of cards.journey.lines) {
+      expect(line.aiContext).toBe(true);
+      expect(line.aiHardware.workload).toBe("local_training");
+    }
+    expect(cards.html).not.toContain("recommendation-badge");
+
+    // Two more shopper turns: exactly eight retained, then truncation that pushes the original request out.
+    await buyer.submit("Thank you, extra 1");
+    expect(readConversation(started.runtime.store, buyer.session.id)?.turns).toHaveLength(8);
+    await buyer.submit("Thank you, extra 2");
+    for (let i = 3; i <= 5; i++) await buyer.submit(`Thank you, extra ${i}`);
+    const retained = readConversation(started.runtime.store, buyer.session.id)?.turns ?? [];
+    expect(retained).toHaveLength(8);
+    expect(retained.some((turn) => turn.text === REQUEST)).toBe(false);
+    expect(buyer.draft()!.shopperText).not.toBe(REQUEST);
+    expect(buyer.record()?.kind).toBe("local_training");
+    expect(kinds(world10)).toEqual(["local_training/inferred"]);
+    expect(diskFile(world10).body.legacyDrafts).toEqual([]);
+
+    await started.stop();
+    ({ started, buyer } = await reopened(world10, token));
+    expect(buyer.record()?.kind).toBe("local_training");
+    await buyer.confirm();
+    cards = await buyer.cards();
+    for (const line of cards.journey.lines) {
+      expect(line.aiContext).toBe(true);
+      expect(line.aiHardware.workload).toBe("local_training");
+    }
+    expect(cards.html).not.toContain("recommendation-badge");
+    expect(cards.html).toContain("AI compatibility");
+    await started.stop();
+  });
+
+  it("a native format-10 store never gets the key, and its non-AI journey is unchanged", async () => {
+    const world = await activated();
+    const started = await mustStart(world);
+    const buyer = await shopper(started.runtime);
+    await buyer.submit("I need a laptop for school");
+    for (let i = 0; i < 9; i++) await buyer.submit(`Thank you, follow-up ${i + 1}`);
+    await started.stop();
+    const restarted = await mustStart(world);
+    const again = await shopper(restarted.runtime, buyer.token);
+    await again.confirm();
+    expect("legacyDrafts" in diskFile(world).body).toBe(false);
+    for (const line of (await again.cards()).journey.lines) expect(line.aiContext).toBe(false);
+  });
+
+  it("an existing native format-10 store (no key) opens and is written back without one", async () => {
+    const world = await activated();
+    expect("legacyDrafts" in diskFile(world).body).toBe(false);
+    const started = await mustStart(world);
+    await started.stop();
+    expect("legacyDrafts" in diskFile(world).body).toBe(false);
+  });
+
+  describe("validation", () => {
+    async function base() {
+      const built = await convertedWorld();
+      const opened = await openFoundationStore(built.world10.dir, KEY, { workloadRecords: true });
+      if (opened.status !== "ready") throw new Error(opened.code);
+      stoppers.push(async () => void (await opened.value.close?.()));
+      const published = opened.value.readPublished();
+      if (published.status !== "ready") throw new Error("unreadable");
+      return { ...built, store: opened.value, good: published.value.body as unknown as Record<string, any> };
+    }
+    const sessionId = (good: Record<string, any>) => good.sessions[0].id as string;
+    const draftId = (good: Record<string, any>) => good.drafts[0].draftId as string;
+
+    it.each<[string, (good: Record<string, any>) => unknown]>([
+      ["a non-array", () => "x"],
+      ["an extra key in an entry", (g) => [{ sessionId: sessionId(g), draftId: draftId(g), extra: 1 }]],
+      ["a missing key", (g) => [{ sessionId: sessionId(g) }]],
+      ["a non-string id", (g) => [{ sessionId: 1, draftId: draftId(g) }]],
+      ["a draft that is not the session's draft", (g) => [{ sessionId: sessionId(g), draftId: "nd_" + "f".repeat(32) }]],
+      ["a session that does not exist", (g) => [{ sessionId: "ses_" + "f".repeat(32), draftId: draftId(g) }]],
+      ["a duplicate session", (g) => [{ sessionId: sessionId(g), draftId: draftId(g) }, { sessionId: sessionId(g), draftId: draftId(g) }]],
+      ["more entries than sessions", (g) => Array.from({ length: g.sessions.length + 1 }, () => ({ sessionId: sessionId(g), draftId: draftId(g) }))],
+      ["null", () => null],
+    ])("refuses %s, and the store is left as it was", async (_label, make) => {
+      const { world10, store, good } = await base();
+      const before = fs.readFileSync(storePath(world10));
+      const result = await store.commit({ ...good, legacyDrafts: make(good) });
+      expect(result).toEqual({ status: "unavailable", outcome: "definite" });
+      expect(fs.readFileSync(storePath(world10)).equals(before)).toBe(true);
+    });
+
+    it("refuses a duplicated session even when the list is not longer than the session list", async () => {
+      const { world10, store, good } = await base();
+      const before = fs.readFileSync(storePath(world10));
+      const twin = { ...good.sessions[0], id: "ses_" + "7".repeat(32), tokenDigest: "7".repeat(64) };
+      const twinDraft = { ...good.drafts[0], sessionId: twin.id, draftId: "nd_" + "7".repeat(32) };
+      const entry = { sessionId: sessionId(good), draftId: draftId(good) };
+      const two = { ...good, sessions: [...good.sessions, twin], drafts: [...good.drafts, twinDraft] };
+      expect((await store.commit({ ...two, legacyDrafts: [{ sessionId: twin.id, draftId: twinDraft.draftId }] })).status).toBe("ready");
+      expect(await store.commit({ ...two, legacyDrafts: [entry, entry] })).toEqual({ status: "unavailable", outcome: "definite" });
+      expect(fs.readFileSync(storePath(world10)).equals(before)).toBe(false);
+    });
+
+    it("accepts an empty list and a valid entry, and refuses the key in a format-7 or format-9 body", async () => {
+      const { store, good } = await base();
+      expect((await store.commit({ ...good, legacyDrafts: [] })).status).toBe("ready");
+      expect((await store.commit({ ...good, legacyDrafts: [{ sessionId: sessionId(good), draftId: draftId(good) }] })).status).toBe("ready");
+      const { legacyDrafts, workloads, ...seven } = good;
+      for (const options of [{}, { format9WorkloadTestStore: true }] as OpenOptions[]) {
+        const dir = fs.mkdtempSync(join(tmpdir(), "sa-b2-"));
+        fs.chmodSync(dir, 0o700);
+        created.push(dir);
+        fs.writeFileSync(join(dir, "identity.key"), KEY, { mode: 0o600 });
+        const fresh = await openFoundationStore(dir, KEY, { ...options, initializeEmpty: { keyFile: join(dir, "identity.key") } });
+        if (fresh.status !== "ready") throw new Error(fresh.code);
+        const body = options.format9WorkloadTestStore ? { ...seven, workloads: [], legacyDrafts: [] } : { ...seven, legacyDrafts: [] };
+        expect(await fresh.value.commit(body)).toEqual({ status: "unavailable", outcome: "definite" });
+        await fresh.value.close?.();
+      }
+    });
+
+    it("refuses a file that carries a malformed marker even with a recomputed checksum", async () => {
+      const { world10, store, good } = await base();
+      await store.close?.();
+      const file = diskFile(world10);
+      const body = { ...file.body, legacyDrafts: [{ sessionId: sessionId(good), draftId: "nd_" + "f".repeat(32) }] };
+      const sha256 = createHash("sha256").update(`shopaccess-snapshot-format-10\n${canonicalJson(body)}`, "utf8").digest("hex");
+      fs.writeFileSync(storePath(world10), JSON.stringify({ ...file, body, sha256 }), { mode: 0o600 });
+      const refused = await openFoundationStore(world10.dir, KEY, { workloadRecords: true });
+      expect(refused).toEqual({ status: "unavailable", code: "invalid-snapshot" });
+    });
+
+    it("refuses a marker added to a format-9 body relabelled 10 with its old checksum", async () => {
+      const { world10, store } = await base();
+      await store.close?.();
+      const file = diskFile(world10);
+      fs.writeFileSync(storePath(world10), JSON.stringify({ ...file, body: { ...file.body, legacyDrafts: [] } }), { mode: 0o600 });
+      expect(await openFoundationStore(world10.dir, KEY, { workloadRecords: true })).toEqual({ status: "unavailable", code: "invalid-snapshot" });
     });
   });
 });

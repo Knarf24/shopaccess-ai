@@ -200,7 +200,15 @@ export type PublishedBody = {
   readonly profileRevisions: readonly SnapshotProfileRevision[];
   readonly chargerTracks: readonly SnapshotChargerTrack[];
   readonly workloads?: readonly WorkloadRecord[];
+  /**
+   * Format 10 only, optional. Drafts converted from a format-7 store whose earlier workload evidence is unknown. Present
+   * (even when empty) only on a converted store; absent means no legacy information, never an inferred one.
+   */
+  readonly legacyDrafts?: readonly SnapshotLegacyDraft[];
 };
+
+/** One converted legacy draft, bound to the session's current draft in the same body. */
+export type SnapshotLegacyDraft = { readonly sessionId: string; readonly draftId: string };
 
 /** One charger clarification record (format 7). `deviceId` is set exactly for `candidate` and `confirmed`. */
 export type SnapshotChargerTrack = {
@@ -656,7 +664,8 @@ function parseBody(value: unknown, format: Format): PublishedBody | null {
                   : format === 9
                     ? FORMAT_9_BODY_KEYS
                     : BODY_KEYS;
-  if (!isRecord(value) || !hasExactKeys(value, keys)) return null;
+  const withLegacy = format === 10 && isRecord(value) && Object.prototype.hasOwnProperty.call(value, "legacyDrafts") ? [...keys, "legacyDrafts"] : keys;
+  if (!isRecord(value) || !hasExactKeys(value, withLegacy)) return null;
   const allocation = parseWindow(value.allocation, MAX_ALLOCATION_COUNT);
   const admissionLogin = parseWindow(value.admissionLogin, MAX_SAFE);
   if (!allocation || !admissionLogin || !Array.isArray(value.sessions) || !Array.isArray(value.drafts)) return null;
@@ -795,6 +804,17 @@ function parseBody(value: unknown, format: Format): PublishedBody | null {
       if (draftOf.get(workload.sessionId) !== workload.draftId) return null;
       if (workloadSessions.has(workload.sessionId)) return null;
       workloadSessions.add(workload.sessionId);
+    }
+  }
+  if (format === 10 && Object.prototype.hasOwnProperty.call(value, "legacyDrafts")) {
+    if (!Array.isArray(value.legacyDrafts) || value.legacyDrafts.length > value.sessions.length) return null;
+    const legacySessions = new Set<string>();
+    for (const entry of value.legacyDrafts) {
+      if (!isRecord(entry) || !hasExactKeys(entry, ["sessionId", "draftId"])) return null;
+      if (typeof entry.sessionId !== "string" || typeof entry.draftId !== "string") return null;
+      if (draftOf.get(entry.sessionId) !== entry.draftId) return null;
+      if (legacySessions.has(entry.sessionId)) return null;
+      legacySessions.add(entry.sessionId);
     }
   }
 
