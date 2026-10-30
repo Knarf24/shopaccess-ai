@@ -50,6 +50,7 @@ import type { Session } from "@/lib/session/service";
 import {
   checkoutSelectionCurrent,
   conversationStateOf,
+  type ConversationState,
   replaceConversationState,
   invalidatePurchaseSelections,
   mergeFollowUpCandidate,
@@ -346,6 +347,24 @@ export async function handleChargerControl(request: Request, runtime: Runtime): 
     if (applied.kind === "refused") return { kind: "limit" as const, language: draft.language };
     setChargerTrack(host, applied.track);
     if (control.action !== "propose_budget" && control.action !== "confirm_budget") rememberChargerTurn(host, session.id, draft, "", applied.line);
+    // A mixed charger-and-laptop request is a charger turn, which records no laptop workload. When the shopper chooses
+    // the laptop, recover the AI requirement stated in the retained conversation and persist it with this transition.
+    // Only an AI workload is recovered, and an existing record for this draft is never replaced.
+    if (control.action === "choose_task" && control.task === "laptop" && applied.track.state === "closed") {
+      const stored = conversationStateOf(host).conversations.get(session.id) ?? null;
+      const retained = stored?.draftId === draft.draftId ? stored : null;
+      // The retained conversation keeps only the last eight turns, so the original request may have rolled out of it.
+      // This draft's own text stays unchanged while a charger track is open (charger-routed texts leave it alone),
+      // so it is placed first, as the oldest turn, and the retained turns are applied after it. A later withdrawal that
+      // is still retained therefore still wins, and no other draft's text can enter.
+      const withOrigin: ConversationState | null = draft.shopperText.trim()
+        ? { draftId: draft.draftId, interfaceLanguage: retained?.interfaceLanguage ?? draft.language, turns: [{ role: "shopper", text: draft.shopperText }, ...(retained?.turns ?? [])] }
+        : retained;
+      const recovered = workloadRecordForDraft(host, session.id, draft.draftId, draft.version)
+        ? null
+        : legacyWorkloadRecord(withOrigin, session.id, draft.draftId, draft.version);
+      if (recovered && recovered.kind !== "general_programming") setWorkloadRecord(host, recovered);
+    }
     return { kind: "applied" as const, language: draft.language };
   });
   if (result.kind === "session_dead") return seeOther(needsBack(requestedLanguage));
