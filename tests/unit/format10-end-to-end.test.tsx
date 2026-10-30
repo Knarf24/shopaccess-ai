@@ -97,7 +97,23 @@ async function freshWorld(mode: Mode, key: Buffer = KEY): Promise<World> {
   return { dir, keyFile };
 }
 const storePath = (world: World) => join(world.dir, "store.json");
-const diskFile = (world: World) => JSON.parse(fs.readFileSync(storePath(world), "utf8")) as { format: number; identity: string; sha256: string; body: Record<string, any> };
+/** The parts of a snapshot body these tests read. Any other key stays reachable as `unknown`. */
+type Entry = Record<string, unknown>;
+type DiskBody = {
+  sessions: Entry[];
+  drafts: Entry[];
+  permissions: Entry[];
+  grants: Entry[];
+  selections: Entry[];
+  chargerTracks: Entry[];
+  profiles: Entry[];
+  profileRevisions: Entry[];
+  conversations: Array<Entry & { turns: Array<{ role: string; text: string }> }>;
+  workloads: Array<Entry & { draftId: string; kind: string; evidenceState: string }>;
+  legacyDrafts: Entry[];
+  [key: string]: unknown;
+};
+const diskFile = (world: World) => JSON.parse(fs.readFileSync(storePath(world), "utf8")) as { format: number; identity: string; sha256: string; body: DiskBody };
 const diskBytes = (world: World) => createHash("sha256").update(fs.readFileSync(storePath(world))).digest("hex");
 
 type Started =
@@ -237,7 +253,7 @@ function pointAt(world: World, setting: boolean): void {
   else delete process.env.SHOPACCESS_WORKLOAD_RECORDS;
 }
 
-const kinds = (world: World) => diskFile(world).body.workloads.map((record: any) => `${record.kind}/${record.evidenceState}`);
+const kinds = (world: World) => diskFile(world).body.workloads.map((record) => `${record.kind}/${record.evidenceState}`);
 
 describe("B1 activation: a brand-new format-10 store through the real startup path", () => {
   it("never uses the surrounding environment's store settings", () => {
@@ -497,7 +513,7 @@ describe("B1 safety: refusals, tampering and stale records", () => {
       const draft = needsDraftsFor(host).get(buyer.session.id)!;
       needsDraftsFor(host).set(buyer.session.id, { ...draft, draftId: newDraft, version: 1, confirmedUse: null, confirmedBudgetDollars: null });
     });
-    expect(diskFile(world).body.workloads.filter((record: any) => record.draftId === oldDraft)).toEqual([]);
+    expect(diskFile(world).body.workloads.filter((record) => record.draftId === oldDraft)).toEqual([]);
     await started.stop();
     started = await mustStart(world);
     buyer = await shopper(started.runtime, buyer.token);
@@ -555,12 +571,12 @@ describe("B1 safety: refusals, tampering and stale records", () => {
     expect(before.permissions.length).toBeGreaterThan(0);
     expect(before.chargerTracks).toHaveLength(1);
     expect(before.selections.length).toBeGreaterThan(0);
-    const pick = (body: Record<string, any>) => ({
-      sessions: body.sessions.map((session: any) => session.id).sort(),
-      permissions: [...body.permissions].map((permission: any) => canonicalJson(permission)).sort(),
-      selections: [...body.selections].map((selection: any) => canonicalJson(selection)).sort(),
-      chargerTracks: [...body.chargerTracks].map((track: any) => canonicalJson(track)).sort(),
-      drafts: body.drafts.map((draft: any) => ({ sessionId: draft.sessionId, draftId: draft.draftId, version: draft.version, confirmedUse: draft.confirmedUse, confirmedBudgetDollars: draft.confirmedBudgetDollars })).sort((a: any, b: any) => a.sessionId.localeCompare(b.sessionId)),
+    const pick = (body: DiskBody) => ({
+      sessions: body.sessions.map((session) => session.id).sort(),
+      permissions: [...body.permissions].map((permission) => canonicalJson(permission)).sort(),
+      selections: [...body.selections].map((selection) => canonicalJson(selection)).sort(),
+      chargerTracks: [...body.chargerTracks].map((track) => canonicalJson(track)).sort(),
+      drafts: body.drafts.map((draft) => ({ sessionId: draft.sessionId, draftId: draft.draftId, version: draft.version, confirmedUse: draft.confirmedUse, confirmedBudgetDollars: draft.confirmedBudgetDollars })).sort((a, b) => String(a.sessionId).localeCompare(String(b.sessionId))),
     });
     const expected = pick(before);
     await started.stop();
@@ -674,7 +690,7 @@ describe("B1 mixed-task recovery: choosing the laptop persists the laptop worklo
     await buyer.submit("I also need a charger and a laptop for school");
     expect(chargerTrackFor(started.runtime.store, buyer.session.id, buyer.draft()!.draftId)?.state).toBe("task_choice");
     await buyer.chooseLaptop();
-    expect(diskFile(world).body.workloads).toEqual(before.map((record: any) => ({ ...record })));
+    expect(diskFile(world).body.workloads).toEqual(before.map((record) => ({ ...record })));
     expect(buyer.record()?.kind).toBe("local_training");
   });
 
@@ -755,7 +771,7 @@ describe("B1 mixed-task recovery: choosing the laptop persists the laptop worklo
       const draft = needsDraftsFor(host).get(buyer.session.id)!;
       needsDraftsFor(host).set(buyer.session.id, { ...draft, draftId: newDraft, version: 1, confirmedUse: null, confirmedBudgetDollars: null });
     });
-    expect(diskFile(world).body.workloads.filter((record: any) => record.draftId === oldDraft)).toEqual([]);
+    expect(diskFile(world).body.workloads.filter((record) => record.draftId === oldDraft)).toEqual([]);
     expect(diskFile(world).body.workloads).toEqual([]);
   });
 
@@ -889,7 +905,7 @@ describe("B1 mixed-task recovery beyond the eight-turn window", () => {
     await buyer.submit("I also need a charger and a laptop for school");
     for (let i = 0; i < 4; i++) await buyer.submit(`Thank you, follow-up ${i + 1}`);
     await buyer.chooseLaptop();
-    expect(diskFile(world).body.workloads).toEqual(before.map((record: any) => ({ ...record })));
+    expect(diskFile(world).body.workloads).toEqual(before.map((record) => ({ ...record })));
     expect(buyer.record()?.kind).toBe("local_inference");
   });
 
@@ -1274,7 +1290,7 @@ describe("B2 legacy-draft provenance: a format-7 store converted to format 10 in
     const REQUEST = "I want to train AI models locally on my laptop";
     const { world10, source, token } = await convertedWorld(2);
     expect(source.body.conversations[0].turns).toHaveLength(6);
-    expect(source.body.conversations[0].turns.some((turn: any) => turn.text === REQUEST)).toBe(true);
+    expect(source.body.conversations[0].turns.some((turn) => turn.text === REQUEST)).toBe(true);
     expect(diskFile(world10).body.legacyDrafts).toEqual([]);
 
     let { started, buyer } = await reopened(world10, token);
@@ -1344,12 +1360,12 @@ describe("B2 legacy-draft provenance: a format-7 store converted to format 10 in
       stoppers.push(async () => void (await opened.value.close?.()));
       const published = opened.value.readPublished();
       if (published.status !== "ready") throw new Error("unreadable");
-      return { ...built, store: opened.value, good: published.value.body as unknown as Record<string, any> };
+      return { ...built, store: opened.value, good: published.value.body as unknown as DiskBody };
     }
-    const sessionId = (good: Record<string, any>) => good.sessions[0].id as string;
-    const draftId = (good: Record<string, any>) => good.drafts[0].draftId as string;
+    const sessionId = (good: DiskBody) => good.sessions[0].id as string;
+    const draftId = (good: DiskBody) => good.drafts[0].draftId as string;
 
-    it.each<[string, (good: Record<string, any>) => unknown]>([
+    it.each<[string, (good: DiskBody) => unknown]>([
       ["a non-array", () => "x"],
       ["an extra key in an entry", (g) => [{ sessionId: sessionId(g), draftId: draftId(g), extra: 1 }]],
       ["a missing key", (g) => [{ sessionId: sessionId(g) }]],
@@ -1473,10 +1489,10 @@ describe("B2 offline migration tool", () => {
   /** Rewrites a format-7 file as an older format, as that format's writer would have: its own keys, bare checksum. */
   function asFormat(world: World, format: 1 | 2 | 3 | 4 | 5 | 6) {
     const file = diskFile(world);
-    const body: Record<string, any> = { ...file.body };
+    const body: Record<string, unknown> = { ...file.body };
     const drops: Record<number, string[]> = { 6: ["chargerTracks"], 5: ["chargerTracks", "profileRevisions"], 4: ["chargerTracks", "profileRevisions", "profiles"], 3: ["chargerTracks", "profileRevisions", "profiles", "permissions"], 2: ["chargerTracks", "profileRevisions", "profiles", "permissions", "grants"], 1: ["chargerTracks", "profileRevisions", "profiles", "permissions", "grants", "conversations", "selections"] };
     for (const key of drops[format]!) delete body[key];
-    if (format === 1) body.drafts = body.drafts.map(({ interpretationPending, ...rest }: any) => rest);
+    if (format === 1) body.drafts = file.body.drafts.map((draft) => Object.fromEntries(Object.entries(draft).filter(([key]) => key !== "interpretationPending")));
     writeStore(world, { format, identity: file.identity, sha256: unkeyed(body), body });
   }
   const opener = async (world: World, options: OpenOptions = {}) => {
@@ -1872,8 +1888,8 @@ describe("B2 offline migration tool", () => {
       const before = sha(storePath(world));
       const backup = backupPath();
       const created = fs.mkdirSync;
-      const mkdirSpy = vi.spyOn(fs, "mkdirSync").mockImplementation(((target: any, ...rest: any[]) => {
-        const result = (created as any)(target, ...rest);
+      const mkdirSpy = vi.spyOn(fs, "mkdirSync").mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
+        const result = (created as (...args: unknown[]) => unknown)(target, ...rest);
         if (String(target) === backup || String(target).endsWith("/backup")) damage(String(target));
         return result;
       }) as typeof fs.mkdirSync);
@@ -1895,8 +1911,8 @@ describe("B2 offline migration tool", () => {
 
     it("a backup file with the wrong mode is rejected although its bytes are identical", async () => {
       const original = fs.openSync;
-      const spy = vi.spyOn(fs, "openSync").mockImplementation(((path: any, flags: any, mode: any) => {
-        const fd = (original as any)(path, flags, mode);
+      const spy = vi.spyOn(fs, "openSync").mockImplementation(((path: fs.PathLike, flags?: fs.OpenMode, mode?: fs.Mode | null) => {
+        const fd = (original as (...args: unknown[]) => number)(path, flags, mode);
         if (String(path).endsWith("/backup/store.json")) fs.fchmodSync(fd, 0o644);
         return fd;
       }) as typeof fs.openSync);
@@ -2016,11 +2032,11 @@ describe("B2 offline migration tool", () => {
       const before = sha(storePath(world));
       const backup = backupPath();
       const original = fs.writeFileSync;
-      const spy = vi.spyOn(fs, "writeFileSync").mockImplementation((target: any, data: any, ...rest: any[]) => {
+      const spy = vi.spyOn(fs, "writeFileSync").mockImplementation((target: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, ...rest: unknown[]) => {
         if (typeof target === "number" && Buffer.isBuffer(data) && data.length > 100 && fs.fstatSync(target).size === 0 && fs.readdirSync(backup).includes("store.json")) {
-          return original(target, Buffer.from(data.subarray(0, data.length - 3)), ...(rest as []));
+          return (original as (...args: unknown[]) => void)(target, Buffer.from(data.subarray(0, data.length - 3)), ...rest);
         }
-        return original(target, data, ...(rest as []));
+        return (original as (...args: unknown[]) => void)(target, data, ...rest);
       });
       try {
         const report = await migrateStore(args(world, backup));
@@ -2039,9 +2055,9 @@ describe("B2 offline migration tool", () => {
       const before = sha(storePath(world));
       const backup = backupPath();
       const original = fs.writeFileSync;
-      const spy = vi.spyOn(fs, "writeFileSync").mockImplementation((target: any, data: any, ...rest: any[]) => {
+      const spy = vi.spyOn(fs, "writeFileSync").mockImplementation((target: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, ...rest: unknown[]) => {
         const reformatted = Buffer.isBuffer(data) && data.length > 100 && typeof target === "number" && fs.existsSync(backup) ? Buffer.from(JSON.stringify(JSON.parse(data.toString("utf8")), null, 1)) : data;
-        return original(target, reformatted, ...(rest as []));
+        return (original as (...args: unknown[]) => void)(target, reformatted, ...rest);
       });
       try {
         expect(await migrateStore(args(world, backup))).toEqual({ status: "failed", code: "backup-verify", backup });

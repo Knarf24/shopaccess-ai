@@ -25,6 +25,13 @@ const ORIGIN = "https://shop.example.test";
 const config = { sessionKey: TEST_SESSION_KEY, trustedOrigins: parseTrustedOrigins([ORIGIN]) };
 const KEY = Buffer.from("isolated-format10-release-a-key-1");
 
+/** The parts of a published body these tests read; every other key is still carried along unchanged. */
+type PublishedView = Record<string, unknown> & {
+  sessions: Array<Record<string, unknown>>;
+  chargerTracks: Array<Record<string, unknown>>;
+  workloads: Array<Record<string, unknown>>;
+};
+
 type Mode = "ordinary" | "format8" | "format9" | "format10";
 const MODE: Record<Mode, OpenOptions> = {
   ordinary: {},
@@ -250,7 +257,7 @@ describe("Release A: format-10 validation and tamper resistance fail closed", ()
   const published = (store: FoundationStore) => {
     const snapshot = store.readPublished();
     if (snapshot.status !== "ready") throw new Error("not ready");
-    return JSON.parse(JSON.stringify(snapshot.value.body)) as Record<string, any>;
+    return JSON.parse(JSON.stringify(snapshot.value.body)) as PublishedView;
   };
 
   it("holds the workload record and the charger track together", async () => {
@@ -266,7 +273,7 @@ describe("Release A: format-10 validation and tamper resistance fail closed", ()
     const good = published(store);
     const record = good.workloads[0];
     const before = bytesOf(dir);
-    const wrong: Array<[string, Record<string, any>]> = [
+    const wrong: Array<[string, Record<string, unknown>]> = [
       ["duplicate record", { ...good, workloads: [record, record] }],
       ["wrong draft", { ...good, workloads: [{ ...record, draftId: `nd_${"0".repeat(32)}` }] }],
       ["unknown session", { ...good, workloads: [{ ...record, sessionId: "unknown-session" }] }],
@@ -276,7 +283,7 @@ describe("Release A: format-10 validation and tamper resistance fail closed", ()
       ["version zero", { ...good, workloads: [{ ...record, sourceDraftVersion: 0 }] }],
       ["missing workloads key", Object.fromEntries(Object.entries(good).filter(([key]) => key !== "workloads"))],
       ["not an array", { ...good, workloads: {} }],
-      ["format-8 budget on a format-10 track", { ...good, chargerTracks: good.chargerTracks.map((track: any) => ({ ...track, state: "confirmed", deviceId: "Mac14,2", budget: { proposedCents: 5900, confirmedCents: 5900 } })) }],
+      ["format-8 budget on a format-10 track", { ...good, chargerTracks: good.chargerTracks.map((track) => ({ ...track, state: "confirmed", deviceId: "Mac14,2", budget: { proposedCents: 5900, confirmedCents: 5900 } })) }],
     ];
     for (const [label, body] of wrong) {
       const result = await store.commit(body as never);
@@ -303,7 +310,7 @@ describe("Release A: format-10 validation and tamper resistance fail closed", ()
     const variants: Array<[string, unknown]> = [
       ["checksum changed", { ...parsed, sha256: flip(parsed.sha256) }],
       ["identity changed", { ...parsed, identity: flip(parsed.identity) }],
-      ["record edited without the checksum", { ...parsed, body: { ...parsed.body, workloads: parsed.body.workloads.map((entry: any) => ({ ...entry, kind: "cloud_ai" })) } }],
+      ["record edited without the checksum", { ...parsed, body: { ...parsed.body, workloads: parsed.body.workloads.map((entry: Record<string, unknown>) => ({ ...entry, kind: "cloud_ai" })) } }],
       ["workloads removed", { ...parsed, body: Object.fromEntries(Object.entries(parsed.body).filter(([key]) => key !== "workloads")) }],
       ["relabelled as format 7", { ...parsed, format: 7 }],
       ["unknown format", { ...parsed, format: 11 }],
@@ -512,7 +519,7 @@ describe("Release A corrections: workload count cap", () => {
     await buyer.submit("I want to train AI models locally");
     const snapshot = store.readPublished();
     if (snapshot.status !== "ready") throw new Error("not ready");
-    const good = JSON.parse(JSON.stringify(snapshot.value.body)) as Record<string, any>;
+    const good = JSON.parse(JSON.stringify(snapshot.value.body)) as PublishedView;
     expect(good.sessions).toHaveLength(1);
     expect(good.workloads).toHaveLength(1);
     const before = bytesOf(dir);

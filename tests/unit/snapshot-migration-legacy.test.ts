@@ -76,7 +76,7 @@ describe("the converter's survival rule stays equal to restoreState's", () => {
   const id = (prefix: string, n: number) => `${prefix}_${String(n).repeat(32)}`;
   // Four sessions: live, revoked, idle-lapsed, past its absolute lifetime; drafts that expire at different times.
   const body = (): PublishedBody => {
-    const base = body7With(MAX_CONVERSATION_TURNS) as unknown as Record<string, any>;
+    const base = body7With(MAX_CONVERSATION_TURNS) as unknown as { drafts: Array<Record<string, unknown>> } & Record<string, unknown>;
     const sessions = [
       { id: id("ses", 1), tokenDigest: "1".repeat(64), createdAt: NOW.toISOString(), lastSeenAt: NOW.toISOString(), absoluteExpiresAt: "2026-10-30T12:00:00.000Z", revokedAt: null },
       { id: id("ses", 2), tokenDigest: "2".repeat(64), createdAt: NOW.toISOString(), lastSeenAt: NOW.toISOString(), absoluteExpiresAt: "2026-10-30T12:00:00.000Z", revokedAt: NOW.toISOString() },
