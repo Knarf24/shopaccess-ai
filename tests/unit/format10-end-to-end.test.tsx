@@ -183,6 +183,18 @@ async function shopper(runtime: RuntimeOf, existingToken?: string) {
       await post("/shop/needs/confirm", handleNeedsConfirm, { draftId: current.draftId, version: String(current.version), use: "programming", budget: "900" });
       expect(draft()!.confirmedUse).toBeTruthy();
     },
+    /** A raw submit, so a request can carry a version without a draft id (as a crafted request would). */
+    async raw(fields: Record<string, string>) {
+      const response = await post("/shop/needs/submit", handleNeedsSubmit, fields);
+      expect(response.status).toBe(303);
+    },
+    async control(action: "stop" | "change" | "confirm", expectedStatus = 303) {
+      const current = draft()!;
+      const track = chargerTrackFor(runtime.store, session.id, current.draftId);
+      expect(track).not.toBeNull();
+      const response = await post("/shop/needs/charger-control", handleChargerControl, { draftId: current.draftId, revision: String(track!.revision), action });
+      expect(response.status).toBe(expectedStatus);
+    },
     async chooseLaptop() {
       const current = draft()!;
       const track = chargerTrackFor(runtime.store, session.id, current.draftId);
@@ -927,32 +939,233 @@ describe("B1 mixed-task recovery beyond the eight-turn window", () => {
     expect(diskFile(revoked.world).body.workloads).toEqual([]);
   });
 
-  it("a charger-only request creates no record, and stopping the charger task recovers nothing (known limit)", async () => {
+  it("a charger-only request creates no record and stopping it records nothing; stopping a mixed request keeps its AI workload", async () => {
     const world = await activated();
     const started = await mustStart(world);
     const buyer = await shopper(started.runtime);
     await buyer.submit("I need a charger for my MacBook Air");
     expect(diskFile(world).body.workloads).toEqual([]);
+    await buyer.control("stop");
+    expect(diskFile(world).body.workloads).toEqual([]);
 
-    const mixed = await chosenAfter(MIXED, 0).then(async () => {
-      const w = await activated();
-      const s = await mustStart(w);
-      const b = await shopper(s.runtime);
-      await b.submit(MIXED);
-      const draft = b.draft()!;
-      const track = chargerTrackFor(s.runtime.store, b.session.id, draft.draftId)!;
-      await handleChargerControl(
-        new Request(`${ORIGIN}/shop/needs/charger-control`, {
-          method: "POST",
-          headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN, "sec-fetch-site": "same-origin", cookie: `${SESSION_COOKIE_NAME}=${b.token}` },
-          body: new URLSearchParams({ lang: "en", csrfToken: b.session.csrfToken, draftId: draft.draftId, revision: String(track.revision), action: "stop" }).toString(),
-        }),
-        s.runtime,
-      );
-      return { w, b };
+    const w = await activated();
+    const s = await mustStart(w);
+    const b = await shopper(s.runtime);
+    await b.submit(MIXED);
+    expect(diskFile(w).body.workloads).toEqual([]);
+    await b.control("stop");
+    // Stopping ends the charger task like choosing the laptop does: the AI requirement stated in the request is kept.
+    expect(diskFile(w).body.workloads).toEqual([
+      { sessionId: b.session.id, draftId: b.draft()!.draftId, kind: "local_training", sourceDraftVersion: b.draft()!.version, evidenceState: "inferred" },
+    ]);
+    expect(b.record()?.kind).toBe("local_training");
+  });
+});
+
+// Release B1.1: the clarification track keeps an AI workload through every way it can end, and keeps chronology.
+describe("B1.1 clarification-track AI workload preservation", () => {
+  const MIXED = "I need a charger and a laptop to train AI models locally";
+  const CLOUD = "Actually I will use cloud AI services";
+  const exact = (buyer: Shopper, kind: string, evidence = "inferred") => ({
+    sessionId: buyer.session.id,
+    draftId: buyer.draft()!.draftId,
+    kind,
+    sourceDraftVersion: buyer.draft()!.version,
+    evidenceState: evidence,
+  });
+  async function begin(first: string, ...rest: string[]) {
+    const world = await activated();
+    const started = await mustStart(world);
+    const buyer = await shopper(started.runtime);
+    await buyer.submit(first);
+    for (const line of rest) await buyer.submit(line);
+    return { world, started, buyer };
+  }
+  const followUps = async (buyer: Shopper, count: number) => {
+    for (let i = 0; i < count; i++) await buyer.submit(`Thank you, follow-up ${i + 1}`);
+  };
+  async function showsDisclosure(buyer: Shopper) {
+    await buyer.confirm();
+    const { journey, html } = await buyer.cards();
+    for (const line of journey.lines) expect(line.aiContext).toBe(true);
+    expect(html).not.toContain("recommendation-badge");
+    expect(html).toContain("AI compatibility: not verified");
+  }
+
+  describe("A: ending the charger task with stop", () => {
+    it.each([0, 3, 4, 8])("keeps the AI requirement after stop with %i follow-ups and an ordinary laptop preference", async (count) => {
+      const { world, buyer } = await begin(MIXED);
+      await followUps(buyer, count);
+      await buyer.control("stop");
+      expect(chargerTrackFor(buyer.runtime.store, buyer.session.id, buyer.draft()!.draftId)?.state).toBe("closed");
+      expect(diskFile(world).body.workloads).toEqual([exact(buyer, "local_training")]);
+      await buyer.submit("I prefer something lightweight");
+      expect(diskFile(world).body.workloads).toEqual([exact(buyer, "local_training")]);
+      await showsDisclosure(buyer);
     });
-    // Stop is not the laptop choice: nothing is recorded; the intent survives only in the retained conversation.
-    expect(diskFile(mixed.w).body.workloads).toEqual([]);
-    expect(mixed.b.record()).toBeNull();
+
+    it("lets an explicit later withdrawal supersede the stale intent after stop", async () => {
+      const { world, buyer } = await begin(MIXED);
+      await followUps(buyer, 4);
+      await buyer.control("stop");
+      await buyer.submit(CLOUD);
+      expect(kinds(world)).toEqual(["cloud_ai/explicit"]);
+    });
+
+    it("stops from the task choice, the model question, a candidate and a confirmed device alike", async () => {
+      const { world, buyer } = await begin(MIXED);
+      await followUps(buyer, 4);
+      await buyer.submit("It is a MacBook Air");
+      await buyer.control("stop");
+      expect(diskFile(world).body.workloads).toEqual([exact(buyer, "local_training")]);
+    });
+
+    it("invents no laptop AI requirement from a charger-only request that is stopped", async () => {
+      const { world, buyer } = await begin("I need a charger for my MacBook Air");
+      await followUps(buyer, 8);
+      await buyer.control("stop");
+      await buyer.submit("I prefer something lightweight");
+      expect(diskFile(world).body.workloads).toEqual([]);
+      expect(buyer.record()).toBeNull();
+    });
+  });
+
+  describe("B: a laptop request followed by a mixed AI request on the same draft", () => {
+    const SCHOOL = "I need a laptop for school";
+    it.each([0, 4, 5, 8])("retains the AI evidence across %i follow-ups before the laptop is chosen", async (count) => {
+      const { world, buyer } = await begin(SCHOOL, MIXED);
+      await followUps(buyer, count);
+      await buyer.chooseLaptop();
+      expect(diskFile(world).body.workloads).toEqual([exact(buyer, "local_training")]);
+      expect(buyer.record()?.kind).toBe("local_training");
+    });
+
+    it("captures at the turn that would overflow the eight retained turns, and not before", async () => {
+      const { world, buyer } = await begin(SCHOOL, MIXED);
+      // SCHOOL is a laptop turn (2 retained turns), MIXED a charger turn (4). Each follow-up adds 2: 8 turns after 2 of them.
+      await followUps(buyer, 2);
+      expect(readConversation(buyer.runtime.store, buyer.session.id)?.turns).toHaveLength(8);
+      expect(diskFile(world).body.workloads).toEqual([]);
+      await buyer.submit("Thank you, follow-up 3");
+      expect(readConversation(buyer.runtime.store, buyer.session.id)?.turns).toHaveLength(8);
+      expect(diskFile(world).body.workloads).toEqual([exact(buyer, "local_training")]);
+    });
+
+    it("survives three restarts and truncation", { timeout: 120000 }, async () => {
+      const { world, started: first, buyer: initial } = await begin(SCHOOL, MIXED);
+      await followUps(initial, 5);
+      await initial.chooseLaptop();
+      let buyer = initial;
+      let started = first;
+      for (let restart = 1; restart <= 3; restart++) {
+        for (let i = 0; i < 5; i++) await buyer.submit(`Thank you, laptop follow-up ${restart}.${i}`);
+        await started.stop();
+        started = await mustStart(world);
+        buyer = await shopper(started.runtime, buyer.token);
+        expect(buyer.record()?.kind, `restart ${restart}`).toBe("local_training");
+        expect(diskFile(world).body.workloads).toEqual([exact(buyer, "local_training")]);
+      }
+      await showsDisclosure(buyer);
+    });
+
+    it("respects a cloud-only correction that follows the mixed request", async () => {
+      const { world, buyer } = await begin(SCHOOL, MIXED, CLOUD);
+      await followUps(buyer, 6);
+      await buyer.chooseLaptop();
+      expect(kinds(world)).toEqual(["cloud_ai/inferred"]);
+    });
+
+    it("promotes nothing from charger-only, coding-only or hint-only wording", async () => {
+      for (const text of ["I need a charger for my MacBook Air", "I need a charger and a laptop for programming in Python", "I need a charger and a laptop to run models with PyTorch on my GPU", "I need a charger and a laptop, no AI"]) {
+        const { world, buyer } = await begin(SCHOOL, text);
+        await followUps(buyer, 6);
+        await buyer.chooseLaptop();
+        expect(diskFile(world).body.workloads, text).toEqual([]);
+      }
+    });
+
+    it("lets a charger-routed withdrawal update an existing record, and a charger-only text leave it alone", async () => {
+      const { world, buyer } = await begin("I want to run LLMs locally on my laptop", "I also need a charger for my MacBook Air and a laptop for school");
+      expect(kinds(world)).toEqual(["local_inference/explicit"]);
+      await buyer.submit("I need a charger and a laptop. Actually I will use cloud AI services");
+      expect(kinds(world)).toEqual(["cloud_ai/explicit"]);
+      await buyer.chooseLaptop();
+      expect(kinds(world)).toEqual(["cloud_ai/explicit"]);
+    });
+
+    it("keeps an existing record untouched and never reads another draft's evidence", async () => {
+      const { world, started, buyer } = await begin("I want to run LLMs locally on my laptop", "I also need a charger and a laptop for school");
+      const before = diskFile(world).body.workloads;
+      await followUps(buyer, 6);
+      await buyer.chooseLaptop();
+      expect(diskFile(world).body.workloads).toEqual(before);
+
+      const other = await shopper(started.runtime);
+      await other.submit("I need a laptop for school");
+      await other.submit("I need a charger for my MacBook Air");
+      await followUps(other, 6);
+      await other.chooseLaptop();
+      expect(other.record()).toBeNull();
+      expect(diskFile(world).body.workloads).toHaveLength(1);
+    });
+  });
+
+  describe("C: a version-only submit while the track is open", () => {
+    const versionOnly = (buyer: Shopper, text: string, version = buyer.draft()!.version) => buyer.raw({ shopperText: text, version: String(version) });
+
+    it("does not let the newer text become the oldest turn: the cloud-only correction wins", async () => {
+      const { world, buyer } = await begin(MIXED);
+      const textBefore = buyer.draft()!.shopperText;
+      await versionOnly(buyer, CLOUD);
+      expect(buyer.draft()!.shopperText).toBe(textBefore);
+      await buyer.chooseLaptop();
+      expect(kinds(world)).toEqual(["cloud_ai/inferred"]);
+    });
+
+    it("lets a newer withdrawal win when the track is ended with stop", async () => {
+      const { world, buyer } = await begin(MIXED);
+      await versionOnly(buyer, "Actually, no AI");
+      await buyer.control("stop");
+      expect(diskFile(world).body.workloads).toEqual([]);
+      expect(buyer.record()).toBeNull();
+    });
+
+    it("works in Spanish", async () => {
+      const { world, buyer } = await begin("Necesito un cargador y una laptop para entrenar modelos de IA localmente");
+      await versionOnly(buyer, "En realidad usaré servicios de IA en la nube");
+      await buyer.chooseLaptop();
+      expect(kinds(world)).toEqual(["cloud_ai/inferred"]);
+    });
+
+    it("refuses a stale version, a wrong draft id and a double submission without changing anything", async () => {
+      const { world, buyer } = await begin(MIXED);
+      const before = JSON.stringify([readConversation(buyer.runtime.store, buyer.session.id), buyer.draft(), diskFile(world).body.workloads]);
+      await versionOnly(buyer, CLOUD, buyer.draft()!.version + 1);
+      await buyer.raw({ shopperText: CLOUD, version: String(buyer.draft()!.version), draftId: `nd_${"e".repeat(32)}` });
+      expect(buyer.draft()!.shopperText).toBe(MIXED);
+      expect(JSON.stringify([readConversation(buyer.runtime.store, buyer.session.id), buyer.draft(), diskFile(world).body.workloads])).toBe(before);
+      await versionOnly(buyer, CLOUD);
+      await versionOnly(buyer, CLOUD);
+      await buyer.chooseLaptop();
+      expect(kinds(world)).toEqual(["cloud_ai/inferred"]);
+    });
+
+    it("writes nothing for a version-only submit once the session is no longer live", async () => {
+      const { world, buyer } = await begin(MIXED);
+      const snapshot = () => JSON.stringify([readConversation(buyer.runtime.store, buyer.session.id), buyer.draft(), chargerTrackFor(buyer.runtime.store, buyer.session.id, buyer.draft()!.draftId), diskFile(world).body.workloads]);
+      const before = snapshot();
+      const live = vi.spyOn(buyer.runtime.checkout, "sessionIsLive").mockReturnValue(false);
+      await versionOnly(buyer, CLOUD);
+      expect(live).toHaveBeenCalled();
+      live.mockRestore();
+      expect(snapshot()).toBe(before);
+    });
+
+    it("leaves the ordinary version-only path alone when no track is open", async () => {
+      const { buyer } = await begin("I need a laptop for school");
+      await versionOnly(buyer, "I want to train AI models locally on my laptop");
+      expect(buyer.draft()!.shopperText).toBe("I want to train AI models locally on my laptop");
+      expect(buyer.record()?.kind).toBe("local_training");
+    });
   });
 });
