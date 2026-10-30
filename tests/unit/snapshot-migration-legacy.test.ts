@@ -72,6 +72,33 @@ describe("the pure converter", () => {
   });
 });
 
+describe("the converter's survival rule stays equal to restoreState's", () => {
+  const id = (prefix: string, n: number) => `${prefix}_${String(n).repeat(32)}`;
+  // Four sessions: live, revoked, idle-lapsed, past its absolute lifetime; drafts that expire at different times.
+  const body = (): PublishedBody => {
+    const base = body7With(MAX_CONVERSATION_TURNS) as unknown as Record<string, any>;
+    const sessions = [
+      { id: id("ses", 1), tokenDigest: "1".repeat(64), createdAt: NOW.toISOString(), lastSeenAt: NOW.toISOString(), absoluteExpiresAt: "2026-10-30T12:00:00.000Z", revokedAt: null },
+      { id: id("ses", 2), tokenDigest: "2".repeat(64), createdAt: NOW.toISOString(), lastSeenAt: NOW.toISOString(), absoluteExpiresAt: "2026-10-30T12:00:00.000Z", revokedAt: NOW.toISOString() },
+      { id: id("ses", 3), tokenDigest: "3".repeat(64), createdAt: NOW.toISOString(), lastSeenAt: "2026-10-29T06:00:00.000Z", absoluteExpiresAt: "2026-10-30T12:00:00.000Z", revokedAt: null },
+      { id: id("ses", 4), tokenDigest: "4".repeat(64), createdAt: NOW.toISOString(), lastSeenAt: NOW.toISOString(), absoluteExpiresAt: "2026-10-29T12:30:00.000Z", revokedAt: null },
+    ];
+    const drafts = sessions.map((session, i) => ({ ...base.drafts[0], sessionId: session.id, draftId: id("nd", i + 1), expiresAtMs: NOW.getTime() + (i + 1) * 1_800_000 }));
+    const conversations = sessions.map((session, i) => ({ sessionId: session.id, draftId: id("nd", i + 1), interfaceLanguage: "en", turns: turns(i === 3 ? 5 : MAX_CONVERSATION_TURNS) }));
+    return { ...base, sessions, drafts, conversations } as unknown as PublishedBody;
+  };
+
+  it.each([0, 20 * 60_000, 31 * 60_000, 61 * 60_000, 91 * 60_000, 119 * 60_000, 121 * 60_000, 6 * 3_600_000])("agrees at +%i ms", (offset) => {
+    const now = new Date(NOW.getTime() + offset);
+    const input = body();
+    const recovered = restoreState(input, now).state;
+    const expected = input.drafts
+      .filter((draft) => recovered.drafts.get(draft.sessionId)?.draftId === draft.draftId && (recovered.conversations.get(draft.sessionId)?.turns.length ?? 0) >= MAX_CONVERSATION_TURNS)
+      .map((draft) => ({ sessionId: draft.sessionId, draftId: draft.draftId }));
+    expect(convertBodyToWorkloadBody(input, now).legacyDrafts).toEqual(expected);
+  });
+});
+
 describe("restoration and lifecycle of the legacy marker", () => {
   it("format 7: every restored draft is marked, as before", () => {
     expect(after(body7)).toMatchObject({ marked: true, context: "potential" });

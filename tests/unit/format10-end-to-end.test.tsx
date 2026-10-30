@@ -1,8 +1,9 @@
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { basename, dirname, join, sep } from "node:path";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TranslatedCatalogList } from "@/components/mock-journey/TranslatedCatalogList";
 import { journeyCopy } from "@/lib/i18n/demo-copy";
@@ -1413,6 +1414,774 @@ describe("B2 legacy-draft provenance: a format-7 store converted to format 10 in
       const file = diskFile(world10);
       fs.writeFileSync(storePath(world10), JSON.stringify({ ...file, body: { ...file.body, legacyDrafts: [] } }), { mode: 0o600 });
       expect(await openFoundationStore(world10.dir, KEY, { workloadRecords: true })).toEqual({ status: "unavailable", code: "invalid-snapshot" });
+    });
+  });
+});
+
+// Release B2: the offline conversion tool, on disposable stores only (synthetic shoppers, throwaway keys).
+type MigrateArgs = { source: string; keyFile: string; backup: string; mode: "dry-run" | "convert" };
+type MigrateHooks = { directoryFsync?: (fd: number) => Promise<void>; temporaryWrite?: (fd: number, bytes: Buffer) => Promise<void>; afterBackup?: () => Promise<void> };
+type Report = { status: string; code?: string; fromFormat?: number; legacyDrafts?: number; backup?: string };
+type MigrateModule = { migrateStore(args: MigrateArgs, hooks?: MigrateHooks): Promise<Report>; parseArgs(argv: readonly string[]): MigrateArgs | null; exitCode(report: Report): number; line(report: Report): string; sourceState(report: Report): string };
+let tool: MigrateModule;
+const migrateStore = (args: MigrateArgs, hooks?: MigrateHooks) => tool.migrateStore(args, hooks);
+const parseArgs = (argv: readonly string[]) => tool.parseArgs(argv);
+const exitCodeOf = (report: Report) => tool.exitCode(report);
+const lineOf = (report: Report) => tool.line(report);
+beforeAll(async () => {
+  tool = (await import(/* @vite-ignore */ join(__dirname, "..", "..", "src", "server", "mock-store-migrate.mts"))) as MigrateModule;
+});
+
+describe("B2 offline migration tool", () => {
+  const ROOT = join(__dirname, "..", "..");
+  const NODE = process.execPath;
+  const HOOK = join(ROOT, "scripts", "mock-store-load-hook.mjs");
+  const CLI = join(ROOT, "src", "server", "mock-store-migrate.mts");
+  const PROBE = join(ROOT, "tests", "fixtures", "open-store-probe.mts");
+  const REQUEST = "I want to train AI models locally on my laptop";
+
+  const scratch = (): string => {
+    const dir = fs.mkdtempSync(join(tmpdir(), "sa-b2m-"));
+    fs.chmodSync(dir, 0o700);
+    created.push(dir);
+    return dir;
+  };
+  const backupPath = () => join(scratch(), "backup");
+  const args = (world: World, backup: string, mode: "dry-run" | "convert" = "convert") => ({ source: world.dir, keyFile: world.keyFile, backup, mode });
+  const sha = (path: string) => createHash("sha256").update(fs.readFileSync(path)).digest("hex");
+  const listing = (dir: string) => fs.readdirSync(dir).sort();
+  const writeStore = (world: World, file: unknown) => fs.writeFileSync(storePath(world), typeof file === "string" ? file : JSON.stringify(file), { mode: 0o600 });
+  const unkeyed = (body: unknown) => createHash("sha256").update(canonicalJson(body), "utf8").digest("hex");
+
+  /** A populated format-7 store: one shopper whose first request has rolled out of a full history (or a shorter one). */
+  async function legacyWorld(options: { followUps?: number; charger?: boolean; empty?: boolean } = {}) {
+    const world = await freshWorld("ordinary");
+    pointAt(world, false);
+    if (options.empty) return { world, token: "" };
+    const started = await mustStart(world);
+    const buyer = await shopper(started.runtime);
+    if (options.charger) {
+      await buyer.submit("I need a charger for my MacBook Air");
+    } else {
+      await buyer.submit(REQUEST);
+      for (let i = 0; i < (options.followUps ?? 9); i++) await buyer.submit(`Thank you, follow-up ${i + 1}`);
+      await buyer.confirm();
+    }
+    await started.stop();
+    return { world, token: buyer.token };
+  }
+  /** Rewrites a format-7 file as an older format, as that format's writer would have: its own keys, bare checksum. */
+  function asFormat(world: World, format: 1 | 2 | 3 | 4 | 5 | 6) {
+    const file = diskFile(world);
+    const body: Record<string, any> = { ...file.body };
+    const drops: Record<number, string[]> = { 6: ["chargerTracks"], 5: ["chargerTracks", "profileRevisions"], 4: ["chargerTracks", "profileRevisions", "profiles"], 3: ["chargerTracks", "profileRevisions", "profiles", "permissions"], 2: ["chargerTracks", "profileRevisions", "profiles", "permissions", "grants"], 1: ["chargerTracks", "profileRevisions", "profiles", "permissions", "grants", "conversations", "selections"] };
+    for (const key of drops[format]!) delete body[key];
+    if (format === 1) body.drafts = body.drafts.map(({ interpretationPending, ...rest }: any) => rest);
+    writeStore(world, { format, identity: file.identity, sha256: unkeyed(body), body });
+  }
+  const opener = async (world: World, options: OpenOptions = {}) => {
+    const opened = await openFoundationStoreWithKeyFile(world.dir, world.keyFile, options);
+    if (opened.status === "ready") await opened.value.close?.();
+    return opened.status === "ready" ? "ready" : opened.code;
+  };
+  const expectRefused = (report: Report, code: string | RegExp) => {
+    expect(report.status).toBe("refused");
+    if (report.status === "refused") expect(report.code).toMatch(code);
+  };
+  /** The source file is byte-identical and no backup was made. */
+  const untouched = (world: World, before: string, backup: string) => {
+    expect(sha(storePath(world))).toBe(before);
+    expect(fs.existsSync(backup)).toBe(false);
+  };
+
+  describe("conversion", () => {
+    it("converts a populated format-7 store, verifies its backup, and preserves every other field and the identity", async () => {
+      const { world } = await legacyWorld();
+      const before = diskFile(world);
+      const beforeSha = sha(storePath(world));
+      const backup = backupPath();
+      expect(before.format).toBe(7);
+      const report = await migrateStore(args(world, backup));
+      expect(report).toEqual({ status: "converted", fromFormat: 7, legacyDrafts: 1, backup });
+      expect(sha(join(backup, "store.json"))).toBe(beforeSha);
+      expect(fs.statSync(backup).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(join(backup, "store.json")).mode & 0o777).toBe(0o600);
+      expect(listing(backup)).toEqual(["store.json", "writer.lock"]);
+      const after = diskFile(world);
+      expect(after.format).toBe(10);
+      expect(after.identity).toBe(before.identity);
+      expect(after.body.workloads).toEqual([]);
+      expect(after.body.legacyDrafts).toEqual([{ sessionId: before.body.sessions[0].id, draftId: before.body.drafts[0].draftId }]);
+      const { workloads, legacyDrafts, ...rest } = after.body;
+      expect(rest).toEqual(before.body);
+      expect(after.sha256).toBe(createHash("sha256").update(`shopaccess-snapshot-format-10\n${canonicalJson(after.body)}`, "utf8").digest("hex"));
+      expect(fs.statSync(storePath(world)).mode & 0o777).toBe(0o600);
+      expect(listing(world.dir).filter((name) => name.includes(".tmp."))).toEqual([]);
+      expect(process.env.SHOPACCESS_WORKLOAD_RECORDS).toBeUndefined();
+    });
+
+    it("converts an empty format-7 store and a draft with a shorter history, marking neither", async () => {
+      for (const options of [{ empty: true }, { followUps: 2 }]) {
+        const { world } = await legacyWorld(options);
+        const report = await migrateStore(args(world, backupPath()));
+        expect(report).toMatchObject({ status: "converted", fromFormat: 7, legacyDrafts: 0 });
+        expect(diskFile(world).body.legacyDrafts).toEqual([]);
+        expect(diskFile(world).body.workloads).toEqual([]);
+      }
+    });
+
+    it("preserves an open charger track and its draft", async () => {
+      const { world } = await legacyWorld({ charger: true });
+      const before = diskFile(world);
+      expect(before.body.chargerTracks).toHaveLength(1);
+      expect(await migrateStore(args(world, backupPath()))).toMatchObject({ status: "converted", legacyDrafts: 0 });
+      const after = diskFile(world);
+      expect(after.body.chargerTracks).toEqual(before.body.chargerTracks);
+      expect(after.body.drafts).toEqual(before.body.drafts);
+      expect(after.body.conversations).toEqual(before.body.conversations);
+    });
+
+    it.each([6, 5, 4, 3, 2, 1] as const)("converts a format-%i store", async (format) => {
+      const { world } = await legacyWorld({ followUps: 9 });
+      asFormat(world, format);
+      expect(diskFile(world).format).toBe(format);
+      const backup = backupPath();
+      const report = await migrateStore(args(world, backup));
+      expect(report).toMatchObject({ status: "converted", fromFormat: format });
+      expect(diskFile(world).format).toBe(10);
+      expect(diskFile(backup === "" ? world : { dir: backup, keyFile: world.keyFile }).format).toBe(format);
+      for (const key of ["grants", "permissions", "profiles", "profileRevisions", "chargerTracks", "conversations", "selections"]) expect(Array.isArray(diskFile(world).body[key]), key).toBe(true);
+    });
+
+    it("a dry run writes and creates nothing, and reports what a conversion would do", async () => {
+      const { world } = await legacyWorld();
+      const backup = backupPath();
+      const dirStat = fs.statSync(world.dir);
+      const names = listing(world.dir);
+      const fileStat = fs.statSync(storePath(world));
+      const before = sha(storePath(world));
+      expect(await migrateStore(args(world, backup, "dry-run"))).toEqual({ status: "dry-run", fromFormat: 7, legacyDrafts: 1 });
+      expect(listing(world.dir)).toEqual(names);
+      expect(sha(storePath(world))).toBe(before);
+      expect(fs.statSync(storePath(world)).mtimeMs).toBe(fileStat.mtimeMs);
+      expect(fs.statSync(world.dir).mtimeMs).toBe(dirStat.mtimeMs);
+      expect(fs.existsSync(backup)).toBe(false);
+      expect(listing(dirname(backup))).toEqual([]);
+    });
+
+    it("keeps the potential-AI treatment through the converted store, across restarts, with the setting on", async () => {
+      const { world, token } = await legacyWorld();
+      expect(await migrateStore(args(world, backupPath()))).toMatchObject({ status: "converted" });
+      pointAt(world, true);
+      for (let restart = 1; restart <= 2; restart++) {
+        const started = await mustStart(world);
+        const buyer = await shopper(started.runtime, token);
+        const { journey, html } = await buyer.cards();
+        for (const line of journey.lines) expect(line.aiContext, `restart ${restart}`).toBe("potential");
+        expect(html).not.toContain("recommendation-badge");
+        await started.stop();
+      }
+      expect(diskFile(world).body.legacyDrafts).toHaveLength(1);
+    });
+  });
+
+  describe("compatibility with the setting", () => {
+    it("a converted store is refused with the setting off and opens with it on", async () => {
+      const { world } = await legacyWorld();
+      await migrateStore(args(world, backupPath()));
+      expect(await opener(world)).toBe("format-10-requires-workload-setting");
+      expect(await opener(world, { workloadRecords: true })).toBe("ready");
+      const bytes = sha(storePath(world));
+      pointAt(world, false);
+      const refused = await start(world);
+      expect(refused).toEqual({ status: "unavailable", code: "open-format-10-requires-workload-setting" });
+      expect(sha(storePath(world))).toBe(bytes);
+    });
+
+    it("an unconverted store is still refused by the workload setting, and a conversion needs no setting", async () => {
+      const { world } = await legacyWorld();
+      expect(await opener(world, { workloadRecords: true })).toBe("workload-setting-requires-format-10-store");
+      expect(await opener(world, { convertLegacyTo10: true, workloadRecords: true })).toBe("conflicting-test-modes");
+      expect(await opener(world, { convertLegacyTo10: true, format8TestStore: true })).toBe("conflicting-test-modes");
+    });
+
+    it("refuses to run with a workload or test-store setting in the environment, touching nothing", async () => {
+      const { world } = await legacyWorld();
+      const before = sha(storePath(world));
+      for (const name of ["SHOPACCESS_WORKLOAD_RECORDS", "SHOPACCESS_CHARGER_BUDGET_TEST_STORE"]) {
+        process.env[name] = "1";
+        const backup = backupPath();
+        expectRefused(await migrateStore(args(world, backup)), "conflicting-environment");
+        untouched(world, before, backup);
+        delete process.env[name];
+      }
+    });
+
+    it("never initializes a store", async () => {
+      const dir = scratch();
+      fs.writeFileSync(join(dir, "identity.key"), KEY, { mode: 0o600 });
+      const opened = await openFoundationStore(dir, KEY, { convertLegacyTo10: true, initializeEmpty: { keyFile: join(dir, "identity.key") } });
+      expect(opened).toEqual({ status: "unavailable", code: "conversion-never-initializes" });
+      expect(listing(dir)).toEqual(["identity.key"]);
+    });
+  });
+
+  describe("sources that are refused without any change", () => {
+    it.each<[string, Mode, string]>([
+      ["format 10", "format10", "open-conversion-requires-legacy-store"],
+      ["format 9", "format9", "open-conversion-requires-legacy-store"],
+      ["format 8", "format8", "open-conversion-requires-legacy-store"],
+    ])("%s", async (_label, mode, code) => {
+      const world = await freshWorld(mode);
+      const before = sha(storePath(world));
+      const backup = backupPath();
+      expectRefused(await migrateStore(args(world, backup)), code);
+      untouched(world, before, backup);
+      expectRefused(await migrateStore(args(world, backup, "dry-run")), code);
+    });
+
+    it("a wrong key, a bad checksum, malformed or truncated JSON, a duplicate key and a relabelled format", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const good = fs.readFileSync(storePath(world), "utf8");
+      const file = diskFile(world);
+      const cases: Array<[string, () => void, string | RegExp]> = [
+        ["checksum", () => writeStore(world, { ...file, sha256: "0".repeat(64) }), /invalid-snapshot/],
+        ["malformed", () => writeStore(world, "{not json"), /invalid-snapshot/],
+        ["truncated", () => writeStore(world, good.slice(0, Math.floor(good.length / 2))), /invalid-snapshot/],
+        ["empty file", () => writeStore(world, ""), /invalid-snapshot/],
+        ["duplicate key", () => writeStore(world, good.replace('"format":7', '"format":7,"format":7')), /invalid-snapshot/],
+        ["relabelled as 10", () => writeStore(world, { ...file, format: 10 }), /invalid-snapshot/],
+        ["wrong identity", () => writeStore(world, { ...file, identity: "1".repeat(64) }), /invalid-snapshot/],
+      ];
+      for (const [label, damage, code] of cases) {
+        writeStore(world, good);
+        damage();
+        const before = sha(storePath(world));
+        const backup = backupPath();
+        expectRefused(await migrateStore(args(world, backup)), code);
+        untouched(world, before, backup);
+        expect(label.length).toBeGreaterThan(0);
+      }
+      writeStore(world, good);
+      const wrong = join(world.dir, "other.key");
+      fs.writeFileSync(wrong, "a different throwaway key", { mode: 0o600 });
+      const backup = backupPath();
+      expectRefused(await migrateStore({ ...args(world, backup), keyFile: wrong }), /invalid-snapshot/);
+      expectRefused(await migrateStore({ ...args(world, backup), keyFile: join(world.dir, "absent.key") }), /key-file/);
+      fs.chmodSync(wrong, 0o644);
+      expectRefused(await migrateStore({ ...args(world, backup), keyFile: wrong }), /key-file/);
+      untouched(world, sha(storePath(world)), backup);
+      expect(fs.readFileSync(storePath(world), "utf8")).toBe(good);
+    });
+
+    it("a missing directory, a missing lock file and a missing store; nothing is created", async () => {
+      const parent = scratch();
+      const key = join(parent, "identity.key");
+      fs.writeFileSync(key, KEY, { mode: 0o600 });
+      const backup = backupPath();
+      expectRefused(await migrateStore({ source: join(parent, "absent"), keyFile: key, backup, mode: "convert" }), "lock-file-missing");
+      const empty = join(parent, "empty");
+      fs.mkdirSync(empty, { mode: 0o700 });
+      expectRefused(await migrateStore({ source: empty, keyFile: key, backup, mode: "convert" }), "lock-file-missing");
+      const { world } = await legacyWorld({ followUps: 2 });
+      fs.rmSync(storePath(world));
+      expectRefused(await migrateStore(args(world, backup)), /absent-store/);
+      expect(fs.existsSync(storePath(world))).toBe(false);
+      expect(listing(empty)).toEqual([]);
+      expect(fs.existsSync(backup)).toBe(false);
+    });
+
+    it("symlinked paths and unsafe permissions", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const real = fs.readFileSync(storePath(world));
+      const backup = backupPath();
+
+      const link = join(scratch(), "link");
+      fs.symlinkSync(world.dir, link);
+      expectRefused(await migrateStore({ ...args(world, backup), source: link }), /symlink-directory|lock-file-missing/);
+
+      fs.chmodSync(storePath(world), 0o644);
+      expectRefused(await migrateStore(args(world, backup)), /store-mode/);
+      fs.chmodSync(storePath(world), 0o600);
+
+      const elsewhere = join(scratch(), "target.json");
+      fs.writeFileSync(elsewhere, real, { mode: 0o600 });
+      fs.rmSync(storePath(world));
+      fs.symlinkSync(elsewhere, storePath(world));
+      expectRefused(await migrateStore(args(world, backup)), /store-type/);
+      fs.rmSync(storePath(world));
+      fs.writeFileSync(storePath(world), real, { mode: 0o600 });
+
+      fs.chmodSync(world.dir, 0o755);
+      expectRefused(await migrateStore(args(world, backup)), /directory-mode/);
+      fs.chmodSync(world.dir, 0o700);
+
+      fs.chmodSync(join(world.dir, "writer.lock"), 0o644);
+      expectRefused(await migrateStore(args(world, backup)), /open-/);
+      fs.chmodSync(join(world.dir, "writer.lock"), 0o600);
+
+      expect(fs.readFileSync(storePath(world)).equals(real)).toBe(true);
+      expect(fs.existsSync(backup)).toBe(false);
+    });
+  });
+
+  describe("backup destinations", () => {
+    it("refuses an existing file, directory or symlink, a path inside the source, and a symlinked or missing parent", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const before = sha(storePath(world));
+      const parent = scratch();
+      for (const make of [(path: string) => fs.mkdirSync(path), (path: string) => fs.writeFileSync(path, "x"), (path: string) => fs.symlinkSync(world.dir, path)]) {
+        const path = join(parent, `b${listing(parent).length}`);
+        make(path);
+        expectRefused(await migrateStore(args(world, path)), "backup-exists");
+      }
+      expectRefused(await migrateStore(args(world, join(world.dir, "backup"))), "backup-overlaps-source");
+      expectRefused(await migrateStore(args(world, world.dir)), "backup-overlaps-source");
+      expectRefused(await migrateStore(args(world, dirname(world.dir))), "backup-overlaps-source");
+      const linkedParent = join(scratch(), "linked");
+      fs.symlinkSync(parent, linkedParent);
+      expectRefused(await migrateStore(args(world, join(linkedParent, "new"))), "backup-parent");
+      expectRefused(await migrateStore(args(world, join(parent, "missing", "new"))), "backup-parent");
+      expect(sha(storePath(world))).toBe(before);
+    });
+
+    it("a backup that cannot be created leaves the source untouched", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const before = sha(storePath(world));
+      const parent = scratch();
+      fs.chmodSync(parent, 0o500);
+      try {
+        const report = await migrateStore(args(world, join(parent, "backup")));
+        expect(report).toEqual({ status: "failed", code: "backup-create" });
+      } finally {
+        fs.chmodSync(parent, 0o700);
+      }
+      expect(sha(storePath(world))).toBe(before);
+      expect(diskFile(world).format).toBe(7);
+    });
+  });
+
+  describe("canonical paths", () => {
+    it("sees a backup that is reached through a symlinked ancestor or spelled with .. parts as inside the source", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const before = sha(storePath(world));
+      const names = listing(world.dir);
+      const grandparent = scratch();
+      const link = join(grandparent, "link");
+      fs.symlinkSync(dirname(world.dir), link);
+      // link/<source name>/inner is the source directory's own subdirectory, though no textual prefix says so.
+      const through = join(link, basename(world.dir), "inner");
+      expectRefused(await migrateStore(args(world, through)), "backup-overlaps-source");
+      expectRefused(await migrateStore(args(world, through), {}), "backup-overlaps-source");
+      expectRefused(await migrateStore(args(world, join(world.dir, "..", basename(world.dir), "inner"))), "backup-overlaps-source");
+      expectRefused(await migrateStore(args(world, join(link, basename(world.dir)))), "backup-parent"); // its immediate parent is the symlink
+      expectRefused(await migrateStore({ ...args(world, join(world.dir, "..", basename(world.dir))), mode: "dry-run" }), "backup-overlaps-source");
+      expect(listing(world.dir)).toEqual(names);
+      expect(sha(storePath(world))).toBe(before);
+    });
+
+    it("sees a source reached through the temp directory's own symlink the same way as its real path", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const real = fs.realpathSync(world.dir);
+      expectRefused(await migrateStore({ source: real, keyFile: world.keyFile, backup: join(world.dir, "inner"), mode: "convert" }), "backup-overlaps-source");
+      expectRefused(await migrateStore({ source: world.dir, keyFile: world.keyFile, backup: join(real, "inner"), mode: "convert" }), "backup-overlaps-source");
+    });
+
+    it("keeps accepting a distinct backup under a different, symlinked-but-safe parent chain", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const parent = scratch();
+      const backup = join(fs.realpathSync(parent), "ok");
+      expect(await migrateStore(args(world, backup))).toMatchObject({ status: "converted" });
+    });
+
+    it("a dry run with an invalid source or backup path creates and writes nothing", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const parent = scratch();
+      const before = sha(storePath(world));
+      const names = listing(world.dir);
+      const existing = join(parent, "exists");
+      fs.mkdirSync(existing);
+      const cases: Array<[string, MigrateArgs]> = [
+        ["backup exists", { ...args(world, existing, "dry-run") }],
+        ["backup missing parent", { ...args(world, join(parent, "no", "such"), "dry-run") }],
+        ["backup inside source", { ...args(world, join(world.dir, "inner"), "dry-run") }],
+        ["source missing", { ...args(world, join(parent, "b"), "dry-run"), source: join(parent, "absent") }],
+        ["key missing", { ...args(world, join(parent, "b"), "dry-run"), keyFile: join(parent, "nokey") }],
+      ];
+      for (const [label, input] of cases) {
+        const report = await migrateStore(input);
+        expect(report.status, label).toBe("refused");
+      }
+      expect(listing(parent)).toEqual(["exists"]);
+      expect(listing(existing)).toEqual([]);
+      expect(listing(world.dir)).toEqual(names);
+      expect(sha(storePath(world))).toBe(before);
+    });
+  });
+
+  describe("outcome semantics", () => {
+    const reports: Array<[Report, number, string]> = [
+      [{ status: "dry-run", fromFormat: 7, legacyDrafts: 0 }, 0, "unchanged"],
+      [{ status: "converted", fromFormat: 7, legacyDrafts: 0, backup: "b" }, 0, "converted"],
+      [{ status: "refused", code: "x" }, 1, "unchanged"],
+      [{ status: "failed", code: "backup-verify", backup: "b" }, 1, "unchanged"],
+      [{ status: "indeterminate", code: "commit-indeterminate", backup: "b" }, 3, "unknown"],
+      [{ status: "unverified", code: "post-verify", backup: "b" }, 4, "unknown"],
+    ];
+    it.each(reports)("%j exits %i with source=%s", (report, code, source) => {
+      expect(exitCodeOf(report)).toBe(code);
+      expect(tool.sourceState(report)).toBe(source);
+      expect(lineOf(report)).toMatch(new RegExp(`source=${source}$`));
+    });
+
+    it("keeps the four outcome classes distinct end to end", async () => {
+      const results: Report[] = [];
+      for (const hooks of [
+        {},
+        { temporaryWrite: async () => { throw new Error("injected"); } },
+        { directoryFsync: async () => { throw new Error("injected"); } },
+        { temporaryWrite: async (fd: number) => void fs.writeSync(fd, Buffer.from("not a snapshot")) },
+      ] as MigrateHooks[]) {
+        const { world } = await legacyWorld({ followUps: 2 });
+        results.push(await migrateStore(args(world, backupPath()), hooks));
+      }
+      expect(results.map((report) => [report.status, exitCodeOf(report), tool.sourceState(report)])).toEqual([
+        ["converted", 0, "converted"],
+        ["refused", 1, "unchanged"],
+        ["indeterminate", 3, "unknown"],
+        ["unverified", 4, "unknown"],
+      ]);
+    });
+
+    it("never restores a backup after an indeterminate or unverified result", async () => {
+      for (const hooks of [{ directoryFsync: async () => { throw new Error("injected"); } }, { temporaryWrite: async (fd: number) => void fs.writeSync(fd, Buffer.from("not a snapshot")) }] as MigrateHooks[]) {
+        const { world } = await legacyWorld({ followUps: 2 });
+        const backup = backupPath();
+        const original = sha(storePath(world));
+        const report = await migrateStore(args(world, backup), hooks);
+        expect(["indeterminate", "unverified"]).toContain(report.status);
+        expect(sha(storePath(world))).not.toBe(original);
+        expect(sha(join(backup, "store.json"))).toBe(original);
+      }
+    });
+  });
+
+  describe("backup verification checks the backup as a store", () => {
+    const failsVerification = async (damage: (target: string) => void) => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const before = sha(storePath(world));
+      const backup = backupPath();
+      const created = fs.mkdirSync;
+      const mkdirSpy = vi.spyOn(fs, "mkdirSync").mockImplementation(((target: any, ...rest: any[]) => {
+        const result = (created as any)(target, ...rest);
+        if (String(target) === backup || String(target).endsWith("/backup")) damage(String(target));
+        return result;
+      }) as typeof fs.mkdirSync);
+      try {
+        return { report: await migrateStore(args(world, backup)), before, world, backup };
+      } finally {
+        mkdirSpy.mockRestore();
+      }
+    };
+
+    it("a backup directory with the wrong mode is rejected although its bytes are identical", async () => {
+      const { report, before, world, backup } = await failsVerification((target) => fs.chmodSync(target, 0o755));
+      expect(report).toEqual({ status: "failed", code: "backup-verify", backup });
+      expect(sha(storePath(world))).toBe(before);
+      expect(sha(join(backup, "store.json"))).toBe(before);
+      expect(diskFile(world).format).toBe(7);
+      fs.chmodSync(backup, 0o700);
+    });
+
+    it("a backup file with the wrong mode is rejected although its bytes are identical", async () => {
+      const original = fs.openSync;
+      const spy = vi.spyOn(fs, "openSync").mockImplementation(((path: any, flags: any, mode: any) => {
+        const fd = (original as any)(path, flags, mode);
+        if (String(path).endsWith("/backup/store.json")) fs.fchmodSync(fd, 0o644);
+        return fd;
+      }) as typeof fs.openSync);
+      const { world } = await legacyWorld({ followUps: 2 });
+      const before = sha(storePath(world));
+      const backup = backupPath();
+      try {
+        expect(await migrateStore(args(world, backup))).toEqual({ status: "failed", code: "backup-verify", backup });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(sha(join(backup, "store.json"))).toBe(before);
+      expect(sha(storePath(world))).toBe(before);
+    });
+
+    it("a restrictive umask never produces a backup that is used: the run stops before the source is touched", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const before = sha(storePath(world));
+      const backup = backupPath();
+      const previous = process.umask(0o400);
+      let report: Report;
+      try {
+        report = await migrateStore(args(world, backup));
+      } finally {
+        process.umask(previous);
+      }
+      expect(report).toMatchObject({ status: "failed" });
+      expect(exitCodeOf(report)).toBe(1);
+      expect(tool.sourceState(report)).toBe("unchanged");
+      expect(sha(storePath(world))).toBe(before);
+      expect(diskFile(world).format).toBe(7);
+      if (fs.existsSync(backup)) fs.chmodSync(backup, 0o700);
+      expect(fs.existsSync(backup), "the backup this run created is cleaned up even when it is unreadable").toBe(false);
+    });
+  });
+
+  describe("concurrency", () => {
+    it("is refused while another process or the application holds the writer lock", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const holder = await openFoundationStoreWithKeyFile(world.dir, world.keyFile, {});
+      if (holder.status !== "ready") throw new Error(holder.code);
+      const before = sha(storePath(world));
+      const backup = backupPath();
+      expectRefused(await migrateStore(args(world, backup)), /^open-/);
+      untouched(world, before, backup);
+      await holder.value.close?.();
+      expect(await migrateStore(args(world, backup))).toMatchObject({ status: "converted" });
+    });
+
+    it("two simultaneous conversions: exactly one converts and the other changes nothing", async () => {
+      const { world } = await legacyWorld();
+      const first = backupPath();
+      const second = backupPath();
+      const reports = await Promise.all([migrateStore(args(world, first)), migrateStore(args(world, second))]);
+      expect(reports.filter((report) => report.status === "converted")).toHaveLength(1);
+      const loser = reports.find((report) => report.status !== "converted")!;
+      expect(loser.status).toBe("refused");
+      expect(diskFile(world).format).toBe(10);
+      expect(fs.existsSync(first) !== fs.existsSync(second)).toBe(true);
+      const winner = fs.existsSync(first) ? first : second;
+      expect(diskFile({ dir: winner, keyFile: world.keyFile }).format).toBe(7);
+      expect(diskFile(world).body.legacyDrafts).toHaveLength(1);
+    });
+  });
+
+  describe("failure injection", () => {
+    it("a write that fails before the rename leaves the source byte-identical and reports the refusal", async () => {
+      const { world } = await legacyWorld();
+      const before = sha(storePath(world));
+      const backup = backupPath();
+      const report = await migrateStore(args(world, backup), {
+        temporaryWrite: async () => {
+          throw new Error("injected write failure");
+        },
+      });
+      expect(report).toEqual({ status: "refused", code: "commit-refused-source-unchanged", backup });
+      expect(sha(storePath(world))).toBe(before);
+      expect(sha(join(backup, "store.json"))).toBe(before);
+      expect(listing(world.dir).filter((name) => name.includes(".tmp."))).toEqual([]);
+      // The source is still a valid format-7 store, and a retry with a fresh backup path succeeds.
+      expect(await opener(world)).toBe("ready");
+      expect(await migrateStore(args(world, backupPath()))).toMatchObject({ status: "converted" });
+    });
+
+    it("a partial temporary write is cleaned up and the source is untouched", async () => {
+      const { world } = await legacyWorld();
+      const before = sha(storePath(world));
+      const report = await migrateStore(args(world, backupPath()), {
+        temporaryWrite: async (fd, bytes) => {
+          fs.writeSync(fd, bytes, 0, Math.floor(bytes.length / 2));
+          throw new Error("injected partial write");
+        },
+      });
+      expect(report).toMatchObject({ status: "refused", code: "commit-refused-source-unchanged" });
+      expect(sha(storePath(world))).toBe(before);
+      expect(listing(world.dir).filter((name) => name.includes(".tmp."))).toEqual([]);
+    });
+
+    it("a directory fsync failure after the rename is reported as indeterminate, never as success, and nothing is restored", async () => {
+      const { world } = await legacyWorld();
+      const backup = backupPath();
+      const original = sha(storePath(world));
+      const report = await migrateStore(args(world, backup), {
+        directoryFsync: async () => {
+          throw new Error("injected fsync failure");
+        },
+      });
+      expect(report).toEqual({ status: "indeterminate", code: "commit-indeterminate", backup });
+      // The rename happened, so the file on disk is the converted one; the backup is the original and is kept as is.
+      expect(diskFile(world).format).toBe(10);
+      expect(sha(join(backup, "store.json"))).toBe(original);
+      expect(await opener(world, { workloadRecords: true })).toBe("ready");
+    });
+
+    it("a backup that does not verify stops before the source is touched", async () => {
+      const { world } = await legacyWorld();
+      const before = sha(storePath(world));
+      const backup = backupPath();
+      const original = fs.writeFileSync;
+      const spy = vi.spyOn(fs, "writeFileSync").mockImplementation((target: any, data: any, ...rest: any[]) => {
+        if (typeof target === "number" && Buffer.isBuffer(data) && data.length > 100 && fs.fstatSync(target).size === 0 && fs.readdirSync(backup).includes("store.json")) {
+          return original(target, Buffer.from(data.subarray(0, data.length - 3)), ...(rest as []));
+        }
+        return original(target, data, ...(rest as []));
+      });
+      try {
+        const report = await migrateStore(args(world, backup));
+        expect(report).toEqual({ status: "failed", code: "backup-verify", backup });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(sha(storePath(world))).toBe(before);
+      expect(diskFile(world).format).toBe(7);
+    });
+  });
+
+  describe("independent verification", () => {
+    it("a backup that is a valid snapshot but not the same bytes is rejected before the source is touched", async () => {
+      const { world } = await legacyWorld();
+      const before = sha(storePath(world));
+      const backup = backupPath();
+      const original = fs.writeFileSync;
+      const spy = vi.spyOn(fs, "writeFileSync").mockImplementation((target: any, data: any, ...rest: any[]) => {
+        const reformatted = Buffer.isBuffer(data) && data.length > 100 && typeof target === "number" && fs.existsSync(backup) ? Buffer.from(JSON.stringify(JSON.parse(data.toString("utf8")), null, 1)) : data;
+        return original(target, reformatted, ...(rest as []));
+      });
+      try {
+        expect(await migrateStore(args(world, backup))).toEqual({ status: "failed", code: "backup-verify", backup });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(sha(storePath(world))).toBe(before);
+    });
+
+    it("a converted file that is not what was committed is reported as a failure, not as a success", async () => {
+      const { world } = await legacyWorld();
+      const sourceBytes = fs.readFileSync(storePath(world));
+      const backup = backupPath();
+      const report = await migrateStore(args(world, backup), {
+        temporaryWrite: async (fd) => void fs.writeSync(fd, sourceBytes),
+      });
+      expect(report).toEqual({ status: "unverified", code: "post-verify", backup });
+    });
+  });
+
+  describe("a valid but different result", () => {
+    it("a format-10 file that opens fine but differs from the converted body is reported as a failure", async () => {
+      const { world } = await legacyWorld();
+      const source = diskFile(world);
+      const other = { ...source.body, workloads: [], legacyDrafts: [] };
+      const sha256 = createHash("sha256").update(`shopaccess-snapshot-format-10\n${canonicalJson(other)}`, "utf8").digest("hex");
+      const bytes = Buffer.from(JSON.stringify({ format: 10, identity: source.identity, sha256, body: other }));
+      const backup = backupPath();
+      const report = await migrateStore(args(world, backup), { temporaryWrite: async (fd) => void fs.writeSync(fd, bytes) });
+      expect(report).toEqual({ status: "unverified", code: "post-verify", backup });
+    });
+  });
+
+  describe("rollback by verified backup restoration", () => {
+    it("restoring the backup file returns an ordinary, fully usable format-7 store, and the conversion can be run again", async () => {
+      const { world, token } = await legacyWorld();
+      const original = fs.readFileSync(storePath(world));
+      const backup = backupPath();
+      await migrateStore(args(world, backup));
+      expect(diskFile(world).format).toBe(10);
+      // A manual restoration while nothing holds the store: copy the verified backup over the file with its mode.
+      fs.copyFileSync(join(backup, "store.json"), storePath(world));
+      fs.chmodSync(storePath(world), 0o600);
+      expect(fs.readFileSync(storePath(world)).equals(original)).toBe(true);
+      pointAt(world, false);
+      expect(await opener(world)).toBe("ready");
+      expect(await opener(world, { workloadRecords: true })).toBe("workload-setting-requires-format-10-store");
+      const started = await mustStart(world);
+      const buyer = await shopper(started.runtime, token);
+      for (const line of (await buyer.cards()).journey.lines) expect(line.aiContext).toBe("potential");
+      await started.stop();
+      expect(await migrateStore(args(world, backupPath()))).toMatchObject({ status: "converted" });
+    });
+  });
+
+  describe("the command line and real OS processes", () => {
+    const cli = (argv: string[], env: Record<string, string | undefined> = {}) => {
+      const result = spawnSync(NODE, ["--experimental-strip-types", "--import", HOOK, CLI, ...argv], { encoding: "utf8", env: { ...process.env, ...env }, timeout: 60000 });
+      return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+    };
+    const probe = (world: World, mode: "ordinary" | "workload") => {
+      const result = spawnSync(NODE, ["--experimental-strip-types", "--import", HOOK, PROBE, "--directory", world.dir, "--key-file", world.keyFile, "--mode", mode], { encoding: "utf8", env: process.env, timeout: 60000 });
+      expect(result.status).toBe(0);
+      return JSON.parse(result.stdout.trim().split("\n")[0]!) as Record<string, unknown>;
+    };
+
+    it("parses exactly one source, key file, backup directory and one explicit mode", () => {
+      const ok = ["--source-directory", "a", "--key-file", "b", "--backup-directory", "c"];
+      expect(parseArgs([...ok, "--dry-run"])).toEqual({ source: "a", keyFile: "b", backup: "c", mode: "dry-run" });
+      expect(parseArgs([...ok, "--convert"])).toEqual({ source: "a", keyFile: "b", backup: "c", mode: "convert" });
+      for (const bad of [ok, [...ok, "--dry-run", "--convert"], ["--dry-run"], [...ok, "--dry-run", "--extra"], [...ok, "--dry-run", "--key-file", "z"], ["--source-directory", "--key-file", "b", "--backup-directory", "c", "--dry-run"], []]) {
+        expect(parseArgs(bad)).toBeNull();
+      }
+    });
+
+    it("exits 2 with a usage line for a bad command, and writes nothing", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const before = sha(storePath(world));
+      const result = cli(["--source-directory", world.dir, "--key-file", world.keyFile, "--backup-directory", backupPath()]);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain("usage:");
+      expect(sha(storePath(world))).toBe(before);
+    });
+
+    it("converts in its own process, reports codes and counts only, and a second process then opens the result", async () => {
+      const { world } = await legacyWorld();
+      const backup = backupPath();
+      const dry = cli(["--source-directory", world.dir, "--key-file", world.keyFile, "--backup-directory", backup, "--dry-run"]);
+      expect(dry).toMatchObject({ code: 0, stdout: "status=dry-run fromFormat=7 legacyDrafts=1 source=unchanged\n" });
+      expect(fs.existsSync(backup)).toBe(false);
+      expect(probe(world, "ordinary")).toMatchObject({ open: "ready", publishedFormat: 7 });
+
+      const run = cli(["--source-directory", world.dir, "--key-file", world.keyFile, "--backup-directory", backup, "--convert"]);
+      expect(run).toMatchObject({ code: 0, stdout: `status=converted fromFormat=7 legacyDrafts=1 backup=${backup} source=converted\n` });
+      expect(run.stderr).not.toMatch(/error|status=/i); // Node's own type-stripping warnings are the only stderr
+      for (const secret of [KEY.toString(), "train AI", "Thank you", diskFile(world).identity]) expect(run.stdout + run.stderr).not.toContain(secret);
+
+      expect(probe(world, "ordinary")).toMatchObject({ open: "format-10-requires-workload-setting", publishedFormat: null });
+      expect(probe(world, "workload")).toMatchObject({ open: "ready", publishedFormat: 10, legacyDrafts: 1, workloads: 0 });
+      expect(probe({ dir: backup, keyFile: world.keyFile }, "ordinary")).toMatchObject({ open: "ready", publishedFormat: 7 });
+
+      const again = cli(["--source-directory", world.dir, "--key-file", world.keyFile, "--backup-directory", backupPath(), "--convert"]);
+      expect(again.code).toBe(1);
+      expect(again.stdout).toBe("status=refused code=open-conversion-requires-legacy-store source=unchanged\n");
+    });
+
+    it("refuses the environment settings and exits 1 without touching the store", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const before = sha(storePath(world));
+      const backup = backupPath();
+      const result = cli(["--source-directory", world.dir, "--key-file", world.keyFile, "--backup-directory", backup, "--convert"], { SHOPACCESS_WORKLOAD_RECORDS: "1" });
+      expect(result).toMatchObject({ code: 1, stdout: "status=refused code=conflicting-environment source=unchanged\n" });
+      untouched(world, before, backup);
+    });
+
+    it("a process that holds the store is refused, and its SIGKILL releases the lock for the next process", async () => {
+      const { world } = await legacyWorld({ followUps: 2 });
+      const child = spawn(NODE, ["--experimental-strip-types", "--import", HOOK, PROBE, "--directory", world.dir, "--key-file", world.keyFile, "--mode", "ordinary", "--hold"], { stdio: ["ignore", "pipe", "pipe"] });
+      stoppers.push(async () => void child.kill("SIGKILL"));
+      await new Promise<void>((resolve, reject) => {
+        let seen = "";
+        child.stdout.on("data", (chunk) => {
+          seen += chunk.toString();
+          if (seen.includes("holding")) resolve();
+        });
+        child.on("exit", () => reject(new Error("probe exited early")));
+        setTimeout(() => reject(new Error("probe did not start")), 30000);
+      });
+      const before = sha(storePath(world));
+      const backup = backupPath();
+      const blocked = cli(["--source-directory", world.dir, "--key-file", world.keyFile, "--backup-directory", backup, "--convert"]);
+      expect(blocked.code).toBe(1);
+      expect(blocked.stdout).toMatch(/^status=refused code=open-/);
+      untouched(world, before, backup);
+      const exited = new Promise<void>((resolve) => child.on("exit", () => resolve()));
+      child.kill("SIGKILL");
+      await exited;
+      const ok = cli(["--source-directory", world.dir, "--key-file", world.keyFile, "--backup-directory", backup, "--convert"]);
+      expect(ok.code).toBe(0);
+      expect(probe(world, "workload")).toMatchObject({ open: "ready", publishedFormat: 10 });
     });
   });
 });

@@ -271,6 +271,12 @@ export type OpenOptions = {
    * format 10. It never converts an existing store; a format-7 store is refused. Absent, the store is ordinary.
    */
   readonly workloadRecords?: boolean;
+  /**
+   * Offline conversion only (src/server/mock-store-migrate.mts). Opens a store of format 1 to 7 and writes format 10, so
+   * the one commit of a conversion goes through the same validated atomic path as every other commit. Exclusive with every
+   * other mode, never initializes a store, and refuses formats 8, 9 and 10. Not reachable from the application runtime.
+   */
+  readonly convertLegacyTo10?: boolean;
   readonly directoryFsync?: (fd: number) => Promise<void>;
   readonly temporaryWrite?: (fd: number, bytes: Buffer) => Promise<void>;
   readonly beforePathRecheck?: () => Promise<void>;
@@ -295,10 +301,11 @@ export function lockStatRejects(stat: { uid: number; mode: number; isFile: boole
 
 export async function openFoundationStore(directory: string, keyBytes: Uint8Array, options: OpenOptions = {}): Promise<OpenResult> {
   if (typeof fs.constants.O_NOFOLLOW !== "number") return unavailable("no-nofollow");
-  if ([options.format8TestStore, options.format9WorkloadTestStore, options.workloadRecords].filter(Boolean).length > 1) {
+  if ([options.format8TestStore, options.format9WorkloadTestStore, options.workloadRecords, options.convertLegacyTo10].filter(Boolean).length > 1) {
     return unavailable("conflicting-test-modes");
   }
-  const mode: 7 | 8 | 9 | 10 = options.workloadRecords ? 10 : options.format9WorkloadTestStore ? 9 : options.format8TestStore ? 8 : 7;
+  if (options.convertLegacyTo10 && options.initializeEmpty) return unavailable("conversion-never-initializes");
+  const mode: 7 | 8 | 9 | 10 = options.workloadRecords || options.convertLegacyTo10 ? 10 : options.format9WorkloadTestStore ? 9 : options.format8TestStore ? 8 : 7;
   const key = Buffer.from(keyBytes);
   let directoryHandle: fs.promises.FileHandle | null = null;
   let lockHandle: fs.promises.FileHandle | null = null;
@@ -338,11 +345,11 @@ export async function openFoundationStore(directory: string, keyBytes: Uint8Arra
       activeKey = Buffer.from(created.bytes);
     }
     const loaded = await readVerified(directory, activeKey);
-    const formatAllowed = loaded.ok && (mode === 7 ? loaded.value.format <= 7 : loaded.value.format === mode);
+    const formatAllowed = loaded.ok && (mode === 7 || options.convertLegacyTo10 ? loaded.value.format <= 7 : loaded.value.format === mode);
     if (!loaded.ok || !formatAllowed) {
       await closeQuiet(lockHandle);
       await closeQuiet(directoryHandle);
-      return unavailable(loaded.ok ? refusalCode(mode, loaded.value.format) : loaded.code);
+      return unavailable(loaded.ok ? (options.convertLegacyTo10 ? "conversion-requires-legacy-store" : refusalCode(mode, loaded.value.format)) : loaded.code);
     }
     const state: StoreState = {
       faulted: false,
@@ -369,7 +376,7 @@ export async function openFoundationStore(directory: string, keyBytes: Uint8Arra
  * Opens an initialised store with its identity key read from `keyFile` (a 0600 regular file owned by this user, not a
  * symlink). Used only by src/server/runtime-access.ts. Codes only; never a path or key byte.
  */
-export async function openFoundationStoreWithKeyFile(directory: string, keyFile: string, options: Pick<OpenOptions, "format8TestStore" | "workloadRecords"> = {}): Promise<OpenResult> {
+export async function openFoundationStoreWithKeyFile(directory: string, keyFile: string, options: Pick<OpenOptions, "format8TestStore" | "workloadRecords" | "convertLegacyTo10" | "directoryFsync" | "temporaryWrite"> = {}): Promise<OpenResult> {
   const key = await readKeyFile(keyFile);
   if (!key.ok) return unavailable("key-file");
   return openFoundationStore(directory, key.bytes, options);
