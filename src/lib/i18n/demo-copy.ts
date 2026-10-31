@@ -485,6 +485,8 @@ export function journeyCopy(language: JourneyLanguage): JourneyCopy {
 
 export interface AdmissionCopy {
   readonly title: string;
+  readonly intro: string;
+  readonly loginHint: string;
   readonly languageLegend: string;
   readonly english: string;
   readonly spanish: string;
@@ -502,6 +504,8 @@ export interface AdmissionCopy {
 
 const ADMISSION_ENGLISH: AdmissionCopy = {
   title: "Enter the demonstration",
+  intro: "ShopAccess AI helps you choose a laptop, with the evidence and limits behind every suggestion. This is an evaluation demonstration: the store is simulated, and no real money moves.",
+  loginHint: "To begin, enter the passphrase you were given.",
   languageLegend: "Language",
   english: "English",
   spanish: "Español",
@@ -519,6 +523,8 @@ const ADMISSION_ENGLISH: AdmissionCopy = {
 
 const ADMISSION_SPANISH: AdmissionCopy = {
   title: "Entrar a la demostración",
+  intro: "ShopAccess AI le ayuda a elegir un portátil, con la evidencia y los límites detrás de cada sugerencia. Es una demostración de evaluación: la tienda es simulada y no se mueve dinero real.",
+  loginHint: "Para comenzar, escriba la frase de acceso que le dieron.",
   languageLegend: "Idioma",
   english: "English",
   spanish: "Español",
