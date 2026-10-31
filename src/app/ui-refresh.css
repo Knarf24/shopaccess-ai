@@ -529,9 +529,7 @@
 
 .guided-presentation.ui-refresh label.flex { min-height: 44px; align-items: center; }
 .guided-presentation.ui-refresh fieldset > div label { flex: 1; display: flex; align-items: center; min-height: 44px; }
-@media (max-width: 639px) {
-  .guided-presentation.ui-refresh p > a:only-child { display: inline-flex; align-items: center; min-height: 44px; }
-}
+.guided-presentation.ui-refresh p > a:only-child { display: inline-flex; align-items: center; min-height: 44px; }
 
 /* Saved permissions: one card each, with the state as a chip. */
 .guided-presentation.ui-refresh .permission-card {
@@ -586,5 +584,23 @@
 .guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"][data-state="CAPTURED_VERIFIED"] { border-left-color: #166534; }
 .guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"][data-state="FAILED_TERMINAL"],
 .guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"][data-state="DECLINED"],
+.guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"][data-state="DECLINED_RETRYABLE"],
 .guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"][data-state="CANCELED_LOCAL"] { border-left-color: #991b1b; }
 .guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] code { padding: 0.1rem 0.4rem; border-radius: 0.25rem; background: var(--gp-panel, #f3f7fe); font-weight: 700; }
+
+/* Charger page: the language link and the "identify your model" links stay at least 44px tall. Selected by attribute so the
+   golden charger markup stays byte-identical. */
+.guided-presentation.ui-refresh a[lang][href*="/shop/chargers"],
+.guided-presentation.ui-refresh p > a[href*="support.apple.com"] { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 0.25rem; }
+
+/* Device profile: the same fields as the permissions form, checkboxes as touch-sized rows, delete as a secondary action. */
+.guided-presentation.ui-refresh form > div:has(> input[type="checkbox"]) { display: flex; align-items: center; gap: 0.625rem; min-height: 44px; }
+.guided-presentation.ui-refresh form > div:has(> input[type="checkbox"]) label { font-weight: 400; }
+.guided-presentation.ui-refresh form > div > label { display: block; margin-bottom: 0.25rem; }
+.guided-presentation.ui-refresh form > div > input[type="text"] { width: 100%; box-sizing: border-box; }
+.guided-presentation.ui-refresh form[action$="/shop/profile/delete"] button[type="submit"]:not(:disabled) {
+  background: var(--gp-paper);
+  color: #7f1d1d;
+  border: 1.5px solid #991b1b;
+}
+.guided-presentation.ui-refresh form[action$="/shop/profile/delete"] button[type="submit"]:not(:disabled):hover { background: #fef2f2; }

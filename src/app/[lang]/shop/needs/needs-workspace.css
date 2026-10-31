@@ -1242,3 +1242,20 @@
   background: none;
 }
 .needs-workspace .needs-unified-header > form.journey-form > p { margin: 0; font-size: 0.875rem; }
+
+/* The page heading is visually hidden, but it is the skip link's target: show it, with a focus ring, while it has focus. */
+.needs-workspace h1.sr-only:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: normal;
+  font-size: 1.125rem;
+  scroll-margin-top: 1rem;
+  outline: 3px solid var(--needs-brand);
+  outline-offset: 2px;
+}

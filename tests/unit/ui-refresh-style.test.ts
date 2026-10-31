@@ -9,19 +9,19 @@ const OPTED_IN: Record<string, string> = {
   "src/app/(english)/page.tsx": "src/app/(english)/page.tsx",
   "src/app/[lang]/demo/admission/page.tsx": "src/app/[lang]/demo/admission/admission-screen.tsx",
   "src/app/[lang]/shop/permissions/page.tsx": "src/app/[lang]/shop/permissions/page.tsx",
+  "src/app/[lang]/shop/profile/page.tsx": "src/app/[lang]/shop/profile/page.tsx",
   "src/app/[lang]/checkout/[intentId]/page.tsx": "src/app/[lang]/checkout/[intentId]/page.tsx",
   "src/app/[lang]/shop/chargers/page.tsx": "src/app/[lang]/shop/chargers/page.tsx",
 };
 
 describe("ui refresh presentation", () => {
-  it("applies only on the home, admission, permissions, checkout and charger information pages, and keeps every rule under .guided-presentation.ui-refresh", () => {
+  it("applies only on the home, admission, permissions, profile, checkout and charger information pages, and keeps every rule under .guided-presentation.ui-refresh", () => {
     for (const [page, markup] of Object.entries(OPTED_IN)) {
       expect(readFileSync(page, "utf8"), page).toMatch(/import "[./]+ui-refresh\.css";/);
       expect(readFileSync(markup, "utf8"), markup).toContain('className="guided-presentation ui-refresh"');
     }
     for (const file of [
       "src/app/(english)/shop/page.tsx",
-      "src/app/[lang]/shop/profile/page.tsx",
       "src/app/[lang]/shop/needs/page.tsx",
       "src/app/[lang]/extension/pair/page.tsx",
       "src/app/guided-presentation.css",
