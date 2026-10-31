@@ -146,6 +146,7 @@ describe("hands-free microphone restart", () => {
     const f = fixture(true);
     f.session.enable();
     f.ports[0].onstart!();
+    expect(AUDIO_START_FALLBACK_MS).toBe(1500);
     vi.advanceTimersByTime(AUDIO_START_FALLBACK_MS - 1);
     expect(f.session.phase()).toBe("starting");
     vi.advanceTimersByTime(1);
@@ -184,5 +185,61 @@ describe("hands-free microphone restart", () => {
     expect(f.session.phase()).toBe("starting");
     f.ports[1].onaudiostart!();
     expect(f.session.phase()).toBe("listening");
+  });
+
+  it("gives every listening window after a recognised result its own silence reconnect", () => {
+    const f = fixture(false);
+    f.session.enable();
+    f.ports[0].onstart!();
+    f.ports[0].onend!();
+    vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+    expect(f.ports).toHaveLength(2);
+    // A recognised result resets the silence budget used by the first window.
+    f.ports[1].onstart!();
+    f.say("I need a laptop");
+    f.session.respond("Check your choices");
+    f.finishSpeech();
+    expect(f.ports).toHaveLength(3);
+    f.ports[2].onstart!();
+    f.ports[2].onend!();
+    expect(f.session.phase()).toBe("reconnecting");
+    vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+    expect(f.ports).toHaveLength(4);
+    f.ports[3].onend!();
+    expect(f.session.phase()).toBe("no_speech");
+    expect(f.session.isActive()).toBe(false);
+  });
+
+  it("leaves no timer running after hands-free is disabled with the readiness fallback pending", () => {
+    const f = fixture(true);
+    f.session.enable();
+    f.ports[0].onstart!();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    f.session.disable();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(f.session.phase()).toBe("off");
+  });
+
+  it("leaves no timer running after a message is sent while the readiness fallback is pending", () => {
+    const f = fixture(true);
+    f.session.enable();
+    f.ports[0].onstart!();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    f.say("I need a laptop");
+    expect(f.session.phase()).toBe("waiting");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("ignores a late onaudiostart during the reconnect gap", () => {
+    const f = fixture(true);
+    f.session.enable();
+    f.ports[0].onstart!();
+    f.ports[0].onend!();
+    expect(f.session.phase()).toBe("reconnecting");
+    f.ports[0].onaudiostart!();
+    expect(f.session.phase()).toBe("reconnecting");
+    vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+    expect(f.ports).toHaveLength(2);
+    expect(f.session.phase()).toBe("starting");
   });
 });

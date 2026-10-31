@@ -86,7 +86,7 @@ export function createHandsFreeSession(options: {
       // Ready means audio capture has really begun. `onaudiostart` says so where the browser emits it; otherwise `onstart`
       // is the only signal. Either way the phase cannot stay at "starting" once the browser has started.
       const markReady = () => {
-        if (ready || !active || turn !== generation) return;
+        if (ready || ended || !active || turn !== generation) return;
         ready = true;
         if (readyTimer) clearTimeout(readyTimer);
         readyTimer = null;
