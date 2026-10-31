@@ -1328,3 +1328,40 @@
   width: 100%;
   max-width: none;
 }
+
+/* Increment 2: the h1 stays for assistive tech and focus (sr-only); the stepper alone carries the visible step. */
+.needs-workspace .needs-unified-header { padding: 0.75rem 1rem; gap: 0; }
+
+/* Before results exist, use the width: conversation beside the permissions/charger links. */
+@media (min-width: 1024px) {
+  .needs-workspace .needs-layout:not(.charger-rec-shell) > .needs-shopping-columns:not(:has(.needs-results-panel)) > .needs-shopping-left {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 1.25rem;
+  }
+  .needs-workspace .needs-shopping-columns:not(:has(.needs-results-panel)) > .needs-shopping-left > .needs-conversation { max-width: none; }
+}
+
+/* 44px touch targets on small screens. */
+@media (max-width: 640px) {
+  .needs-workspace summary { padding-block: 0.75rem; }
+  .needs-workspace .needs-side a,
+  .needs-workspace a.underline { display: inline-flex; align-items: center; min-height: 44px; }
+  .needs-workspace select,
+  .needs-workspace input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]),
+  .needs-workspace button { min-height: 44px; }
+}
+
+/* Language switch: one compact row instead of a card above the stepper. */
+.needs-workspace .needs-unified-header > form.journey-form {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0 0 0.75rem;
+  border: 0;
+  background: none;
+}
+.needs-workspace .needs-unified-header > form.journey-form > p { margin: 0; font-size: 0.875rem; }

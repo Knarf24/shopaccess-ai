@@ -202,7 +202,7 @@ async function NeedsContentUnguarded({ params, searchParams }: { params: PagePar
       {!purchaseTrack ? <h1
         id={currentTarget === "heading" ? NEEDS_PAGE_HEADING_ID : undefined}
         tabIndex={currentTarget === "heading" ? -1 : undefined}
-        className="text-3xl font-semibold"
+        className="sr-only"
       >
         {copy.pageTitle}
       </h1> : null}

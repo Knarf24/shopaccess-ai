@@ -319,3 +319,13 @@
     padding: 0.75rem 0.75rem 0;
   }
 }
+
+/* Increment 2: controls first, the full privacy disclosure stays visible below them. */
+[data-voice-journey] [data-hands-free-controls] > p:first-child { order: 3; color: #475569; }
+[data-voice-journey] [data-hands-free-controls] > details { order: 2; margin-left: auto; }
+[data-voice-journey] [data-hands-free-controls] > details[open] { flex-basis: 100%; }
+[data-voice-journey] [data-hands-free-controls] summary { padding-block: 0.75rem; }
+@media (max-width: 640px) {
+  [data-voice-journey] [data-hands-free-controls] select,
+  [data-voice-journey] [data-hands-free-controls] details button { min-height: 44px; }
+}
