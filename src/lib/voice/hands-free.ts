@@ -8,6 +8,10 @@ export function isNeedsConfirmation(text: string, language: string): boolean {
     ? /^(?:por favor[ ,]+)?(?:confirmo mis opciones|confirmar mis opciones|confirmar mis necesidades)[.!?]*$/i
     : /^(?:please[ ,]+)?(?:confirm my choices|confirm these choices|confirm my needs)[.!?]*$/i).test(text.trim());
 }
+/** Delay before the one silence reconnect. A new recognition object is created each time, so a short wait is enough. */
+export const RECONNECT_DELAY_MS = 200;
+/** If a browser supports `onaudiostart` but never fires it, the microphone is treated as ready this long after `onstart`. */
+export const AUDIO_START_FALLBACK_MS = 1500;
 const STOP = /^(?:stop(?: listening| shop\s*access)?|deja de escuchar|dejar de escuchar|detener escucha)[.!?]*$/i;
 
 /** Browser transcription wake gate. No form, storage, payment or network capabilities. */
@@ -27,6 +31,7 @@ export function createHandsFreeSession(options: {
   let cancelSpeech: (() => void) | null = null;
   let restart: ReturnType<typeof setTimeout> | null = null;
   let watchdog: ReturnType<typeof setTimeout> | null = null;
+  let readyTimer: ReturnType<typeof setTimeout> | null = null;
   let emptyRestarts = 0;
   let idleDeadline = 0;
   const state = (next: HandsFreePhase) => { phase = next; options.onState(next); };
@@ -34,8 +39,10 @@ export function createHandsFreeSession(options: {
     generation++;
     if (restart) clearTimeout(restart);
     if (watchdog) clearTimeout(watchdog);
+    if (readyTimer) clearTimeout(readyTimer);
     restart = null;
     watchdog = null;
+    readyTimer = null;
     const previous = recognition; recognition = null;
     try { previous?.abort(); } catch { /* Already ended. */ }
   }
@@ -70,14 +77,28 @@ export function createHandsFreeSession(options: {
       const port = options.create();
       if (!port) { disable("unsupported"); return; }
       recognition = port; port.lang = options.language; port.continuous = true; port.interimResults = false;
-      let noSpeech = false;
       let ended = false;
+      let ready = false;
       const resetWatchdog = () => {
         if (watchdog) clearTimeout(watchdog);
         watchdog = setTimeout(() => { if (turn === generation) disable("error"); }, Math.max(0, idleDeadline - Date.now()));
       };
+      // Ready means audio capture has really begun. `onaudiostart` says so where the browser emits it; otherwise `onstart`
+      // is the only signal. Either way the phase cannot stay at "starting" once the browser has started.
+      const markReady = () => {
+        if (ready || !active || turn !== generation) return;
+        ready = true;
+        if (readyTimer) clearTimeout(readyTimer);
+        readyTimer = null;
+        state(awake ? "listening" : "wake");
+      };
+      // Checked before assigning: assigning would create the property on a plain object and hide its absence.
+      const audioStartSupported = "onaudiostart" in port;
+      if (audioStartSupported) port.onaudiostart = markReady;
       port.onstart = () => {
-        if (active && turn === generation) state(awake ? "listening" : "wake");
+        if (!active || turn !== generation) return;
+        if (!audioStartSupported) { markReady(); return; }
+        readyTimer = setTimeout(markReady, AUDIO_START_FALLBACK_MS);
       };
       port.onresult = event => {
         if (!active || turn !== generation || ended) return;
@@ -102,15 +123,16 @@ export function createHandsFreeSession(options: {
       };
       port.onerror = event => {
         if (!active || turn !== generation) return;
-        if (event.error === "no-speech") { noSpeech = true; return; }
+        if (event.error === "no-speech") return;
         disable(event.error === "not-allowed" || event.error === "service-not-allowed" ? "denied" : "error");
       };
       port.onend = () => {
         if (!active || turn !== generation || ended) return;
         ended = true;
-        if (++emptyRestarts > 1) { disable(noSpeech ? "no_speech" : "error"); return; }
+        // Any other error has already stopped the session above, so two ends without one are silence, not a failure.
+        if (++emptyRestarts > 1) { disable("no_speech"); return; }
         state("reconnecting");
-        restart = setTimeout(() => { if (active && turn === generation) listen(); }, 500);
+        restart = setTimeout(() => { if (active && turn === generation) listen(); }, RECONNECT_DELAY_MS);
       };
       state("starting"); resetWatchdog(); port.start();
     } catch { disable("error"); }
