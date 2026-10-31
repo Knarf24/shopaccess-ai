@@ -29,7 +29,7 @@ export function ConfirmationSummary({ challenge, csrfToken, action, language, he
       <h2 id="confirm-heading" tabIndex={headingTabIndex} className="text-xl font-semibold">
         Check your purchase
       </h2>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+      <dl className="confirm-summary grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
         <dt className="font-medium">Seller</dt>
         <dd>{summary.merchantName}</dd>
         <dt className="font-medium">Item</dt>
@@ -80,7 +80,7 @@ function SpanishConfirmation({ challenge, csrfToken, action, headingTabIndex }: 
       <h2 id="confirm-heading" tabIndex={headingTabIndex} className="text-xl font-semibold">
         {copy.heading}
       </h2>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+      <dl className="confirm-summary grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
         <dt className="font-medium">{copy.seller}</dt>
         <dd>{sellerName(summary.merchantName, "es")}</dd>
         <dt className="font-medium">{copy.item}</dt>

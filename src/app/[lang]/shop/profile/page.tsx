@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import "../../../guided-presentation.css";
+import "../../../ui-refresh.css";
 import { ConfigNotice } from "@/components/ConfigNotice";
 import { DeviceProfileForm } from "@/components/DeviceProfileForm";
 import { DocumentLanguageSync } from "@/components/mock-journey/ListingSearchForm";
@@ -90,7 +91,7 @@ async function ProfileContent(props: { params: PageParams; searchParams: SearchP
 
 export default function ProfilePage({ params, searchParams }: { params: PageParams; searchParams: SearchParams }) {
   return (
-    <main className="guided-presentation">
+    <main className="guided-presentation ui-refresh">
       <div className="presentation-column">
         <Suspense fallback={<p>Loading…</p>}>
           <ProfileContent params={params} searchParams={searchParams} />

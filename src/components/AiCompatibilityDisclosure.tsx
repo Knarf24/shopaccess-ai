@@ -39,7 +39,7 @@ export function AiCompatibilityDisclosure({
 
   return (
     <section
-      className="flex flex-col gap-1 rounded border border-zinc-300 p-3 text-sm dark:border-zinc-700"
+      className="ai-disclosure flex flex-col gap-1 rounded border border-zinc-300 p-3 text-sm dark:border-zinc-700"
       data-ai-compatibility={assessment.compatibility}
       data-ai-workload={assessment.workload}
       aria-label={language === "es" ? "Evidencia de compatibilidad con IA" : "AI compatibility evidence"}

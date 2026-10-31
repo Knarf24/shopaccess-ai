@@ -93,6 +93,7 @@ export interface JourneyCopy {
   readonly viewListing: string;
   readonly priceLabel: string;
   readonly reviewPurchase: string;
+  readonly authorizeNote: string;
   readonly shipping: string;
   /** Compact result cards: the difference between the fixed demo price and the confirmed budget, both server values. */
   readonly budgetUnder: (difference: string, budget: string) => string;
@@ -252,6 +253,7 @@ const ENGLISH: JourneyCopy = {
   viewListing: "View at store",
   priceLabel: "Reference price",
   reviewPurchase: "Review purchase",
+  authorizeNote: "Next step: you review and confirm the exact total. Choosing this item does not buy it or take payment.",
   shipping: "Tax and shipping are $0.00 in this demonstration. Nothing is shipped.",
   budgetUnder: (difference, budget) => `${difference} under your ${budget} budget`,
   budgetOver: (difference, budget) => `${difference} over your ${budget} budget`,
@@ -409,6 +411,7 @@ const SPANISH: JourneyCopy = {
   viewListing: "Ver en la tienda",
   priceLabel: "Precio de referencia",
   reviewPurchase: "Revisar compra",
+  authorizeNote: "Siguiente paso: usted revisa y confirma el total exacto. Elegir este artículo no lo compra ni cobra nada.",
   shipping: "Los impuestos y el envío son 0,00 USD en esta demostración. No se envía nada.",
   budgetUnder: (difference, budget) => `${difference} por debajo de su presupuesto de ${budget}`,
   budgetOver: (difference, budget) => `${difference} por encima de su presupuesto de ${budget}`,
@@ -482,6 +485,8 @@ export function journeyCopy(language: JourneyLanguage): JourneyCopy {
 
 export interface AdmissionCopy {
   readonly title: string;
+  readonly intro: string;
+  readonly loginHint: string;
   readonly languageLegend: string;
   readonly english: string;
   readonly spanish: string;
@@ -499,6 +504,8 @@ export interface AdmissionCopy {
 
 const ADMISSION_ENGLISH: AdmissionCopy = {
   title: "Enter the demonstration",
+  intro: "ShopAccess AI helps you choose a laptop, with the evidence and limits behind every suggestion. This is an evaluation demonstration: the store is simulated, and no real money moves.",
+  loginHint: "To begin, enter the passphrase you were given.",
   languageLegend: "Language",
   english: "English",
   spanish: "Español",
@@ -516,6 +523,8 @@ const ADMISSION_ENGLISH: AdmissionCopy = {
 
 const ADMISSION_SPANISH: AdmissionCopy = {
   title: "Entrar a la demostración",
+  intro: "ShopAccess AI le ayuda a elegir un portátil, con la evidencia y los límites detrás de cada sugerencia. Es una demostración de evaluación: la tienda es simulada y no se mueve dinero real.",
+  loginHint: "Para comenzar, escriba la frase de acceso que le dieron.",
   languageLegend: "Idioma",
   english: "English",
   spanish: "Español",

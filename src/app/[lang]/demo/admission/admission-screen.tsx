@@ -18,7 +18,11 @@ export function AdmissionScreen({ model }: { readonly model: AdmissionScreenMode
     <main className="guided-presentation ui-refresh">
       <div lang={language} className="presentation-column presentation-column-narrow admission-screen">
         <DocumentLanguageSync language={language} />
-        <h1 className="text-3xl font-semibold">{copy.title}</h1>
+        <header className="gate-intro">
+          <p className="gate-brand">ShopAccess AI</p>
+          <h1 className="text-3xl font-semibold">{copy.title}</h1>
+          <p>{copy.intro}</p>
+        </header>
         <LanguageChoice language={language} copy={copy} />
         {model.kind === "closed" ? <p role="alert" className="journey-panel">{copy.closed}</p> : null}
         {model.kind === "bootstrap" ? (
@@ -34,6 +38,7 @@ export function AdmissionScreen({ model }: { readonly model: AdmissionScreenMode
             {retryRefusalId ? <p id={retryRefusalId} role="alert">{copy.retry}</p> : null}
             <input type="hidden" name="lang" value={language} />
             <input type="hidden" name="demoCsrf" value={model.csrf} />
+            <p>{copy.loginHint}</p>
             <label className="flex flex-col gap-1" htmlFor="demo-passphrase">
               {copy.passphraseLabel}
               <input

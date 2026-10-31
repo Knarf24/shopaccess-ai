@@ -20,11 +20,18 @@ import { Icon } from "@/components/Icon";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-function HomeHeader() {
+function HomeHeader({ steps = false }: { readonly steps?: boolean }) {
   return (
-    <header className="flex flex-col gap-2">
+    <header className={steps ? "home-intro flex flex-col gap-2" : "flex flex-col gap-2"}>
       <h1 className="text-3xl font-semibold">ShopAccess AI</h1>
       <p className="text-lg">Help choosing a first laptop, with the evidence behind every suggestion.</p>
+      {steps ? (
+        <ol className="home-steps">
+          <li><strong>Tell us what you need.</strong> Your use and budget, by voice or text.</li>
+          <li><strong>Compare with evidence.</strong> Each suggestion shows what was checked and what is not verified.</li>
+          <li><strong>You decide.</strong> Nothing is bought until you review the exact total and confirm.</li>
+        </ol>
+      ) : null}
     </header>
   );
 }
@@ -81,7 +88,7 @@ async function HomeContentUnguarded({ searchParams }: { searchParams: SearchPara
     return (
       <main className="guided-presentation ui-refresh">
         <div className="presentation-column">
-          <HomeHeader />
+          <HomeHeader steps />
           <section className="home-hero">
             <GuidedLanguageChoice />
             <figure className="demo-illustration">

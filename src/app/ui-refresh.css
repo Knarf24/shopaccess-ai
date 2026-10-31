@@ -42,17 +42,14 @@
   --ui-brand: #2457d6;
   --ui-input: #64748b;
   --ui-panel: #f3f7fe;
-  --ui-neu-raised: 8px 8px 20px rgb(133 155 190 / 22%), -8px -8px 20px rgb(255 255 255 / 85%);
-  --ui-neu-raised-soft: 5px 5px 12px rgb(133 155 190 / 18%), -5px -5px 12px rgb(255 255 255 / 80%);
-  --ui-neu-inset: inset 3px 3px 7px rgb(133 155 190 / 18%), inset -3px -3px 7px rgb(255 255 255 / 90%);
+  /* Flat surfaces: separation comes from the tone step and one hairline, never from shadows. */
+  --ui-neu-raised: none;
+  --ui-neu-raised-soft: none;
+  --ui-neu-inset: none;
   --ui-font-heading: "Plus Jakarta Sans", Arial, Helvetica, sans-serif;
   --ui-font-body: "DM Sans", Arial, Helvetica, sans-serif;
   --ui-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   background-color: var(--gp-cream);
-  background-image:
-    radial-gradient(52rem 24rem at -8% -6%, #d6e3fa 0%, transparent 62%),
-    radial-gradient(40rem 24rem at 108% 24%, #dbe6fb 0%, transparent 64%),
-    radial-gradient(36rem 20rem at 18% 106%, #dfe9fb 0%, transparent 62%);
   color: var(--gp-ink);
   font-family: var(--ui-font-body);
 }
@@ -95,14 +92,14 @@
 .guided-presentation.ui-refresh form[aria-labelledby="confirm-heading"] {
   background: var(--gp-paper);
   border: 1px solid var(--gp-line);
-  border-radius: 1.25rem;
+  border-radius: 0.75rem;
   box-shadow: var(--ui-neu-raised-soft);
 }
 
 .guided-presentation.ui-refresh .catalog-board article {
   background: var(--gp-paper);
   border-color: var(--gp-line);
-  border-radius: 1rem;
+  border-radius: 0.75rem;
   box-shadow: var(--ui-neu-raised-soft);
 }
 
@@ -114,7 +111,7 @@
 
 .guided-presentation.ui-refresh .demo-illustration {
   background: var(--gp-teal-soft);
-  border-radius: 1.25rem;
+  border-radius: 0.75rem;
   box-shadow: var(--ui-neu-inset);
 }
 
@@ -122,7 +119,7 @@
 .guided-presentation.ui-refresh .sandbox-notice,
 .guided-presentation.ui-refresh [role="alert"].rounded,
 .guided-presentation.ui-refresh [role="status"].rounded {
-  border-radius: 1rem;
+  border-radius: 0.75rem;
 }
 
 .guided-presentation.ui-refresh .sandbox-notice {
@@ -156,7 +153,7 @@
 .guided-presentation.ui-refresh select,
 .guided-presentation.ui-refresh textarea {
   border: 1.5px solid var(--ui-input);
-  border-radius: 0.75rem;
+  border-radius: 0.5rem;
   background: var(--gp-paper);
   color: var(--gp-ink);
   padding: 0.625rem 0.75rem;
@@ -181,7 +178,7 @@
   min-height: 2.875rem;
   padding: 0.625rem 1.5rem;
   border: 0;
-  border-radius: 999px;
+  border-radius: 0.5rem;
   background: #2457d6;
   color: #fff;
   font-weight: 600;
@@ -195,7 +192,7 @@
 }
 
 .guided-presentation.ui-refresh button[type="submit"]:disabled {
-  border-radius: 999px;
+  border-radius: 0.5rem;
 }
 
 /* Simulation steps are choices, not the page's main action: an outlined secondary style (including "Cancel this checkout"). */
@@ -203,7 +200,7 @@
   min-height: 2.75rem;
   padding: 0.5rem 1rem;
   border: 1.5px solid var(--ui-input);
-  border-radius: 0.75rem;
+  border-radius: 0.5rem;
   background: var(--gp-paper);
   color: var(--gp-ink);
   font-weight: 600;
@@ -225,7 +222,7 @@
 .guided-presentation.ui-refresh .skip-link:focus-visible {
   background: var(--gp-ink);
   color: #f8fafc;
-  border-radius: 999px;
+  border-radius: 0.5rem;
 }
 
 /* Progress indicator: the workspace's pill steps with completed, current and upcoming states. */
@@ -235,7 +232,7 @@
   padding: 0.5rem;
   background: var(--gp-paper);
   border: 1px solid var(--gp-line);
-  border-radius: 1rem;
+  border-radius: 0.75rem;
   box-shadow: var(--ui-neu-raised-soft);
 }
 
@@ -306,7 +303,7 @@
 /* Explicit primary actions win over older form/button presentation rules. */
 .guided-presentation.ui-refresh button.shopping-primary-action[type="submit"]:not(:disabled) {
   background: #2457d6; color: #fff; border: 1px solid #1b43ad;
-  border-radius: .6rem; min-height: 44px; font-weight: 700;
+  border-radius: 0.5rem; min-height: 44px; font-weight: 700;
 }
 .guided-presentation.ui-refresh button.shopping-primary-action[type="submit"]:not(:disabled):hover { background: #1b43ad; }
 
@@ -397,7 +394,7 @@
 }
 
 .guided-presentation.ui-refresh section.rounded-lg[aria-labelledby="sim-heading"] {
-  border: 2px solid #bae6fd;
+  border: 1px solid #bae6fd;
   background: var(--gp-teal-soft);
 }
 
@@ -415,7 +412,7 @@
 /* Standalone charger information page: its one form action is the primary action, in the shared orange. */
 .guided-presentation.ui-refresh .needs-comparison > form button[type="submit"]:not(:disabled) {
   background: #2457d6; color: #fff; border: 1px solid #1b43ad;
-  border-radius: .6rem; min-height: 44px; font-weight: 700;
+  border-radius: 0.5rem; min-height: 44px; font-weight: 700;
 }
 .guided-presentation.ui-refresh .needs-comparison > form button[type="submit"]:not(:disabled):hover { background: #1b43ad; }
 
@@ -431,44 +428,179 @@
   font-weight: 600;
 }
 
-/* Raised homepage surfaces establish depth around the softer inner cards. */
+/* Homepage: flat navy hero (the brand colour), flat catalog board. */
 .guided-presentation.ui-refresh .home-hero,
 .guided-presentation.ui-refresh .catalog-board {
-  background: rgb(255 255 255 / 0.55);
-  border: 1px solid var(--gp-line);
-  border-radius: 1.25rem;
   padding: 1rem;
-  box-shadow: var(--ui-neu-raised);
+  border: 1px solid var(--gp-line);
+  border-radius: 0.75rem;
+  background: var(--gp-paper);
 }
 
-
-/* ShopAccess navy Neumorphic homepage hero */
 .guided-presentation.ui-refresh .home-hero {
-  background:
-    radial-gradient(ellipse at 90% 10%, rgb(59 130 246 / 24%), transparent 55%),
-    linear-gradient(135deg, #101d38 0%, #172d56 65%, #203e75 100%);
-  border: 1px solid #314e7c;
-  box-shadow:
-    10px 10px 24px rgb(86 108 145 / 25%),
-    -8px -8px 22px rgb(255 255 255 / 65%);
+  background: #14264a;
+  border-color: #14264a;
 }
 
-.guided-presentation.ui-refresh .home-hero .guided-entry {
+.guided-presentation.ui-refresh .home-hero .guided-entry,
+.guided-presentation.ui-refresh .home-hero .demo-illustration {
   background: #f8faff;
   border: 1px solid #d6e3f8;
-  box-shadow:
-    6px 6px 16px rgb(4 15 38 / 28%),
-    -3px -3px 12px rgb(255 255 255 / 12%);
 }
 
-.guided-presentation.ui-refresh .home-hero .demo-illustration {
-  background: #eaf2ff;
-  border: 1px solid #c7d9f5;
-  box-shadow:
-    6px 6px 16px rgb(4 15 38 / 28%),
-    -3px -3px 12px rgb(255 255 255 / 12%);
+.guided-presentation.ui-refresh .home-hero .demo-illustration figcaption { color: #334155; }
+
+/* Landing introduction: one headline, a plain description, and three steps. */
+.guided-presentation.ui-refresh .home-intro { gap: 0.75rem; }
+.guided-presentation.ui-refresh .home-intro h1 { font-size: clamp(2rem, 4vw, 2.75rem); font-weight: 800; }
+.guided-presentation.ui-refresh .home-intro > p { max-width: 40rem; font-size: 1.125rem; color: var(--gp-muted); }
+.guided-presentation.ui-refresh .home-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+.guided-presentation.ui-refresh .home-steps li {
+  counter-increment: step;
+  padding: 0.75rem 1rem;
+  background: var(--gp-paper);
+  border: 1px solid var(--gp-line);
+  border-radius: 0.75rem;
+  font-size: 0.9375rem;
+  color: var(--gp-muted);
+}
+.guided-presentation.ui-refresh .home-steps li::before {
+  content: counter(step);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background: var(--gp-ink);
+  color: #f8fafc;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.guided-presentation.ui-refresh .home-steps strong { color: var(--gp-ink); }
+@media (max-width: 767px) {
+  .guided-presentation.ui-refresh .home-steps { grid-template-columns: minmax(0, 1fr); }
 }
 
-.guided-presentation.ui-refresh .home-hero .demo-illustration figcaption {
-  color: #334155;
+/* "Find my laptop" is the shortcut; "Start guided shopping" in the hero stays the one primary action. */
+.guided-presentation.ui-refresh .direct-entry h2 { font-size: 1.25rem; }
+.guided-presentation.ui-refresh .direct-entry button[type="submit"]:not(:disabled) {
+  background: var(--gp-paper);
+  color: var(--ui-brand);
+  border: 1.5px solid var(--ui-brand);
 }
+.guided-presentation.ui-refresh .direct-entry button[type="submit"]:not(:disabled):hover { background: var(--gp-teal-soft); }
+
+/* Admission gate and 404: a wordmark, the page's purpose, then the form. */
+.guided-presentation.ui-refresh .gate-intro { display: flex; flex-direction: column; gap: 0.5rem; }
+.guided-presentation.ui-refresh .gate-brand { margin: 0; font-family: var(--ui-font-heading); font-size: 0.9375rem; font-weight: 800; letter-spacing: -0.01em; color: var(--ui-brand); }
+.guided-presentation.ui-refresh .gate-intro > p:last-child { max-width: 40rem; font-size: 1.0625rem; color: var(--gp-muted); }
+.guided-presentation.ui-refresh .admission-screen .guided-entry fieldset { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1.25rem; }
+.guided-presentation.ui-refresh .admission-screen .guided-entry,
+.guided-presentation.ui-refresh .admission-screen .journey-form { width: 100%; max-width: none; box-sizing: border-box; }
+.guided-presentation.ui-refresh .admission-screen label { align-items: flex-start; }
+.guided-presentation.ui-refresh .not-found { gap: 1rem; }
+.guided-presentation.ui-refresh .not-found-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.25rem;
+  background: var(--gp-paper);
+  border: 1px solid var(--gp-line);
+  border-radius: 0.75rem;
+}
+.guided-presentation.ui-refresh .not-found-card p { margin: 0; }
+.guided-presentation.ui-refresh .not-found-card a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+
+/* Increment 4: permissions, purchase review and checkout share the calm-ledger surfaces defined above. */
+.guided-presentation.ui-refresh input[type="radio"],
+.guided-presentation.ui-refresh input[type="checkbox"] { width: 1.25rem; height: 1.25rem; flex: none; }
+
+.guided-presentation.ui-refresh .rounded-lg.border { max-width: none; }
+
+.guided-presentation.ui-refresh label.flex { min-height: 44px; align-items: center; }
+.guided-presentation.ui-refresh fieldset > div label { flex: 1; display: flex; align-items: center; min-height: 44px; }
+.guided-presentation.ui-refresh p > a:only-child { display: inline-flex; align-items: center; min-height: 44px; }
+
+/* Saved permissions: one card each, with the state as a chip. */
+.guided-presentation.ui-refresh .permission-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem;
+  background: var(--gp-paper);
+  border: 1px solid var(--gp-line);
+  border-radius: 0.75rem;
+}
+.guided-presentation.ui-refresh .permission-card p { margin: 0; }
+.guided-presentation.ui-refresh .permission-state {
+  width: fit-content;
+  padding: 0.15rem 0.65rem;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.guided-presentation.ui-refresh .permission-state[data-state="revoked"],
+.guided-presentation.ui-refresh .permission-state[data-state="expired"],
+.guided-presentation.ui-refresh .permission-state[data-state="consumed"] { background: #f1f5f9; border-color: var(--gp-line); color: var(--gp-muted); }
+
+/* Purchase review: the exact total is the largest thing in the summary; the form reads as the authorization step. */
+.guided-presentation.ui-refresh form[aria-labelledby="confirm-heading"] { border-left: 4px solid var(--ui-brand); }
+.guided-presentation.ui-refresh .confirm-summary { margin: 0; }
+.guided-presentation.ui-refresh .confirm-summary dt { color: var(--gp-muted); font-weight: 500; }
+.guided-presentation.ui-refresh .confirm-summary dt:last-of-type,
+.guided-presentation.ui-refresh .confirm-summary dd:last-of-type {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--gp-line);
+  font-family: var(--ui-font-heading);
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--gp-ink);
+}
+
+.guided-presentation.ui-refresh .permission-state[data-state="outcome_unknown"] { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+
+/* Simulated payment status: a banner whose edge colour follows the state, always with the state spelled out in text. */
+.guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"] {
+  background: var(--gp-paper);
+  border: 1px solid var(--gp-line);
+  border-left: 4px solid var(--ui-brand);
+  border-radius: 0.5rem;
+  color: var(--gp-ink);
+}
+.guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"][data-state="CAPTURED_VERIFIED"] { border-left-color: #166534; }
+.guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"][data-state="FAILED_TERMINAL"],
+.guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"][data-state="DECLINED"],
+.guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"][data-state="DECLINED_RETRYABLE"],
+.guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] [role="status"][data-state="CANCELED_LOCAL"] { border-left-color: #991b1b; }
+.guided-presentation.ui-refresh section[aria-labelledby="sim-heading"] code { padding: 0.1rem 0.4rem; border-radius: 0.25rem; background: var(--gp-panel, #f3f7fe); font-weight: 700; }
+
+/* Charger page: the language link and the "identify your model" links stay at least 44px tall. Selected by attribute so the
+   golden charger markup stays byte-identical. */
+.guided-presentation.ui-refresh a[lang][href*="/shop/chargers"],
+.guided-presentation.ui-refresh p > a[href*="support.apple.com"] { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 0.25rem; }
+
+/* Device profile: the same fields as the permissions form, checkboxes as touch-sized rows, delete as a secondary action. */
+.guided-presentation.ui-refresh form > div:has(> input[type="checkbox"]) { display: flex; align-items: center; gap: 0.625rem; min-height: 44px; }
+.guided-presentation.ui-refresh form > div:has(> input[type="checkbox"]) label { font-weight: 400; }
+.guided-presentation.ui-refresh form > div > label { display: block; margin-bottom: 0.25rem; }
+.guided-presentation.ui-refresh form > div > input[type="text"] { width: 100%; box-sizing: border-box; }
+.guided-presentation.ui-refresh form[action$="/shop/profile/delete"] button[type="submit"]:not(:disabled) {
+  background: var(--gp-paper);
+  color: #7f1d1d;
+  border: 1.5px solid #991b1b;
+}
+.guided-presentation.ui-refresh form[action$="/shop/profile/delete"] button[type="submit"]:not(:disabled):hover { background: #fef2f2; }

@@ -64,10 +64,10 @@ export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: Checkou
       <h2 id="sim-heading" tabIndex={-1} className="text-xl font-semibold">
         {copy.heading}
       </h2>
-      <p className="text-sm">
+      <p id="sim-disclosure" className="text-sm">
         {copy.disclosure}
       </p>
-      <div role="status" className="rounded bg-zinc-100 p-3 text-black">
+      <div role="status" data-state={view.state} className="rounded bg-zinc-100 p-3 text-black">
         <p>
           <span className="font-medium">{copy.status}</span>
           <code>{view.state}</code>
@@ -78,7 +78,7 @@ export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: Checkou
       {view.steps.length > 0 ? (
         <form method="post" action={`/checkout/${view.intentId}/simulate`} className="flex flex-col gap-2">
           <input type="hidden" name="csrfToken" value={csrfToken} />
-          <fieldset className="flex flex-col gap-2">
+          <fieldset aria-describedby="sim-disclosure" className="flex flex-col gap-2">
             <legend className="font-medium">{copy.controls}</legend>
             {view.steps.map((step: SimulationStep) => (
               <button
