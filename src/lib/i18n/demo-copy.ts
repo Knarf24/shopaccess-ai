@@ -93,6 +93,7 @@ export interface JourneyCopy {
   readonly viewListing: string;
   readonly priceLabel: string;
   readonly reviewPurchase: string;
+  readonly authorizeNote: string;
   readonly shipping: string;
   /** Compact result cards: the difference between the fixed demo price and the confirmed budget, both server values. */
   readonly budgetUnder: (difference: string, budget: string) => string;
@@ -252,6 +253,7 @@ const ENGLISH: JourneyCopy = {
   viewListing: "View at store",
   priceLabel: "Reference price",
   reviewPurchase: "Review purchase",
+  authorizeNote: "Next step: you review and confirm the exact total. Choosing this item does not buy it or take payment.",
   shipping: "Tax and shipping are $0.00 in this demonstration. Nothing is shipped.",
   budgetUnder: (difference, budget) => `${difference} under your ${budget} budget`,
   budgetOver: (difference, budget) => `${difference} over your ${budget} budget`,
@@ -409,6 +411,7 @@ const SPANISH: JourneyCopy = {
   viewListing: "Ver en la tienda",
   priceLabel: "Precio de referencia",
   reviewPurchase: "Revisar compra",
+  authorizeNote: "Siguiente paso: usted revisa y confirma el total exacto. Elegir este artículo no lo compra ni cobra nada.",
   shipping: "Los impuestos y el envío son 0,00 USD en esta demostración. No se envía nada.",
   budgetUnder: (difference, budget) => `${difference} por debajo de su presupuesto de ${budget}`,
   budgetOver: (difference, budget) => `${difference} por encima de su presupuesto de ${budget}`,

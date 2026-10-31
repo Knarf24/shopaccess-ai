@@ -220,6 +220,8 @@ export function TranslatedCatalogList({
               <FactorList copy={copy} language={language} line={line} factors={line.factors} />
             </details>
             {line.quotable ? (
+              <>
+              <p className="result-authorize-note">{copy.authorizeNote}</p>
               <form method="post" action="/checkout/start">
                 <input type="hidden" name="csrfToken" value={csrfToken} />
                 <input type="hidden" name="productId" value={line.productId} />
@@ -238,6 +240,7 @@ export function TranslatedCatalogList({
                   {copy.reviewPurchase}
                 </button>
               </form>
+              </>
             ) : null}
           </li>
           );
