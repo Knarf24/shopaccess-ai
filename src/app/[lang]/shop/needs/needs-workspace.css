@@ -56,10 +56,6 @@
   --needs-font-body: "DM Sans", Arial, Helvetica, sans-serif;
   --needs-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   background-color: var(--needs-canvas);
-  background-image:
-    radial-gradient(52rem 24rem at -8% -6%, #d6e3fa 0%, transparent 62%),
-    radial-gradient(40rem 24rem at 108% 24%, #dbe6fb 0%, transparent 64%),
-    radial-gradient(36rem 20rem at 18% 106%, #dfe9fb 0%, transparent 62%);
   color: var(--needs-ink);
   font-family: var(--needs-font-body);
   min-height: 100vh;
@@ -83,7 +79,6 @@
   background: var(--needs-ink);
   color: #f8fafc;
   border-radius: 999px;
-  box-shadow: 0 10px 24px rgb(15 23 42 / 0.18);
 }
 
 .needs-workspace h1,
@@ -1092,14 +1087,14 @@
   min-height: 56px; padding: .65rem 1.25rem .65rem .65rem;
   border: 1px solid #1b43ad; border-radius: 999px;
   background: #2457d6; color: #fff; font: inherit; font-weight: 700;
-  cursor: pointer; box-shadow: 0 3px 9px rgb(27 67 173 / 18%);
+  cursor: pointer;
 }
 .needs-workspace button.shopaccess-voice-start:hover:not(:disabled) { background: #1b43ad; }
 .needs-workspace button.shopaccess-voice-start:focus-visible { outline: 3px solid #173c95; outline-offset: 4px; }
 .needs-workspace button.shopaccess-voice-start:disabled { opacity: .65; cursor: wait; }
 .needs-workspace .shopaccess-voice-orb {
   display: grid; place-items: center; width: 46px; height: 46px; flex-shrink: 0;
-  border-radius: 50%; background: linear-gradient(135deg, #334ed0, #592cb8);
+  border-radius: 50%; background: #1b43ad;
   color: #fff; border: 1px solid rgb(255 255 255 / 65%);
 }
 .needs-workspace button.shopaccess-voice-start:is([data-voice-phase="wake"], [data-voice-phase="listening"]) .shopaccess-voice-orb {
@@ -1152,10 +1147,9 @@
   gap: 1rem;
   min-width: 0;
   padding: clamp(1.25rem, 2.5vw, 2rem);
-  border: 1px solid #d8e5f5;
-  border-radius: 1.25rem;
-  background: linear-gradient(135deg, #f3f8ff 0%, #ffffff 100%);
-  box-shadow: 0 8px 28px rgba(24, 58, 105, 0.045);
+  border: 1px solid var(--needs-line);
+  border-radius: 0.75rem;
+  background: var(--needs-paper);
 }
 
 .needs-workspace .needs-unified-header h1 {
