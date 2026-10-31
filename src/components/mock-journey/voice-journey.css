@@ -321,7 +321,7 @@
 }
 
 /* Increment 2: controls first, the full privacy disclosure stays visible below them. */
-[data-voice-journey] [data-hands-free-controls] > p:first-child { order: 3; color: #475569; }
+[data-voice-journey] [data-hands-free-controls] > #hands-free-disclosure { order: 3; flex: 1 1 100%; color: #475569; }
 [data-voice-journey] [data-hands-free-controls] > details { order: 2; margin-left: auto; }
 [data-voice-journey] [data-hands-free-controls] > details[open] { flex-basis: 100%; }
 [data-voice-journey] [data-hands-free-controls] summary { padding-block: 0.75rem; }
@@ -329,3 +329,11 @@
   [data-voice-journey] [data-hands-free-controls] select,
   [data-voice-journey] [data-hands-free-controls] details button { min-height: 44px; }
 }
+
+/* Pages with the shared card layout: the voice panel spans the same column as the content below it. */
+[data-voice-journey]:has(+ .ui-refresh) .voice-journey-column { max-width: 64rem; padding: 0.75rem 1rem 0; }
+[data-voice-journey][data-voice-stage="checkout"]:has(+ .ui-refresh) .voice-journey-column { max-width: 48rem; }
+[data-voice-journey]:has(+ .ui-refresh) [data-hands-free-controls] { max-width: none; flex-direction: row; flex-wrap: wrap; }
+[data-voice-journey]:has(+ .ui-refresh) [data-hands-free-controls] > p[role="status"] { flex: 1 1 13rem; min-width: 0; margin: 0; }
+[data-voice-journey]:has(+ .ui-refresh) [data-hands-free-controls] > #hands-free-disclosure { flex: 1 1 100%; order: 3; margin: 0; font-size: 0.8125rem; color: #475569; }
+[data-voice-journey]:has(+ .ui-refresh) [data-hands-free-controls] > details { flex: 0 0 auto; margin: 0 0 0 auto; }

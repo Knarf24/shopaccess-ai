@@ -64,10 +64,10 @@ export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: Checkou
       <h2 id="sim-heading" tabIndex={-1} className="text-xl font-semibold">
         {copy.heading}
       </h2>
-      <p className="text-sm">
+      <p id="sim-disclosure" className="text-sm">
         {copy.disclosure}
       </p>
-      <div role="status" className="rounded bg-zinc-100 p-3 text-black">
+      <div role="status" data-state={view.state} className="rounded bg-zinc-100 p-3 text-black">
         <p>
           <span className="font-medium">{copy.status}</span>
           <code>{view.state}</code>
@@ -86,6 +86,7 @@ export function SimulatedPaymentPanel({ view, csrfToken, lang }: { view: Checkou
                 type="submit"
                 name="step"
                 value={step}
+                aria-describedby="sim-disclosure"
                 className={`rounded border border-zinc-600 px-3 py-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2${FORWARD_STEPS.has(step) ? " shopping-primary-action" : ""}`}
               >
                 {copy.steps[step]}

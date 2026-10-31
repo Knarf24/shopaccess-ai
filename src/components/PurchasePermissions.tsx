@@ -118,7 +118,7 @@ export function PurchasePermissions({
           <h2 id={PERMISSION_REVIEW_HEADING_ID} tabIndex={-1} className="text-xl font-semibold">
             {copy.reviewHeading}
           </h2>
-          <p>{copy.reviewIntro}</p>
+          <p id="permission-review-intro">{copy.reviewIntro}</p>
           <dl>
             <dt>{copy.field.seller}</dt>
             <dd>{review.seller}</dd>
@@ -144,7 +144,7 @@ export function PurchasePermissions({
             <input type="hidden" name="quantity" value={review.quantity} />
             <input type="hidden" name="total" value={review.total} />
             <input type="hidden" name="expiry" value={review.expiry} />
-            <button type="submit" className="permission-action shopping-primary-action">{copy.createButton}</button>
+            <button type="submit" aria-describedby="permission-review-intro" className="permission-action shopping-primary-action">{copy.createButton}</button>
           </form>
           <p>
             <a href={`/${language}/shop/permissions?${new URLSearchParams({ item: review.item, quantity: review.quantity, total: review.total, expiry: review.expiry }).toString()}`}>
@@ -219,7 +219,7 @@ export function PurchasePermissions({
         {permissions.length === 0 ? <p>{copy.listEmpty}</p> : null}
         <ul className="flex flex-col gap-4">
           {permissions.map((permission, index) => (
-            <li key={permission.permissionId}>
+            <li key={permission.permissionId} className="permission-card">
               <p id={`permission-item-name-${index}`}>
                 <strong>
                   {englishName(permission.product)} — {englishName(permission.variant)}
@@ -229,7 +229,7 @@ export function PurchasePermissions({
                 {copy.field.seller}: {permission.seller}. {copy.field.quantity}: {permission.maxQuantity}. {copy.field.total}: {formatUsd(permission.maxTotalCents)} USD.{" "}
                 {copy.field.ends}: {utcTime(permission.expiresAt)}.
               </p>
-              <p>{copy.states[permission.state]}</p>
+              <p className="permission-state" data-state={permission.state}>{copy.states[permission.state]}</p>
               {copy.stateHelp[permission.state] ? <p>{copy.stateHelp[permission.state]}</p> : null}
               {permission.revocable ? (
                 <form method="post" action="/shop/permissions/revoke">
