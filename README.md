@@ -1,19 +1,86 @@
 # ShopAccess AI
 
-Mock-only security foundation for an inclusive laptop-shopping assistant. The
-catalog, seller, prices and payment states are simulated. The default local
-demo contacts no payment provider, product API, or AI API, and by default no
-database either: the application runs on in-memory stores unless PostgreSQL
-mode is chosen explicitly (see below).
+**AI can advise. You hold the wallet.**
 
-A separate opt-in advisory path has contacted Qwen through Synthorai. The
-record is in `docs/security-foundation.md`, under "External advisory milestone
-(Qwen)". Those runs kept persistence and payments on the in-memory mock. That
-record includes QW-6, one successful Spanish guided-needs browser case. These
-runs are not acceptance of the shop, the advisory path, or payments.
+ShopAccess AI is an inclusive, English and Spanish laptop-shopping assistant built for the PayPal AI Hackathon. It
+helps a first-time buyer choose a laptop, explains the evidence behind each suggestion, says plainly when it cannot
+verify a laptop for AI work (for example, training models locally), and refuses to check out until the shopper has
+created a purchase permission for that exact item, with a maximum quantity, a maximum total and an expiry.
 
-**Judges:** the hosted demonstration, the suggested journey and what is live or simulated are in
-[`docs/judges.md`](docs/judges.md). The project is released under the [MIT License](LICENSE).
+- **Live demo:** https://shopaccess-ai.onrender.com (passphrase-gated; the passphrase is in the private testing
+  instructions of the Devpost submission and is not in this repository)
+- **Demo video:** https://youtu.be/p4ItKN35qSY
+- **Guide for judges:** [`docs/judges.md`](docs/judges.md)
+- **License:** [MIT](LICENSE)
+
+## What it does
+
+1. **Guided conversation.** The shopper types or dictates a need. The assistant asks follow-up questions and nothing
+   counts until the shopper confirms the summary.
+2. **Server-checked recommendations.** Laptops come from a fixed demo catalog. The server checks budget, memory, storage
+   and weight, and each card says why a laptop is or is not eligible. When a request involves AI work, cards say
+   "AI compatibility: not verified" unless the catalog has evidence, and an unverified laptop is never marked Recommended.
+3. **Explicit purchase authorization.** Checkout is refused, and nothing is charged, until the shopper creates a
+   permission for that exact item. A permission can be revoked.
+4. **Server-priced checkout** with an explicit confirmation step, then a payment step (simulated by default).
+
+## AI integration (Qwen through Synthorai)
+
+- The assistant can use a live Qwen model through Synthorai's chat-completions API, configured only on the server with
+  `SHOPACCESS_AI_ENDPOINT`, `SHOPACCESS_AI_MODEL_ID` and `SHOPACCESS_AI_API_KEY` (all three or none). The key never
+  reaches the browser.
+- Its output is **advisory**. It interprets the shopper's use and budget and proposes products. The server enforces
+  catalog identity, suitability, budget and every purchase rule, and drops any suggestion that is not eligible.
+- Calls have a 15-second deadline, a 1,024-token output cap and server-wide limits (defaults: 6 per session, 120 per
+  hour, 600 per day, adjustable with `SHOPACCESS_AI_LIMIT_PER_*`). If the provider fails or a limit is reached, a clearly
+  labelled local assistant answers instead, so the app stays usable.
+- With the three settings unset (the default for local runs), no AI provider is contacted.
+- Optional live product listings use Channel3 (`CHANNEL3_DISCOVERY`, `CHANNEL3_API_KEY`, limits 3/10/30 per
+  session/hour/day by default). They are shown as reported, link to the seller and cannot be checked out here.
+
+## Payments: simulated checkout vs PayPal Sandbox
+
+| Mode | What happens | Real money |
+|---|---|---|
+| **Simulated checkout** (default, `PAYMENT_PROVIDER_MODE=mock`) | A local simulation of order, approval and capture. PayPal is not contacted. | None |
+| **PayPal Sandbox** (`PAYMENT_PROVIDER_MODE=sandbox`, owner-authorized runs only) | The shopper approves a test order on `sandbox.paypal.com` with Sandbox accounts, then captures it. The app reports success only after checking the capture (order, amount, currency, payee, reference). | None (Sandbox test funds) |
+
+Live or production PayPal payments are **not implemented**; the code rejects any other base URL or a `live` or
+`production` mode. See `docs/paypal-sandbox-rehearsal-runbook.md` for the supervised Sandbox rehearsal (18 Oct 2026).
+
+## Chrome extension demonstration
+
+`extension/` is an unpacked Manifest V3 side panel. After the shopper approves a pairing code on the website, the panel
+can read and continue the same conversation. It cannot confirm, check out or pay. It is a developer extension: load it
+from `chrome://extensions` and see [`extension/README.md`](extension/README.md). The demo video shows it running locally
+against mock data.
+
+## Quick start
+
+```bash
+npm ci
+(
+  unset SHOPACCESS_MOCK_STORE_DIR SHOPACCESS_MOCK_STORE_KEY_FILE
+  SHOPACCESS_SESSION_KEY="$(openssl rand -base64 32)" \
+  SHOPACCESS_TRUSTED_ORIGINS=http://localhost:3000 \
+  PAYMENT_PROVIDER_MODE=mock \
+  exec npm run dev
+)
+```
+
+Open http://localhost:3000. Requires Node 24. State is in memory. Details, optional persistence and the Sandbox setup
+are under "Run the demo locally" below. Checks: `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`.
+
+## Hosted demo gate
+
+The hosted demo is protected by a passphrase (`SHOPACCESS_DEMO_ADMISSION=on` with `SHOPACCESS_DEMO_ADMISSION_KEY` and
+`SHOPACCESS_DEMO_PASSPHRASE`). Wrong passphrases are limited to five per 15 minutes for the whole service.
+
+## Honest limits
+
+The catalog, sellers, prices and stock are simulated demo data, nothing is shipped, and state is in memory by default.
+Screen-reader, native-speaker and real-microphone acceptance testing is incomplete. The sections below are the
+technical record of what is and is not active.
 
 ## MVP status and limitations
 
