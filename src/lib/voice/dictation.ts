@@ -5,6 +5,8 @@ export interface RecognitionPort {
   continuous: boolean;
   interimResults: boolean;
   onstart?: (() => void) | null;
+  /** Audio capture has begun. Not every browser emits it; the hands-free session falls back to `onstart`. */
+  onaudiostart?: (() => void) | null;
   onresult: ((event: RecognitionResult) => void) | null;
   onerror: ((event: { readonly error: string }) => void) | null;
   onend: (() => void) | null;
